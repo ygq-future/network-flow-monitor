@@ -59,9 +59,14 @@ $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe
 
 也可以从开始菜单直接打开对应版本的 Developer PowerShell。
 
-## 预期构建方式
+## 构建方式
 
-CMake 工程尚未生成。实现阶段将提供 `CMakePresets.json`，预期命令形态如下：
+项目提供以下稳定预设：
+
+- `windows-x64-debug`：Debug、测试和开发检查。
+- `windows-x64-release`：Release 交付配置。
+
+所有命令既可在 Developer PowerShell 中直接运行，也可通过 `tools/quality.ps1` 自动加载 Visual Studio 开发环境后运行。
 
 ```powershell
 cmake --preset windows-x64-debug
@@ -70,11 +75,11 @@ ctest --preset windows-x64-debug
 
 cmake --preset windows-x64-release
 cmake --build --preset windows-x64-release
+
+pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 ```
 
-正式预设名称由实现计划确定；文档不会在工程创建前声称这些命令已经可运行。
-
-工程生成后，每个功能完成时还必须运行格式、lint、静态分析、测试和 Release 构建。完整规则见 [代码质量与提交门](code-quality.md)。
+每个功能完成时必须运行格式、lint、静态分析、测试和 Release 构建。完整规则见 [代码质量与提交门](code-quality.md)。
 
 ## 可选诊断工具
 

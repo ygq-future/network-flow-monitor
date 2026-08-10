@@ -61,7 +61,7 @@
 - Consumes: root `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitignore`; Visual Studio installation discoverable by `vswhere.exe`.
 - Produces: `nfm_configure_target(target)`, `nfm_enable_static_analysis(target)`, CMake presets `windows-x64-debug` and `windows-x64-release`, quality modes `Format`, `Fast`, and `Full`, executable target `NetworkFlowMonitor`.
 
-- [ ] **Step 1: Initialize the repository on `main` and verify commit identity**
+- [x] **Step 1: Initialize the repository on `main` and verify commit identity**
 
 Run:
 
@@ -74,7 +74,7 @@ git status --short
 
 Expected: Git initializes `.git`, identity prints `sheepyu` and `3029944576@qq.com`, and existing documentation/configuration appears as untracked without `.superpowers/`.
 
-- [ ] **Step 2: Move persistent planning state into implementation**
+- [x] **Step 2: Move persistent planning state into implementation**
 
 Update `docs/planning/task_plan.md` before creating code:
 
@@ -98,7 +98,7 @@ Append this exact section to `docs/planning/progress.md`:
   - `docs/planning/progress.md`
 ```
 
-- [ ] **Step 3: Create the root CMake project**
+- [x] **Step 3: Create the root CMake project**
 
 Create `CMakeLists.txt`:
 
@@ -130,7 +130,7 @@ if(BUILD_TESTING)
 endif()
 ```
 
-- [ ] **Step 4: Create strict first-party compiler options**
+- [x] **Step 4: Create strict first-party compiler options**
 
 Create `cmake/ProjectOptions.cmake`:
 
@@ -170,7 +170,7 @@ function(nfm_configure_target target_name)
 endfunction()
 ```
 
-- [ ] **Step 5: Create optional static-analysis integration**
+- [x] **Step 5: Create optional static-analysis integration**
 
 Create `cmake/StaticAnalysis.cmake`:
 
@@ -203,7 +203,7 @@ function(nfm_enable_static_analysis target_name)
 endfunction()
 ```
 
-- [ ] **Step 6: Create reproducible Debug and Release presets**
+- [x] **Step 6: Create reproducible Debug and Release presets**
 
 Create `CMakePresets.json`:
 
@@ -272,7 +272,7 @@ Create `CMakePresets.json`:
 }
 ```
 
-- [ ] **Step 7: Create the minimal Win32 executable target**
+- [x] **Step 7: Create the minimal Win32 executable target**
 
 Create `src/CMakeLists.txt`:
 
@@ -300,7 +300,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 }
 ```
 
-- [ ] **Step 8: Create an offline CTest smoke test**
+- [x] **Step 8: Create an offline CTest smoke test**
 
 Create `tests/CMakeLists.txt`:
 
@@ -327,7 +327,7 @@ int main()
 }
 ```
 
-- [ ] **Step 9: Create the unified quality runner**
+- [x] **Step 9: Create the unified quality runner**
 
 Create `tools/quality.ps1`:
 
@@ -442,7 +442,7 @@ if ($Mode -eq 'Full') {
 Write-Host "Quality gate '$Mode' passed."
 ```
 
-- [ ] **Step 10: Format all bootstrap C/C++ files**
+- [x] **Step 10: Format all bootstrap C/C++ files**
 
 Run:
 
@@ -452,7 +452,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Format
 
 Expected: `Formatted 2 C/C++ files.` and exit code 0.
 
-- [ ] **Step 11: Run the complete quality gate**
+- [x] **Step 11: Run the complete quality gate**
 
 Run:
 
@@ -462,7 +462,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
 Expected: format check, Debug build, `bootstrap.toolchain`, clang-tidy build, MSVC `/analyze` build, Release build, and Release test pass; final line is `Quality gate 'Full' passed.`
 
-- [ ] **Step 12: Record the successful full gate before staging**
+- [x] **Step 12: Record the successful full gate before staging**
 
 Append this exact entry to the current Phase 4 section in `docs/planning/progress.md` after Step 10 passes:
 
@@ -478,7 +478,7 @@ Append this exact entry to the current Phase 4 section in `docs/planning/progres
   - CTest Release `bootstrap.toolchain`: 1/1 passed
 ```
 
-- [ ] **Step 13: Verify ignore behavior and review the staged scope**
+- [x] **Step 13: Verify ignore behavior and review the staged scope**
 
 Run:
 
@@ -492,7 +492,7 @@ git status --short
 
 Expected: `.superpowers/` and `build/` are ignored, no whitespace errors are reported, and only repository documents, root tooling configuration, CMake files, source, tests, and quality tooling are staged.
 
-- [ ] **Step 14: Commit the verified bootstrap baseline**
+- [x] **Step 14: Commit the verified bootstrap baseline**
 
 Run:
 
@@ -518,7 +518,7 @@ Expected: initial commit succeeds on branch `main`. If Git reports identity or s
 - Consumes: `nfm_configure_target(target)`, `nfm_enable_static_analysis(target)`, Win32 `CommandLineToArgvW`.
 - Produces: `nfm::app::RuntimeMode` and `nfm::app::ParseRuntimeMode(std::span<const std::wstring_view>) noexcept`; static library target `nfm_runtime` linked by the executable and tests.
 
-- [ ] **Step 1: Declare the runtime-mode contract and an intentionally empty implementation unit**
+- [x] **Step 1: Declare the runtime-mode contract and an intentionally empty implementation unit**
 
 Create `include/network_flow_monitor/app/runtime_mode.h`:
 
@@ -552,7 +552,7 @@ Create `src/app/runtime_mode.cpp`:
 #include "network_flow_monitor/app/runtime_mode.h"
 ```
 
-- [ ] **Step 2: Add the runtime library to CMake**
+- [x] **Step 2: Add the runtime library to CMake**
 
 Replace `src/CMakeLists.txt` with:
 
@@ -576,7 +576,7 @@ nfm_enable_static_analysis(NetworkFlowMonitor)
 target_link_libraries(NetworkFlowMonitor PRIVATE nfm_runtime Shell32 User32)
 ```
 
-- [ ] **Step 3: Write table-driven parser tests before the implementation**
+- [x] **Step 3: Write table-driven parser tests before the implementation**
 
 Create `tests/runtime_mode_tests.cpp`:
 
@@ -636,7 +636,7 @@ target_link_libraries(nfm_runtime_mode_tests PRIVATE nfm_runtime)
 add_test(NAME app.runtime_mode COMMAND nfm_runtime_mode_tests)
 ```
 
-- [ ] **Step 4: Build the parser test and verify the missing implementation fails**
+- [x] **Step 4: Build the parser test and verify the missing implementation fails**
 
 Run:
 
@@ -647,7 +647,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Fast
 
 Expected: the Debug build inside `Fast` fails with an unresolved external for `nfm::app::ParseRuntimeMode`; the failure proves the test calls the declared contract.
 
-- [ ] **Step 5: Implement the exact switch parser**
+- [x] **Step 5: Implement the exact switch parser**
 
 Replace `src/app/runtime_mode.cpp` with:
 
@@ -687,7 +687,7 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
 } // namespace nfm::app
 ```
 
-- [ ] **Step 6: Run the focused parser test and verify it passes**
+- [x] **Step 6: Run the focused parser test and verify it passes**
 
 Run:
 
@@ -698,7 +698,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Fast
 
 Expected: both `bootstrap.toolchain` and `app.runtime_mode` pass, and the final line is `Quality gate 'Fast' passed.`
 
-- [ ] **Step 7: Replace the bootstrap entry point with bounded runtime dispatch**
+- [x] **Step 7: Replace the bootstrap entry point with bounded runtime dispatch**
 
 Replace `src/app/main.cpp` with:
 
@@ -770,7 +770,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 }
 ```
 
-- [ ] **Step 8: Run the complete quality gate**
+- [x] **Step 8: Run the complete quality gate**
 
 Run:
 
@@ -781,7 +781,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
 Expected: both CTest cases pass in Debug and Release; clang-tidy and MSVC `/analyze` produce no gate failures; final line is `Quality gate 'Full' passed.`
 
-- [ ] **Step 9: Record the successful runtime-mode full gate**
+- [x] **Step 9: Record the successful runtime-mode full gate**
 
 Append this exact entry to the current Phase 4 section in `docs/planning/progress.md` after Step 8 passes:
 
@@ -797,7 +797,7 @@ Append this exact entry to the current Phase 4 section in `docs/planning/progres
   - CTest Release: 2/2 passed
 ```
 
-- [ ] **Step 10: Commit the runtime-mode boundary**
+- [x] **Step 10: Commit the runtime-mode boundary**
 
 Run:
 
@@ -823,7 +823,7 @@ Expected: commit succeeds and contains only the runtime contract, parser, entry-
 - Consumes: verified preset names, quality modes, executable target, CTest names, Git commit hashes from Tasks 1 and 2.
 - Produces: accurate developer onboarding and a persistent record that bootstrap implementation is complete.
 
-- [ ] **Step 1: Replace the README status and add verified commands**
+- [x] **Step 1: Replace the README status and add verified commands**
 
 In `README.md`, replace the sentence stating that production code has not started with:
 
@@ -849,7 +849,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 提交前必须通过 `Full`。详细规则见 [代码质量与提交门](docs/code-quality.md)。
 ````
 
-- [ ] **Step 2: Make the development setup commands authoritative**
+- [x] **Step 2: Make the development setup commands authoritative**
 
 In `docs/development-setup.md`, replace the paragraph saying the CMake project has not been generated with:
 
@@ -868,7 +868,7 @@ Keep the existing preset command block, and add:
 pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 ```
 
-- [ ] **Step 3: Record completed bootstrap work in persistent planning files**
+- [x] **Step 3: Record completed bootstrap work in persistent planning files**
 
 Update `docs/planning/task_plan.md` so Phase 4 reports the bootstrap implementation complete and the next action is to choose the next subsystem plan. Add these checked Phase 4 items:
 
@@ -887,7 +887,7 @@ Append a Phase 4 entry to `docs/planning/progress.md` listing:
 - successful clang-format, clang-tidy, MSVC `/analyze`, Debug, and Release results;
 - every created or modified source/build-tool file from Tasks 1 and 2.
 
-- [ ] **Step 4: Verify documentation links, whitespace, and repository scope**
+- [x] **Step 4: Verify documentation links, whitespace, and repository scope**
 
 Run:
 
@@ -895,7 +895,10 @@ Run:
 git diff --check
 $missing = @()
 Get-ChildItem -Recurse -Filter *.md |
-    Where-Object { $_.FullName -notlike '*\.superpowers\*' } |
+    Where-Object {
+        $_.FullName -notlike '*\.superpowers\*' -and
+        $_.FullName -notlike '*\docs\superpowers\plans\*'
+    } |
     ForEach-Object {
         $file = $_
         $text = Get-Content -Raw -LiteralPath $file.FullName
@@ -915,7 +918,7 @@ if ($missing.Count -ne 0) { throw ($missing -join [Environment]::NewLine) }
 
 Expected: no whitespace errors and no missing relative Markdown links.
 
-- [ ] **Step 5: Re-run the full quality gate after documentation changes**
+- [x] **Step 5: Re-run the full quality gate after documentation changes**
 
 Run:
 
@@ -925,7 +928,7 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
 Expected: final line is `Quality gate 'Full' passed.` and no tracked file changes are generated by the check.
 
-- [ ] **Step 6: Commit the synchronized documentation**
+- [x] **Step 6: Commit the synchronized documentation**
 
 Run:
 

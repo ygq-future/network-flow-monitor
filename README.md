@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-项目处于设计与文档阶段，尚未开始编写生产代码。已确认的首版方向：
+项目已完成原生 C++20/CMake 初始化和单一二进制运行模式骨架。ETW、IPC、服务和最终 UI 仍按独立实现计划推进。已确认的首版方向：
 
 - Windows 11 24H2 或更高版本，首发仅支持 x64。
 - C++20、CMake、原生 Win32、Direct2D 和 DirectWrite。
@@ -27,6 +27,20 @@
 - [调研与发现](docs/planning/findings.md)
 - [进度记录](docs/planning/progress.md)
 
+## 构建与检查
+
+```powershell
+cmake --preset windows-x64-debug
+cmake --build --preset windows-x64-debug
+ctest --preset windows-x64-debug
+
+pwsh -NoProfile -File tools/quality.ps1 -Mode Format
+pwsh -NoProfile -File tools/quality.ps1 -Mode Fast
+pwsh -NoProfile -File tools/quality.ps1 -Mode Full
+```
+
+提交前必须通过 `Full`。详细规则见 [代码质量与提交门](docs/code-quality.md)。
+
 ## 首版非目标
 
 - Windows 10、Windows Server 和非 Windows 平台。
@@ -37,4 +51,4 @@
 
 ## 开发前提
 
-参见 [开发环境](docs/development-setup.md)。仓库当前还没有 CMake 工程；书面规格通过评审后才会生成实现计划和代码结构。
+参见 [开发环境](docs/development-setup.md)。当前骨架可直接使用 CMake 预设构建；后续子系统仍须先有审阅通过的实现计划。

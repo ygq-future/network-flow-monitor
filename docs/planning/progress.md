@@ -94,6 +94,38 @@
     - MSVC `/analyze`: Pass
     - MSVC Release x64: Pass
     - CTest Release: 2/2 passed
+  - Bootstrap implementation checkpoint:
+    - `3957a9a build: initialize native Windows project`
+    - `ff37e1b feat: add runtime mode dispatch`
+    - Verified command: `pwsh -NoProfile -File tools/quality.ps1 -Mode Full`
+    - Debug CTest: 2/2 passed
+    - Release CTest: 2/2 passed
+    - clang-format, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Debug, and Release: Pass
+  - Bootstrap source/build-tool files created or modified:
+    - `.clang-format`
+    - `CMakeLists.txt`
+    - `CMakePresets.json`
+    - `cmake/ProjectOptions.cmake`
+    - `cmake/StaticAnalysis.cmake`
+    - `include/network_flow_monitor/app/runtime_mode.h`
+    - `src/CMakeLists.txt`
+    - `src/app/main.cpp`
+    - `src/app/runtime_mode.cpp`
+    - `tests/CMakeLists.txt`
+    - `tests/bootstrap_tests.cpp`
+    - `tests/runtime_mode_tests.cpp`
+    - `tools/quality.ps1`
+  - Synchronized README and development setup with the verified presets, tests, and quality modes.
+  - Corrected the implementation plan's Markdown-link validator and completed all bootstrap-plan steps.
+  - Documentation-sync quality gate: Pass
+    - Command: `pwsh -NoProfile -File tools/quality.ps1 -Mode Full`
+    - clang-format: Pass
+    - MSVC Debug `/W4 /WX /permissive- /sdl`: Pass
+    - CTest Debug: 2/2 passed
+    - clang-tidy and Clang Static Analyzer: Pass
+    - MSVC `/analyze`: Pass
+    - MSVC Release x64: Pass
+    - CTest Release: 2/2 passed
   - Project bootstrap quality gate: Pass
     - Command: `pwsh -NoProfile -File tools/quality.ps1 -Mode Full`
     - clang-format: Pass
@@ -131,6 +163,8 @@
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
 | Runtime-mode parser red phase | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` with an empty implementation unit | Linker reports the missing parser definition | LNK2019/LNK1120 for `ParseRuntimeMode` and no unrelated failure | Pass |
 | Task 2 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, 2 tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 2/2 passed | Pass |
+| Documentation link validation | All navigational Markdown outside generated/local state and implementation-plan code examples | Every relative target exists | No missing targets | Pass |
+| Documentation-sync full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | No source drift; all required gates remain green | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 2/2 passed | Pass |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
@@ -153,6 +187,7 @@
 | 2026-08-10 | clang-format sorted `shellapi.h` before `windows.h`, breaking the SDK dependency | 1 | Added explicit include categories that keep project headers first and `windows.h` before other system headers. |
 | 2026-08-10 | Tidy co-compilation rejected a multilevel implicit pointer conversion and treated `try` as exceptions-disabled | 1 | Made the `LocalFree` ABI conversion explicit, removed a duplicate CMake-supplied driver-mode argument, and enabled exceptions for the Clang analysis AST. |
 | 2026-08-10 | Analysis-only `-fexceptions` did not change CMake's clang-tidy co-compile behavior | 1 | Removed the vector/exception requirement entirely; the bounded command surface now parses with a stack view and cannot throw across the Win32 entry. |
+| 2026-08-10 | Markdown link validation repeated the fenced README-example false positive | 2 | Fixed the implementation plan's validation scope to skip code-example-bearing plan files while continuing to check navigational docs. |
 
 ## 5-Question Reboot Check
 | Question | Answer |

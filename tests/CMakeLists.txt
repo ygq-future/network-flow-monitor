@@ -4,3 +4,12 @@ nfm_configure_target(nfm_bootstrap_tests)
 nfm_enable_static_analysis(nfm_bootstrap_tests)
 
 add_test(NAME bootstrap.toolchain COMMAND nfm_bootstrap_tests)
+
+add_executable(nfm_runtime_mode_tests runtime_mode_tests.cpp)
+
+nfm_configure_target(nfm_runtime_mode_tests)
+nfm_enable_static_analysis(nfm_runtime_mode_tests)
+
+target_link_libraries(nfm_runtime_mode_tests PRIVATE nfm_runtime)
+
+add_test(NAME app.runtime_mode COMMAND nfm_runtime_mode_tests)

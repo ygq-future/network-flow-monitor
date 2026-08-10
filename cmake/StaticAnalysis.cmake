@@ -13,7 +13,7 @@ function(nfm_enable_static_analysis target_name)
         set_property(
             TARGET ${target_name}
             PROPERTY CXX_CLANG_TIDY
-                "${NFM_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy;--extra-arg-before=--driver-mode=cl"
+                "${NFM_CLANG_TIDY_EXECUTABLE};--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
         )
     endif()
 

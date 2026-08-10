@@ -18,6 +18,13 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"network_flow_monitor/'
+    Priority: 1
+  - Regex: '^<windows\.h>$'
+    Priority: 2
+  - Regex: '.*'
+    Priority: 3
 NamespaceIndentation: None
 FixNamespaceComments: true
 EmptyLineAfterAccessModifier: Never

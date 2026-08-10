@@ -82,6 +82,18 @@
   - The implementation subagent reported that its session exposed no filesystem or command tools and made no changes; continued Task 1 in the primary session.
   - Initialized Git on branch `main` after explicit user authorization and verified the existing global commit identity without modifying it.
   - Created the C++20/CMake/CTest project skeleton, strict first-party compiler options, optional static-analysis integration, and unified PowerShell quality runner.
+  - Committed the verified Task 1 baseline as `3957a9a build: initialize native Windows project`.
+  - Added runtime-mode tests before implementation and verified the intended LNK2019/LNK1120 missing-definition failure.
+  - Implemented the bounded runtime-mode parser and allocation-free Win32 command-line dispatch for UI, collector, service, install, uninstall, and service-control modes.
+  - Runtime-mode quality gate: Pass
+    - Command: `pwsh -NoProfile -File tools/quality.ps1 -Mode Full`
+    - clang-format: Pass
+    - MSVC Debug `/W4 /WX /permissive- /sdl`: Pass
+    - CTest Debug: 2/2 passed
+    - clang-tidy and Clang Static Analyzer: Pass
+    - MSVC `/analyze`: Pass
+    - MSVC Release x64: Pass
+    - CTest Release: 2/2 passed
   - Project bootstrap quality gate: Pass
     - Command: `pwsh -NoProfile -File tools/quality.ps1 -Mode Full`
     - clang-format: Pass
@@ -117,6 +129,8 @@
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
+| Runtime-mode parser red phase | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` with an empty implementation unit | Linker reports the missing parser definition | LNK2019/LNK1120 for `ParseRuntimeMode` and no unrelated failure | Pass |
+| Task 2 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, 2 tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 2/2 passed | Pass |
 
 ## Error Log
 | Timestamp | Error | Attempt | Resolution |
@@ -132,6 +146,13 @@
 | 2026-08-10 | First SAL-annotation patch expected the pre-format `wWinMain` brace layout | 1 | Inspected the formatted source and re-applied the signature-only patch against its exact text. |
 | 2026-08-10 | MSVC `/analyze` emitted C28251 for the unannotated `wWinMain` definition | 1 | Compared against the installed SDK declaration and added matching SAL annotations without suppressing the diagnostic. |
 | 2026-08-10 | Initial staged whitespace check found 12 files with an extra blank line at EOF | 1 | Inspected their exact tails and removed only the redundant final blank lines before re-running the gate. |
+| 2026-08-10 | First runtime lint-fix patch expected the pre-format function brace layout | 1 | Inspected the formatted files and re-applied the intended changes against exact source text. |
+| 2026-08-10 | Runtime parser tests passed but clang-tidy rejected/warned on four first-party patterns | 1 | Preserved the lint policy and corrected the include guard, enum representation, test conversion, and Win32 parameter declarations. |
+| 2026-08-10 | Named `wWinMain` parameters exposed fixed-ABI swappable-parameter and non-const-parameter diagnostics | 1 | Matched SDK parameter names and applied two check-specific, reasoned suppressions only to the ABI-fixed parameters. |
+| 2026-08-10 | Source-only SDK include reorder patch did not match the formatted file | 1 | Inspected the actual include order and traced it to the repository's clang-format sorting policy. |
+| 2026-08-10 | clang-format sorted `shellapi.h` before `windows.h`, breaking the SDK dependency | 1 | Added explicit include categories that keep project headers first and `windows.h` before other system headers. |
+| 2026-08-10 | Tidy co-compilation rejected a multilevel implicit pointer conversion and treated `try` as exceptions-disabled | 1 | Made the `LocalFree` ABI conversion explicit, removed a duplicate CMake-supplied driver-mode argument, and enabled exceptions for the Clang analysis AST. |
+| 2026-08-10 | Analysis-only `-fexceptions` did not change CMake's clang-tidy co-compile behavior | 1 | Removed the vector/exception requirement entirely; the bounded command surface now parses with a stack view and cannot throw across the Win32 entry. |
 
 ## 5-Question Reboot Check
 | Question | Answer |

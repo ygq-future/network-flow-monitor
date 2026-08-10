@@ -1,0 +1,98 @@
+# Build output
+/build/
+/out/
+/dist/
+/cmake-build-*/
+/Debug/
+/Release/
+/RelWithDebInfo/
+/MinSizeRel/
+/x64/
+/x86/
+/arm64/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+install_manifest.txt
+
+# Visual Studio and CMake user state
+/.vs/
+/CMakeUserPresets.json
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.sln.DotSettings.user
+
+# Editors and IDEs
+/.idea/
+/.fleet/
+/.vscode/
+/.zed/
+*.iml
+*.code-workspace
+
+# AI-assisted IDEs and local agent state
+/.cursor/
+/.windsurf/
+/.trae/
+/.continue/
+/.cline/
+/.roo/
+/.claude/
+/.codex/
+/.gemini/
+/.kiro/
+/.junie/
+/.augment/
+/.codeium/
+/.tabnine/
+/.qodo/
+/.amazonq/
+.aider*
+
+# Visual brainstorming scratch data
+/.superpowers/
+
+# Language-server and local caches
+/.cache/
+/.clangd/
+.cache/
+
+# Runtime diagnostics
+*.etl
+*.dmp
+*.log
+*.trace
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+/coverage/
+
+# Local runtime configuration
+/NetworkFlowMonitor.json
+/NetworkFlowMonitor.json.*
+
+# Generated binaries and symbols
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+
+# OS and editor temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~

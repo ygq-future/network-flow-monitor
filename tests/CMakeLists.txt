@@ -1,0 +1,6 @@
+add_executable(nfm_bootstrap_tests bootstrap_tests.cpp)
+
+nfm_configure_target(nfm_bootstrap_tests)
+nfm_enable_static_analysis(nfm_bootstrap_tests)
+
+add_test(NAME bootstrap.toolchain COMMAND nfm_bootstrap_tests)

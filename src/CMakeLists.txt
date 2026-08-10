@@ -1,0 +1,6 @@
+add_executable(NetworkFlowMonitor WIN32 app/main.cpp)
+
+nfm_configure_target(NetworkFlowMonitor)
+nfm_enable_static_analysis(NetworkFlowMonitor)
+
+target_link_libraries(NetworkFlowMonitor PRIVATE User32)

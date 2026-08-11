@@ -553,6 +553,21 @@
   - Full quality gate passed in 98.2 seconds: Debug/Release CTest 29/29, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
   - The Task 1 commit is the next repository operation; Task 2 remains the only active implementation item afterward.
 
+### Phase 4.52: Tray and floating UI — Task 2 implementation
+- **Status:** complete; Task 2 commit follows this record
+- **Started:** 2026-08-12
+- Current task:
+  - Task 2 adds Direct2D/DirectWrite factory and text-format ownership, render-target draw-result classification, and a fakeable notification-area controller.
+  - Task 3 is next after this commit: floating meter and ranking popup window logic.
+- Completed work:
+  - The deliberate red phase failed at CMake generation with the expected missing `ui/render_resources.cpp` source.
+  - Added `nfm_ui` render-resource ownership through WRL `ComPtr`, per-window HWND render-target creation, and explicit `D2DERR_RECREATE_TARGET` classification.
+  - Added `TrayApi`, `WindowsTrayApi`, and idempotent `TrayController` lifecycle with callback routing, bounded tooltip copying, menu command routing, and Shell failure propagation.
+  - Focused tray/resource tests passed; the Fast gate passed with Debug CTest 29/29, strict MSVC, clang-tidy, and Clang Static Analyzer.
+- Open evidence:
+  - Full quality gate passed in 101.4 seconds: Debug/Release CTest 30/30, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
+  - The Task 2 commit is the next repository operation; Task 3 remains the only active implementation item afterward.
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
@@ -564,6 +579,10 @@
 | UI Task 1 red phase | Fast gate after registering `ui.layout` before adding geometry/state headers | Compilation fails only for the missing UI header | C1083 for `network_flow_monitor/ui/dpi_layout.h` | Pass |
 | UI Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after state-machine fix | Strict Debug build, Clang analysis, and all tests pass | Process exited 0; Debug CTest 27/27 and `Quality gate 'Fast' passed.` | Pass |
 | UI Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release tests pass | Process exited 0 in 98.2 seconds; Debug/Release CTest 29/29, both Clang analyses, `/analyze`, and Release x64 passed | Pass |
+| UI Task 2 red phase | Fast gate after registering `ui.tray` before adding render/tray sources | CMake fails only for the missing UI source | Missing `ui/render_resources.cpp` during CMake generation | Pass |
+| UI Task 2 focused test | `build/windows-x64-debug/tests/nfm_ui_tray_tests.exe` | Tray/resource seam tests pass | Exit code 0 | Pass |
+| UI Task 2 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after lint fixes | Strict Debug build, Clang analysis, and all tests pass | Process exited 0; Debug CTest 29/29 and `Quality gate 'Fast' passed.` | Pass |
+| UI Task 2 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release tests pass | Process exited 0 in 101.4 seconds; Debug/Release CTest 30/30, both Clang analyses, `/analyze`, and Release x64 passed | Pass |
 | Secure IPC Task 1 red phase | Two focused Debug targets after adding bounded-accumulator tests | Fail only for the absent timestamp/watermark/disposition API, capacity constants and health fields | Expected MSVC missing-member and wrong-arity diagnostics; no unrelated failure | Pass |
 | Secure IPC Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format check, strict Debug, non-admin tests and Clang analyses pass | Exit 0 in 36.0 s; Debug CTest 14/14; clang-tidy and Clang Static Analyzer passed | Pass |
 | Secure IPC Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release live integration pass | Exit 0 in 75.7 s; Debug and Release CTest 15/15; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
@@ -741,6 +760,8 @@
 | 2026-08-11 | Task 6 first implementation build could not deduce `std::array` and returned an operation result from connection factories | 1 | Traced the diagnostics to the missing `<array>` include and an unadapted result layer; added the include and an explicit connection-error classifier, then the focused strict build passed. |
 | 2026-08-11 | Enabling exception-aware IPC analysis exposed potentially throwing work behind three `noexcept` boundaries | 1 | Kept exception analysis enabled, removed `noexcept` from the value-level catalog constructor, caught token-query allocation failures at the Win32 adapter boundary, and retained explicit catch/classification in transport allocation paths. |
 | 2026-08-12 | UI Task 1 first Fast run found the ranking dismiss timer was not armed after leaving the anchor during popup transition | 1 | Treated anchor leave as a temporary no-target state; the popup enter event can still cancel the timer, and the corrected Fast/Full gates passed. |
+| 2026-08-12 | UI Task 2 red gate stopped at CMake generation because the newly registered render source did not exist yet | 1 | Recorded the intentional red phase, then added the render/tray source implementations before rerunning the gate. |
+| 2026-08-12 | UI Task 2 strict tidy found Win32 union access, callback parameter swapping, unsafe tooltip indexing, and an exception-escape test entry point | 4 | Used a typed notification value, `StringCchCopyW`, one check-specific union rationale, explicit interface special members, and disabled exception analysis for the non-throwing UI targets; Fast and Full then passed. |
 
 ## 5-Question Reboot Check
 | Question | Answer |

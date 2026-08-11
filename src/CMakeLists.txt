@@ -9,7 +9,16 @@ target_include_directories(
 nfm_configure_target(nfm_runtime)
 nfm_enable_static_analysis(nfm_runtime ENABLE_EXCEPTIONS)
 
-add_library(nfm_ui STATIC ui/dpi_layout.cpp ui/interaction_state.cpp)
+add_library(
+    nfm_ui
+    STATIC
+        ui/dpi_layout.cpp
+        ui/interaction_state.cpp
+        ui/render_resources.cpp
+        ui/tray_controller.cpp
+)
+
+target_compile_definitions(nfm_ui PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 target_include_directories(
     nfm_ui

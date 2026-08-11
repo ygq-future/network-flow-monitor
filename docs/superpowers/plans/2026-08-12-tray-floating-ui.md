@@ -79,19 +79,19 @@ Commit `feat: add ui geometry and interaction model` after `git diff --check` an
 - `ui::TrayController` accepts a callback interface, creates/deletes one `NOTIFYICONDATAW`, maps left-click/right-click/hover notification messages to callbacks, and never performs blocking work in the Shell callback.
 - `ui::TrayApi` is a fakeable seam for `Shell_NotifyIconW`, menu creation and cursor position so add/delete/menu behavior is unit-testable.
 
-- [ ] **Step 1: Register tray/resource tests and verify the red phase**
+- [x] **Step 1: Register tray/resource tests and verify the red phase**
 
 Add fake API tests for add/delete idempotence, callback routing, menu dismissal, unsupported Shell failures, and render-target recreation classification.
 
-- [ ] **Step 2: Implement RAII render resources and tray adapter**
+- [x] **Step 2: Implement RAII render resources and tray adapter**
 
 Initialize COM on the UI thread, create Direct2D/DirectWrite factories once, use a stable callback message, and remove the icon before UI shutdown.
 
-- [ ] **Step 3: Run focused tests, format and Fast**
+- [x] **Step 3: Run focused tests, format and Fast**
 
 The focused tray test and the full non-admin Fast gate must pass; no source-level lint suppression may hide a resource ownership issue.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit `feat: add d2d resources and tray controller` after the required checks.
 

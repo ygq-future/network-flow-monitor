@@ -18,6 +18,8 @@ add_library(
         ui/tray_controller.cpp
         ui/floating_window.cpp
         ui/ranking_popup.cpp
+        ui/collector_process.cpp
+        ui/ui_controller.cpp
 )
 
 target_compile_definitions(nfm_ui PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -29,7 +31,7 @@ target_include_directories(
 )
 
 nfm_configure_target(nfm_ui)
-nfm_enable_static_analysis(nfm_ui)
+nfm_enable_static_analysis(nfm_ui ENABLE_EXCEPTIONS)
 
 add_library(
     nfm_config

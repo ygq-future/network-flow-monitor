@@ -84,6 +84,7 @@ class TrayController final {
     [[nodiscard]] bool initialized() const noexcept {
         return installed_;
     }
+    void SetOwner(HWND owner) noexcept;
     [[nodiscard]] bool HandleCallback(TrayNotification notification) noexcept;
     [[nodiscard]] bool ShowContextMenu() noexcept;
 

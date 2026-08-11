@@ -780,12 +780,29 @@
 | 2026-08-12 | UI Task 2 red gate stopped at CMake generation because the newly registered render source did not exist yet | 1 | Recorded the intentional red phase, then added the render/tray source implementations before rerunning the gate. |
 | 2026-08-12 | UI Task 2 strict tidy found Win32 union access, callback parameter swapping, unsafe tooltip indexing, and an exception-escape test entry point | 4 | Used a typed notification value, `StringCchCopyW`, one check-specific union rationale, explicit interface special members, and disabled exception analysis for the non-throwing UI targets; Fast and Full then passed. |
 | 2026-08-12 | UI Task 3 first Full gate found MSVC C6326 on constant runtime style comparisons | 1 | Converted fixed window-style checks to compile-time `static_assert`; Fast and Full then passed. |
+| 2026-08-12 | UI Task 4 first Fast build failed on missing Shell API declarations, an invalid tray owner type, and moving from a const factory result | 1 | Added the Shell API header, corrected the owner boundary, and moved from a mutable factory result; the next clean build reached link and test stages. |
+| 2026-08-12 | UI Task 4 first Full analysis found MSVC C6262 for a 65 KiB stack buffer in executable-path lookup | 1 | Replaced the fixed stack array with a heap-backed `std::wstring`; the final `/analyze` and Full gate passed. |
+
+## Phase 4.54: Tray/floating UI Task 4 implementation
+- **Status:** complete on Windows 11 25H2 x64; exact 24H2 acceptance remains in Phase 5
+- **Started:** 2026-08-12
+- **Current task:**
+  - Milestone 6 Task 5: replace the bootstrap UI entry and add the manual integration harness.
+- **Actions taken:**
+  - Added `CollectorProcess` with a fakeable ShellExecute seam, UAC `runas` launch, bounded graceful-stop and termination fallback, explicit handle ownership, and heap-backed executable-path discovery.
+  - Added `UiController` as the IPC observer and UI-thread bridge. Snapshots are coalesced into one pending slot, ranking history is reset on collector-instance changes, and configured ranking options are applied through the existing engine.
+  - Connected portable mode to the elevated collector process while service mode remains an IPC-only connection path; no service mutation or UAC action is performed by automated tests.
+  - Added dynamic tray owner rebinding so the eventual UI message window can receive Shell notifications even when the controller is constructed before that window exists.
+  - Added regression coverage for launch failure cleanup, graceful and forced process stop, snapshot coalescing, state-to-overlay mapping, ranking option updates, and collector-instance reset.
+  - Intentional red phase: the first Task 4 Fast run stopped at CMake generation because the registered controller/process sources were not yet present.
+  - Final Fast gate: Pass; clean Debug CTest 30/30, strict warnings, clang-tidy, and Clang Static Analyzer passed.
+  - Final Full gate: Pass in 107.7 seconds; clean Debug/Release CTest 32/32, MSVC `/analyze`, both Clang analyses, and Release x64 passed. The 32-test count includes the two administrator-labelled live integration tests, both executed successfully on this host.
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.51; Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and tray/floating UI Task 1 are complete on the available 25H2 host; Task 2 is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.54; Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and tray/floating UI Tasks 1-4 are complete on the available 25H2 host; Task 5 is next, and exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Design and implement native tray/floating UI, then settings, integrated verification, and delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and UI Task 1; the service lifecycle adapter, service-neutral host, runtime principal wiring, audit evidence, hostile-input/reconnect integrations, and pure UI model pass the unified Full gate with Debug/Release CTest 29/29 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and UI Tasks 1-4; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, IPC/ranking bridge, portable process lifetime, audit evidence, hostile-input/reconnect integrations, and UI model pass the unified Full gate with Debug/Release CTest 32/32 on 25H2. |

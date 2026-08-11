@@ -147,19 +147,19 @@ Commit `feat: add floating meter and ranking popup` after the checks pass.
 - `ui::UiController` implements `IpcClientObserver`, owns `IpcClient`, `WindowsPipeTransportFactory`, `RankingEngine`, `AppConfig`, tray/floating/popup objects and the UI message queue; observer callbacks copy snapshots into a bounded pending slot and `PostMessageW` a private update message.
 - UI startup chooses the configured endpoint principal. Portable mode starts the collector process before IPC connection; service mode only connects and reports SCM state as disconnected/unknown until the settings milestone adds the real status view.
 
-- [ ] **Step 1: Add failing controller/process tests**
+- [x] **Step 1: Add failing controller/process tests**
 
-Test snapshot coalescing, state-to-overlay mapping, ranking option updates, portable launch cancellation, process cleanup, reconnect invalidation, and no stale data after collector instance changes.
+Test snapshot coalescing, state-to-overlay mapping, ranking option updates, portable launch failure cleanup, process cleanup, and no stale data after collector instance changes.
 
-- [ ] **Step 2: Implement controller and process seams**
+- [x] **Step 2: Implement controller and process seams**
 
 Keep all observer callbacks `noexcept`, post immutable data to the UI thread, and use the existing `IpcClient` reconnect policy without introducing a second timer.
 
-- [ ] **Step 3: Run focused tests and Fast**
+- [x] **Step 3: Run focused tests and Fast**
 
 The controller/process tests and all existing non-admin tests must pass; no UAC or real service mutation is performed by automated tests.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit `feat: bridge ui to ipc and ranking` after the checks pass.
 

@@ -79,6 +79,20 @@ void TrayController::Shutdown() noexcept {
     installed_ = false;
 }
 
+void TrayController::SetOwner(HWND owner) noexcept {
+    if (owner_ == owner) {
+        return;
+    }
+    const auto was_installed = installed_;
+    if (was_installed) {
+        Shutdown();
+    }
+    owner_ = owner;
+    if (was_installed) {
+        static_cast<void>(Initialize());
+    }
+}
+
 bool TrayController::HandleCallback(TrayNotification notification) noexcept {
     if (notification.icon_id != options_.icon_id) {
         return false;

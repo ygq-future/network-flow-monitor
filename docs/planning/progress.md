@@ -462,7 +462,7 @@
 - **Status:** in_progress
 - **Started:** 2026-08-11
 - Current task:
-  - Task 7 — server handshake and bounded client sessions.
+  - Task 8 — central subscription-aware snapshot publisher.
 - Completed work:
   - Task 1 introduced a 15-second active horizon, monotonic watermarks, 4094 dynamic application slots, fixed Unattributed/Other buckets, deterministic overflow aggregation and rollback-safe counter overflow handling.
   - Collector traffic now passes ETW observation time into accumulation, advances the same accepted watermark through process and ranking state, preserves global protocol/direction totals for aggregated traffic, and exposes saturating capacity diagnostics that degrade a running collector on the first hit.
@@ -496,6 +496,10 @@
   - The plan's initial interface listed server creation but omitted the client factory and completion-event access needed by its own Step 4 and Task 7. The implemented boundary adds those required operations without changing the accepted transport, security, or concurrency model.
   - Task 6 red Fast failed only on the missing `network_flow_monitor/ipc/named_pipe_transport.h`. The first implementation build then exposed one missing standard header and a result-type mismatch; focused diagnosis fixed their sources. The first exception-aware analysis also exposed two pre-existing unsafe exception declarations in the same IPC target: `ApplicationCatalog` no longer promises a potentially throwing default construction is `noexcept`, and token-query allocation failures are now caught and classified at the Win32 security API boundary.
   - Final `Format -> Fast` passed in 48.8 seconds with Debug 20/20 and both Clang analyses. Full passed in 98.5 seconds with Debug/Release 20/20, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64. The transport test is 260,096 bytes and reaches ADVAPI32/KERNEL32 through security construction; the still-unlinked product remains 111,616 bytes.
+  - Task 7 added the bounded `IpcServer` session manager. It owns one cancellable worker per accepted pipe, enforces the four-client cap, authenticates a complete Hello against the owner-scoped principal, echoes request IDs for Hello and subscription updates, publishes catalog-before-snapshot frames, coalesces pending snapshots, pushes collector status, isolates protocol failures, and exposes bounded health counters.
+  - The real local-pipe integration test uses the current user SID with the concrete Windows descriptor and overlapped transport. It verifies ServerHello, initial and updated subscriptions, full catalog plus snapshot delivery, health accounting, repeated Stop, and no cross-session teardown. Debug CTest ran 21/21 with the integration test non-skipped; the server/client data path passed after fixing synchronous completion-event reuse and looping partial overlapped transfers.
+  - The client ACE was validated with `FILE_GENERIC_READ | FILE_GENERIC_WRITE` rather than `FILE_ALL_ACCESS`; service-mode authorization remains user-SID based and portable-mode authorization remains logon-group based. This is a current Windows 11 25H2 observation; 24H2 acceptance remains deferred.
+  - The first unified Fast invocation after Task 7 was externally time-limited while the host emitted the very large MSVC dependency-scan output; the unchanged gate was rerun with output redirected and ended with `Quality gate 'Fast' passed.`. The subsequent Full gate also ended with `Quality gate 'Full' passed.`, including strict Debug/Release builds, MSVC `/analyze`, both Clang analyses, and 22/22 CTest tests in each configuration. This is 25H2 evidence; exact 24H2 acceptance remains deferred.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -535,6 +539,11 @@
 | Secure IPC Task 6 dependency/size boundary | `dumpbin /dependents` and Release lengths | Transport/security reachability and still-unlinked product boundary are recorded exactly | Test: ADVAPI32/KERNEL32, 260,096 bytes; product remains 111,616 bytes | Pass on 25H2 |
 | clang-format configuration | `clang-format --style=file --dump-config` | Configuration parses | Exit 0 | Pass |
 | clang-tidy configuration | `clang-tidy --verify-config` | Configuration parses | “No config errors detected”, exit 0 | Pass |
+| Secure IPC Task 7 protocol/session tests | `nfm_ipc_server_tests.exe` | Handshake ordering, authorization, version/direction errors, request IDs, catalog baseline/delta/gap, mailbox coalescing and status push pass | Exit 0; all assertions passed | Pass |
+| Secure IPC Task 7 real local pipe | `nfm_ipc_server_integration_tests.exe` | Owner-scoped pipe opens, Hello/replies, catalog/snapshot, subscription update, health and repeated Stop pass | Exit 0; `ipc server integration tests passed` | Pass on 25H2 |
+| Secure IPC Task 7 Debug CTest | `ctest -C Debug --output-on-failure -LE requires-admin` | All registered tests pass with integration non-skipped | 21/21 passed in 1.61 s | Pass on 25H2 |
+| Secure IPC Task 7 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, clang-tidy, Clang Static Analyzer and non-admin tests pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 21/21 | Pass on 25H2 |
+| Secure IPC Task 7 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release integration pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 22/22, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -659,8 +668,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.28; Secure IPC Tasks 1-6 are complete on the available 25H2 host and Task 7 server handshake/client sessions is next; exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.29; Secure IPC Tasks 1-7 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 8 central publisher is next, and exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Process identity, ETW, IPC, dual collection modes, native UI/settings, then integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-6; cancellable owner-scoped overlapped pipe transport now passes the clean Debug/Release 20/20 full gate on 25H2. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-7; the bounded server/session layer passes pure protocol tests, real owner-scoped local-pipe integration, and Debug CTest 21/21 on 25H2. Task 7 still requires the final unified Full quality-gate marker before commit. |

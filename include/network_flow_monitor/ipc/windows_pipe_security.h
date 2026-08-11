@@ -12,7 +12,7 @@
 
 namespace nfm::ipc {
 
-inline constexpr DWORD kPipeClientAccessMask = FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE;
+inline constexpr DWORD kPipeClientAccessMask = FILE_GENERIC_READ | FILE_GENERIC_WRITE;
 
 struct QueriedClientIdentity {
     std::vector<std::byte> user_sid;

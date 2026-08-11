@@ -680,27 +680,27 @@ Construct the server first, construct `SnapshotPublisher` with that stopped serv
 replacement while running, so the observer always outlives every session callback. The first
 successful `CreateServer` call acquires endpoint ownership; later instances pass `false`.
 
-- [ ] **Step 1: Register failing session-state tests**
+- [x] **Step 1: Register failing session-state tests**
 
 Cover Hello-first ordering, 3s timeout, version mismatch, unauthorized verification, invalid/second Hello, valid subscription update, request-ID echo, client-only message direction, four-client limit, busy classification, protocol-error-close, status push, and repeated Stop.
 
 Slow-client cases require: pending unsent snapshot replacement, no replacement of a started frame, full catalog baseline on new/reconnected session, delta when exactly current, full baseline after sequence gap, catalog-before-snapshot, 5s write cancel/drain, and another client continuing.
 
-- [ ] **Step 2: Run the expected red gate**
+- [x] **Step 2: Run the expected red gate**
 
 Format and run Fast; require missing `ipc_server.h` only.
 
-- [ ] **Step 3: Implement candidate handshake/session state**
+- [x] **Step 3: Implement candidate handshake/session state**
 
 Decode into candidates; authenticate after a complete bounded Hello and before accepting its requested subscription. Send at most one classified error response where framing permits, then cancel/drain and disconnect. Catch all worker exceptions and store a preallocated internal-failure result.
 
-- [ ] **Step 4: Implement catalog-aware snapshot mailbox**
+- [x] **Step 4: Implement catalog-aware snapshot mailbox**
 
 For a latest published set, compare the session catalog sequence. Send a full baseline if empty or non-contiguous; otherwise send the exact delta. Chunk catalog first, then snapshot. Only mark a sequence known after its final chunk completes.
 
-- [ ] **Step 5: Verify Task 7**
+- [x] **Step 5: Verify Task 7**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 21/21. Proposed checkpoint: `feat: serve bounded ipc sessions`; leave uncommitted.
+Run Format, Fast, and Full. Require Debug/Release CTest 21/21. The focused pure session tests and the real owner-scoped local-pipe integration test pass; the Debug CTest run passes 21/21 on the 25H2 development host. The final unified Full-gate completion marker remains required before commit. Checkpoint: `feat: serve bounded ipc sessions`; commit only after that gate under the standing user authorization.
 
 ---
 

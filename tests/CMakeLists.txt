@@ -155,6 +155,25 @@ target_link_libraries(nfm_ipc_named_pipe_transport_tests PRIVATE nfm_ipc)
 
 add_test(NAME ipc.named_pipe_transport COMMAND nfm_ipc_named_pipe_transport_tests)
 
+
+add_executable(nfm_ipc_server_tests ipc_server_tests.cpp)
+
+nfm_configure_target(nfm_ipc_server_tests)
+nfm_enable_static_analysis(nfm_ipc_server_tests)
+
+target_link_libraries(nfm_ipc_server_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.server COMMAND nfm_ipc_server_tests)
+
+add_executable(nfm_ipc_server_integration_tests ipc_server_integration_tests.cpp)
+
+nfm_configure_target(nfm_ipc_server_integration_tests)
+nfm_enable_static_analysis(nfm_ipc_server_integration_tests)
+
+target_link_libraries(nfm_ipc_server_integration_tests PRIVATE nfm_ipc Advapi32)
+
+add_test(NAME ipc.server_integration COMMAND nfm_ipc_server_integration_tests)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

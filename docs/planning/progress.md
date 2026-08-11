@@ -568,6 +568,20 @@
   - Full quality gate passed in 101.4 seconds: Debug/Release CTest 30/30, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
   - The Task 2 commit is the next repository operation; Task 3 remains the only active implementation item afterward.
 
+### Phase 4.53: Tray and floating UI — Task 3 implementation
+- **Status:** complete; Task 3 commit follows this record
+- **Started:** 2026-08-12
+- Current task:
+  - Task 3 adds borderless, no-activate floating and ranking popup windows with per-monitor DPI suggestion handling, work-area clamping, and dirty-driven invalidation.
+  - Task 4 is next: UI controller, IPC/ranking bridge, and portable collector process lifetime.
+- Completed work:
+  - Added fake-window logic coverage for identical-snapshot no-redraw behavior, changed-generation redraws, interaction redraws, mixed-DPI suggested-rectangle clamping, and `WS_EX_NOACTIVATE`/tool-window styles.
+  - Implemented Win32 class registration and lifecycle, `WM_DPICHANGED`, display/settings changes, no-activate hit testing, `WM_PAINT`, Direct2D target recreation, minimal live-rate and Top-applications rendering, and explicit `Destroy` cleanup.
+  - The focused window test passed; the corrected Fast gate passed with Debug CTest 30/30, strict MSVC, clang-tidy, and Clang Static Analyzer.
+- Open evidence:
+  - Full quality gate passed in 104.2 seconds: Debug/Release CTest 31/31, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
+  - The Task 3 commit is the next repository operation; Task 4 remains the only active implementation item afterward.
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
@@ -583,6 +597,9 @@
 | UI Task 2 focused test | `build/windows-x64-debug/tests/nfm_ui_tray_tests.exe` | Tray/resource seam tests pass | Exit code 0 | Pass |
 | UI Task 2 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after lint fixes | Strict Debug build, Clang analysis, and all tests pass | Process exited 0; Debug CTest 29/29 and `Quality gate 'Fast' passed.` | Pass |
 | UI Task 2 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release tests pass | Process exited 0 in 101.4 seconds; Debug/Release CTest 30/30, both Clang analyses, `/analyze`, and Release x64 passed | Pass |
+| UI Task 3 focused test | `build/windows-x64-debug/tests/nfm_ui_window_logic_tests.exe` | Window logic and style checks pass | Exit code 0 | Pass |
+| UI Task 3 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after Win32 pointer-boundary annotations | Strict Debug build, Clang analysis, and all tests pass | Process exited 0; Debug CTest 30/30 and `Quality gate 'Fast' passed.` | Pass |
+| UI Task 3 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` after converting fixed-style checks to `static_assert` | All mandatory gates and Debug/Release tests pass | Process exited 0 in 104.2 seconds; Debug/Release CTest 31/31, both Clang analyses, `/analyze`, and Release x64 passed | Pass |
 | Secure IPC Task 1 red phase | Two focused Debug targets after adding bounded-accumulator tests | Fail only for the absent timestamp/watermark/disposition API, capacity constants and health fields | Expected MSVC missing-member and wrong-arity diagnostics; no unrelated failure | Pass |
 | Secure IPC Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format check, strict Debug, non-admin tests and Clang analyses pass | Exit 0 in 36.0 s; Debug CTest 14/14; clang-tidy and Clang Static Analyzer passed | Pass |
 | Secure IPC Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release live integration pass | Exit 0 in 75.7 s; Debug and Release CTest 15/15; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
@@ -762,6 +779,7 @@
 | 2026-08-12 | UI Task 1 first Fast run found the ranking dismiss timer was not armed after leaving the anchor during popup transition | 1 | Treated anchor leave as a temporary no-target state; the popup enter event can still cancel the timer, and the corrected Fast/Full gates passed. |
 | 2026-08-12 | UI Task 2 red gate stopped at CMake generation because the newly registered render source did not exist yet | 1 | Recorded the intentional red phase, then added the render/tray source implementations before rerunning the gate. |
 | 2026-08-12 | UI Task 2 strict tidy found Win32 union access, callback parameter swapping, unsafe tooltip indexing, and an exception-escape test entry point | 4 | Used a typed notification value, `StringCchCopyW`, one check-specific union rationale, explicit interface special members, and disabled exception analysis for the non-throwing UI targets; Fast and Full then passed. |
+| 2026-08-12 | UI Task 3 first Full gate found MSVC C6326 on constant runtime style comparisons | 1 | Converted fixed window-style checks to compile-time `static_assert`; Fast and Full then passed. |
 
 ## 5-Question Reboot Check
 | Question | Answer |

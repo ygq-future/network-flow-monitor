@@ -47,6 +47,15 @@ target_link_libraries(nfm_ui_tray_tests PRIVATE nfm_ui D2D1 Dwrite Shell32 User3
 
 add_test(NAME ui.tray COMMAND nfm_ui_tray_tests)
 
+add_executable(nfm_ui_window_logic_tests ui_window_logic_tests.cpp)
+
+nfm_configure_target(nfm_ui_window_logic_tests)
+nfm_enable_static_analysis(nfm_ui_window_logic_tests)
+
+target_link_libraries(nfm_ui_window_logic_tests PRIVATE nfm_ui D2D1 Dwrite Shell32 User32)
+
+add_test(NAME ui.window_logic COMMAND nfm_ui_window_logic_tests)
+
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 
 nfm_configure_target(nfm_config_model_tests)

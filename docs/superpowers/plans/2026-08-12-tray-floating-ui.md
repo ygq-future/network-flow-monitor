@@ -113,19 +113,19 @@ Commit `feat: add d2d resources and tray controller` after the required checks.
 - `ui::RankingPopup` creates one no-activate tool popup, measures rows using DirectWrite, exposes `ShowAt(anchor, work_area)`, `Hide`, `SetSnapshot`, `Reposition`, and `Destroy`, and keeps the anchor/popup hit regions available to the controller.
 - Both windows accept a `UiWindowObserver` for state changes and call `InvalidateRect` only after a changed snapshot, layout, or interaction state.
 
-- [ ] **Step 1: Add fake-window tests for placement and dirty redraw**
+- [x] **Step 1: Add fake-window tests for placement and dirty redraw**
 
 Verify `WM_DPICHANGED` chooses the suggested rectangle, work-area changes re-clamp both windows, popup does not activate, and repeated identical snapshots do not schedule redundant invalidation.
 
-- [ ] **Step 2: Implement the window procedures and painting**
+- [x] **Step 2: Implement the window procedures and painting**
 
 Use `WS_EX_TOOLWINDOW`, `WM_MOUSEACTIVATE`, `WM_NCHITTEST`, `WM_DPICHANGED`, `WM_DISPLAYCHANGE`, `WM_SETTINGCHANGE`, `WM_PAINT`, and `WM_DESTROY`; draw minimal background/text/rows with Direct2D and DirectWrite.
 
-- [ ] **Step 3: Run focused tests and Fast**
+- [x] **Step 3: Run focused tests and Fast**
 
 Run the new window logic executable and the Fast quality gate; confirm the UI target has no SCM or ETW entry-point dependency.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit `feat: add floating meter and ranking popup` after the checks pass.
 

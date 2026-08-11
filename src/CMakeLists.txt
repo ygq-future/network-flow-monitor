@@ -16,6 +16,8 @@ add_library(
         ui/interaction_state.cpp
         ui/render_resources.cpp
         ui/tray_controller.cpp
+        ui/floating_window.cpp
+        ui/ranking_popup.cpp
 )
 
 target_compile_definitions(nfm_ui PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)

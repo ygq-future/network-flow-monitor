@@ -492,7 +492,7 @@ ClientIdentityResult VerifyPipeClient(HANDLE server_pipe,
 
 The public neutral policy header contains no Windows types; `windows_pipe_security.h` is the explicit adapter boundary. SID buffers are validated with `IsValidSid`, copied into owned storage, and never logged.
 
-- [ ] **Step 1: Register failing policy/security tests**
+- [x] **Step 1: Register failing policy/security tests**
 
 Pure tests cover mode/SID/name validation, canonical names, 256-character limit and no raw arbitrary name input. Injected Win32 tests cover impersonation failure, token-open/query failure, wrong user/logon SID, exact match, and guaranteed single `RevertToSelf` on every successful impersonation path.
 
@@ -505,19 +505,19 @@ context.Check(!HasAllowAce(WinWorldSid) && !HasAllowAce(WinAnonymousSid) &&
               "broad principals receive no allow ACE");
 ```
 
-- [ ] **Step 2: Run the missing-header red phase**
+- [x] **Step 2: Run the missing-header red phase**
 
 Format and run Fast; require only the expected C1083.
 
-- [ ] **Step 3: Build the descriptor with owned ACL/SID memory**
+- [x] **Step 3: Build the descriptor with owned ACL/SID memory**
 
 Use explicit ACEs for LocalSystem full server access, Portable server logon SID server access, and authorized SID data/synchronize access. Service mode omits the extra server SID. Do not use a default descriptor or SDDL assembled from unvalidated text.
 
-- [ ] **Step 4: Implement fail-closed impersonation verification**
+- [x] **Step 4: Implement fail-closed impersonation verification**
 
 Use an RAII `ImpersonationGuard` created only after `ImpersonateNamedPipeClient` succeeds. Query only TokenUser/token groups and compare binary SIDs with `EqualSid`. Any failure returns Unauthorized and performs no privileged client-directed operation.
 
-- [ ] **Step 5: Verify Task 5**
+- [x] **Step 5: Verify Task 5**
 
 Run Format, Fast, and Full. Require Debug/Release CTest 19/19. Inspect `dumpbin /dependents` for Advapi32 reachability separately from the still-unlinked product. Proposed checkpoint: `feat: secure ipc pipe ownership`; leave uncommitted.
 

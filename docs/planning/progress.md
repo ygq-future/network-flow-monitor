@@ -462,7 +462,7 @@
 - **Status:** in_progress
 - **Started:** 2026-08-11
 - Current task:
-  - Task 5 — explicit owner-scoped pipe security.
+  - Task 6 — cancellable overlapped named-pipe transport.
 - Completed work:
   - Task 1 introduced a 15-second active horizon, monotonic watermarks, 4094 dynamic application slots, fixed Unattributed/Other buckets, deterministic overflow aggregation and rollback-safe counter overflow handling.
   - Collector traffic now passes ETW observation time into accumulation, advances the same accepted watermark through process and ranking state, preserves global protocol/direction totals for aggregated traffic, and exposes saturating capacity diagnostics that degrade a running collector on the first hit.
@@ -485,6 +485,11 @@
   - The catalog validates strict Application-ID order and uniqueness, empty IDs, the 4096-record cap, counter monotonicity and handle/revision/sequence exhaustion. All publication work occurs in candidate state; validation or exhaustion failures leave records, handles and catalog sequence unchanged. A named `ApplicationCatalogSeed` makes the two exhaustion test seams non-positional.
   - The intended red build failed only with C1083 for `network_flow_monitor/ipc/application_catalog.h`. Focused tests cover stable assignment, removal/reappearance, metadata conflict/enrichment, 4096/4097 bounds, counter decrease and rollback across validation and exhaustion failures.
   - Task 4 final `Format -> Fast` completed with exit 0 in 45.2 seconds and Debug CTest 18/18. Full completed with exit 0 in 91.0 seconds: Debug/Release 18/18, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, strict builds and Release x64 all passed. No matching ETW test process or error window remained; the not-yet-wired product remains 111,616 bytes. No Git commit was created.
+  - The user clarified that a passed stage is expected to be committed and granted standing authorization for one commit after each future stage passes the full quality gate. The previously verified Milestones 1–3 and IPC Tasks 1–4 were captured without Task 5 work as `cad27a9 feat: add verified monitoring and IPC foundations`.
+  - Task 5 added neutral owner/logon-SID policy and canonical `NetworkFlowMonitor.<mode>.<sid>` endpoint naming, plus a Win32 adapter that owns a self-relative security descriptor. The explicit DACL grants exact server access to LocalSystem and, in portable mode, the concrete server logon SID; the authorized UI SID receives only `FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE`. No broad principal allow ACE is added.
+  - The common portable case where elevated server and UI share one logon SID is tested and retains the unioned server access. Maximum-length valid SID names remain below the fixed 256-character limit; the public API accepts no arbitrary raw pipe name, so a fabricated valid over-limit SID is not a real input case.
+  - `WindowsPipeSecurityApi` queries only the impersonated thread user and logon group SIDs through bounded token buffers. `VerifyPipeClient` rejects invalid principals before impersonation, matches service user or portable logon group by binary SID, and performs exactly one revert on every successful impersonation path. All non-`None` results are authorization failures; detailed internal error/Win32 values are not protocol disclosures.
+  - Task 5 red Fast failed only with C1083 for `network_flow_monitor/ipc/security_policy.h`. Final `Format -> Fast` passed in 45.8 seconds with Debug 19/19; Full passed in 86.1 seconds with Debug/Release 19/19, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze` and Release x64. The security test reaches ADVAPI32/KERNEL32, while the unlinked product remains SHELL32/USER32/KERNEL32 and 111,616 bytes; zero matching ETW error windows remained.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -512,6 +517,11 @@
 | Secure IPC Task 4 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release integration pass | Exit 0 in 91.0 s; Debug and Release CTest 18/18; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Secure IPC Task 4 rollback/exhaustion coverage | Focused catalog tests plus final clean gates | Invalid order/IDs/counts/counters and handle/revision exhaustion do not mutate state | Focused test exit 0; subsequent valid publications retain expected handle/sequence state | Pass |
 | Secure IPC Task 4 dialog/product check | Post-Full process/window scan and Release file length | No stale ETW process/dialog; current product reachability remains unchanged | 0 matching processes, 0 matching windows; `NetworkFlowMonitor.exe` 111,616 bytes | Pass on 25H2 |
+| Secure IPC Task 5 red phase | Register `ipc.security_policy` before adding its public headers | Compilation fails only for the missing security-policy API | C1083 for `network_flow_monitor/ipc/security_policy.h`; no unrelated failure | Pass |
+| Secure IPC Task 5 ACL/identity behavior | Focused Debug tests plus clean gates | Exact service/portable ACEs, no broad allow, canonical names, validation, identity matching and single revert | Focused test exit 0; shared/distinct logon SIDs and every injected failure path passed | Pass on 25H2 |
+| Secure IPC Task 5 final Format/Fast sequence | `tools/quality.ps1 -Mode Format`, then `Fast` | Strict Debug, 19 tests and both Clang analyses pass | Exit 0 in 45.8 s; Debug CTest 19/19 | Pass |
+| Secure IPC Task 5 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release integration pass | Exit 0 in 86.1 s; Debug/Release CTest 19/19; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Secure IPC Task 5 dependency/size boundary | `dumpbin /dependents`, Release length and post-gate window scan | Advapi32 is isolated to reachable security code; product remains unchanged; no stale dialog | Test: ADVAPI32/KERNEL32; product: SHELL32/USER32/KERNEL32, 111,616 bytes; 0 matching windows | Pass on 25H2 |
 | clang-format configuration | `clang-format --style=file --dump-config` | Configuration parses | Exit 0 | Pass |
 | clang-tidy configuration | `clang-tidy --verify-config` | Configuration parses | “No config errors detected”, exit 0 | Pass |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
@@ -630,12 +640,14 @@
 | 2026-08-11 | Two Task 4 Fast invocations were externally terminated by insufficient 1-second and 60-second execution timeouts | 2 | Treated both as no-result runs, confirmed no residual compiler process, and reran the unchanged gate with a sufficient timeout. |
 | 2026-08-11 | The interrupted tidy build left `build.ninja` unavailable for Ninja recompaction | 1 | Verified the generated directory was inside the workspace with no live build process, isolated it under a timestamped ignored name, regenerated a clean tidy build, then moved the 553,771,018-byte stale directory to the Windows Recycle Bin. |
 | 2026-08-11 | Task 4 first complete clang-tidy run found swappable constructor parameters and excessive `Publish` cognitive complexity | 1 | Replaced positional test seams with `ApplicationCatalogSeed` and split candidate removal, merge, sequence and assembly steps; the focused and full analysis builds then passed without suppression. |
+| 2026-08-11 | The first catch-up staged snapshot found an extra blank line at EOF in ADR 0008 | 1 | Removed only the redundant final blank line, restaged the ADR and required `git diff --cached --check` to pass before commit. |
+| 2026-08-11 | Task 5 first Clang analysis found Win32 const-SID adapters, unsafe dynamic indexes, inconsistent enum values and test-style diagnostics | 1 | Concentrated legacy `PSID` const adaptation into two check-specific documented helpers, used vector/span bounds, explicit enum values and qualified types; the next focused analysis was zero-diagnostic. |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.26; Secure IPC Tasks 1-4 are complete on the available 25H2 host and Task 5 owner-scoped pipe security is next; exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.27; Secure IPC Tasks 1-5 are complete on the available 25H2 host and Task 6 cancellable named-pipe transport is next; exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Process identity, ETW, IPC, dual collection modes, native UI/settings, then integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-4; bounded codecs and rollback-safe application catalog state now pass the clean Debug/Release 18/18 full gate on 25H2. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-5; explicit owner-scoped pipe security now passes the clean Debug/Release 19/19 full gate on 25H2. |

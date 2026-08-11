@@ -89,7 +89,9 @@ add_library(
     STATIC
         ipc/application_catalog.cpp
         ipc/frame_codec.cpp
+        ipc/security_policy.cpp
         ipc/snapshot_codec.cpp
+        ipc/windows_pipe_security.cpp
 )
 
 target_include_directories(
@@ -98,7 +100,7 @@ target_include_directories(
         "${PROJECT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(nfm_ipc PRIVATE nfm_config)
+target_link_libraries(nfm_ipc PRIVATE nfm_config Advapi32)
 
 nfm_configure_target(nfm_ipc)
 nfm_enable_static_analysis(nfm_ipc)

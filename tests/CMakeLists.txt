@@ -137,6 +137,15 @@ target_link_libraries(nfm_ipc_application_catalog_tests PRIVATE nfm_ipc)
 
 add_test(NAME ipc.application_catalog COMMAND nfm_ipc_application_catalog_tests)
 
+add_executable(nfm_ipc_security_policy_tests ipc_security_policy_tests.cpp)
+
+nfm_configure_target(nfm_ipc_security_policy_tests)
+nfm_enable_static_analysis(nfm_ipc_security_policy_tests)
+
+target_link_libraries(nfm_ipc_security_policy_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.security_policy COMMAND nfm_ipc_security_policy_tests)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

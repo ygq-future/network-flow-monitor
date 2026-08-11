@@ -103,7 +103,7 @@ client 使用 `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`，不允许服�
 4. Portable 模式要求预期 logon SID；service 模式要求预期 user SID。
 5. 可读取 client PID/session ID 作为诊断，但不能把 PID 当作授权依据。
 
-任何模拟或 token 查询失败都归类为 `Unauthorized`，不在高权限上下文继续处理 Hello。
+任何模拟或 token 查询失败都作为授权拒绝处理，不在高权限上下文继续处理 Hello。内部 `ClientIdentityResult` 保留 `ImpersonationFailed`、`TokenQueryFailed` 或 `RevertFailed` 及 Win32 error 供健康诊断；对协议客户端只暴露统一的 Unauthorized 结果，所有非 `None` 结果都禁止继续执行高权限操作。
 
 ## 5. Version-1 wire envelope
 

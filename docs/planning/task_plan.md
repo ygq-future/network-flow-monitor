@@ -4,10 +4,10 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Execute Secure IPC Task 5: add explicit owner-scoped named-pipe security policy and Win32 security-descriptor construction.
+Execute Secure IPC Task 6: add cancellable overlapped named-pipe transport with exact read/write progress and RAII shutdown.
 
 ## Current Phase
-Phase 4.26 — secure IPC Task 5 implementation
+Phase 4.27 — secure IPC Task 6 implementation
 
 ## Live Execution Queue
 

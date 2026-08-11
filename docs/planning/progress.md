@@ -510,10 +510,10 @@
   - Task 10 final Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 25/25 including non-skipped `ipc.integration`, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Milestone 4 is closed on the available Windows 11 25H2 host; exact 24H2 acceptance remains deferred.
 
 ### Phase 4.41: Dual collection modes — service-neutral collector host
-- **Status:** complete for Task 1; Task 2 is next
+- **Status:** complete for Tasks 1–2; Task 3 is next
 - **Started:** 2026-08-12
 - Current task:
-  - Design and implement the service lifecycle policy and SCM adapter.
+  - Wire runtime modes and the portable collector launch boundary.
 - Completed work:
   - Added `EtwSnapshotProvider`, which maps `WindowsEtwSession::FlushAndQuery()` into the existing IPC capture model, preserves current collector health on failure, and timestamps successful snapshots exactly once.
   - Added `CollectorHost`, a service-neutral lifecycle owner that wires the subscription observer before startup, starts ETW before IPC, rolls ETW back when IPC startup fails, schedules `SnapshotPublisher::RunDue()` only at publisher deadlines, and makes stop idempotent.
@@ -523,6 +523,12 @@
   - Task 1 Fast gate passed in 46.6 seconds: clean Debug CTest 24/24, strict MSVC build, clang-tidy and Clang Static Analyzer.
   - Task 1 Full gate passed in 93.2 seconds: clean Debug/Release CTest 26/26 including the existing non-skipped ETW integration, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
   - Current-host evidence is Windows 11 25H2; exact Windows 11 24H2 acceptance remains a Phase 5 target-host task. The product executable is still not runtime-wired to the collector path, so no footprint claim is made here.
+  - Added the fixed-name `ServiceControl` SCM adapter with RAII manager/service handles, idempotent install/uninstall/start/stop/restart/query, bounded transition polling, classified Win32 errors, and no arbitrary command-line arguments.
+  - Added typed manual, automatic, and delayed-automatic startup configuration; delayed automatic uses `ChangeServiceConfig2W` rather than silently treating it as ordinary automatic startup.
+  - Added `ServiceEntry` and a replaceable runtime API seam. The service callback reports `SERVICE_START_PENDING`, `SERVICE_RUNNING`, `SERVICE_STOP_PENDING`, and `SERVICE_STOPPED`, handles stop/shutdown through `std::stop_source`, and delegates only to `ServiceHost`; no window/UI calls exist in the service target.
+  - Service tests cover fixed path quoting, startup types, idempotence, missing-service classification, SCM/access failures, dispatcher failure, host startup failure, stop control, and the complete status sequence.
+  - Task 2 Fast passed in 48.6 seconds: clean Debug CTest 25/25, strict MSVC build, clang-tidy and Clang Static Analyzer.
+  - Task 2 Full passed in 98.7 seconds: clean Debug/Release CTest 27/27 including existing non-skipped ETW and IPC integrations, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -580,6 +586,9 @@
 | Dual modes Task 1 host tests | `nfm_collector_host_tests.exe` and `collector.host` | Provider failure/timestamp, ETW-before-IPC, no-client/due-client scheduling, startup denial and idempotent stop pass | Focused executable and Debug/Release CTest passed; host remains UI-free | Pass on 25H2 |
 | Dual modes Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, non-admin tests and Clang analyses pass | Exit 0 in 46.6 s; clean Debug CTest 24/24 and both Clang analyses passed | Pass |
 | Dual modes Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates, existing live ETW integration, `/analyze`, and Release x64 pass | Exit 0 in 93.2 s; clean Debug/Release CTest 26/26, `collector.etw_integration` non-skipped, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Dual modes Task 2 service tests | `nfm_service_control_tests.exe` and `service.control` | Fixed SCM lifecycle, startup modes, status callback and error boundaries pass | Focused executable passed; Debug/Release CTest passed with no real service mutation | Pass |
+| Dual modes Task 2 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, non-admin tests and Clang analyses pass | Exit 0 in 48.6 s; clean Debug CTest 25/25 and both Clang analyses passed | Pass |
+| Dual modes Task 2 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates, existing integrations, `/analyze`, and Release x64 pass | Exit 0 in 98.7 s; clean Debug/Release CTest 27/27, existing live integrations non-skipped, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -704,8 +713,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.41; Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Task 1 are complete on the available 25H2 host; service lifecycle is next, and exact 24H2 acceptance remains pending for Phase 5. |
-| Where am I going? | Implement the SCM service lifecycle and portable runtime wiring, then native tray/floating UI/settings and integrated delivery. |
+| Where am I? | Phase 4.42; Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-2 are complete on the available 25H2 host; runtime wiring is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I going? | Wire portable/service runtime dispatch and reconnection, then native tray/floating UI/settings and integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Task 1; the service-neutral host and real hostile-input/reconnect integration pass the unified Full gate with Debug/Release CTest 26/26 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-2; the service lifecycle adapter, service-neutral host, and hostile-input/reconnect integrations pass the unified Full gate with Debug/Release CTest 27/27 on 25H2. |

@@ -119,6 +119,15 @@ target_link_libraries(nfm_collector_host_tests PRIVATE nfm_collector nfm_ipc Adv
 
 add_test(NAME collector.host COMMAND nfm_collector_host_tests)
 
+add_executable(nfm_service_control_tests service_control_tests.cpp)
+
+nfm_configure_target(nfm_service_control_tests)
+nfm_enable_static_analysis(nfm_service_control_tests)
+
+target_link_libraries(nfm_service_control_tests PRIVATE nfm_service)
+
+add_test(NAME service.control COMMAND nfm_service_control_tests)
+
 add_executable(nfm_ipc_frame_codec_tests ipc_frame_codec_tests.cpp)
 
 nfm_configure_target(nfm_ipc_frame_codec_tests)

@@ -112,6 +112,24 @@ target_link_libraries(nfm_ipc PRIVATE nfm_config Advapi32)
 nfm_configure_target(nfm_ipc)
 nfm_enable_static_analysis(nfm_ipc ENABLE_EXCEPTIONS)
 
+add_library(
+    nfm_service
+    STATIC
+        service/service_control.cpp
+        service/service_entry.cpp
+)
+
+target_include_directories(
+    nfm_service
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/include"
+)
+
+target_link_libraries(nfm_service PUBLIC nfm_collector PRIVATE Advapi32)
+
+nfm_configure_target(nfm_service)
+nfm_enable_static_analysis(nfm_service ENABLE_EXCEPTIONS)
+
 add_executable(NetworkFlowMonitor WIN32 app/main.cpp)
 
 nfm_configure_target(NetworkFlowMonitor)

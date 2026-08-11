@@ -72,10 +72,12 @@ Task 1 implementation notes: `SnapshotPublisher` now serializes subscription cal
 - `ServiceControl` exposes install/uninstall/start/stop/restart/query with typed `ServiceAction`, `ServiceStartType`, `ServiceState` and `ServiceResult`; all names and executable paths are fixed by the product, not arbitrary command strings.
 - `ServiceEntry::Run()` receives the service callback and owns only the `CollectorHost`; it reports `SERVICE_RUNNING`, `SERVICE_STOP_PENDING`, `SERVICE_STOPPED` and classified Win32 errors through `SetServiceStatus`.
 
-- [ ] **Step 1: Add fake SCM API tests**
-- [ ] **Step 2: Implement RAII SCM handles and fixed service configuration**
-- [ ] **Step 3: Implement service callback stop control without UI creation**
-- [ ] **Step 4: Run Fast/Full and commit `feat: add service lifecycle adapter`**
+- [x] **Step 1: Add fake SCM API tests**
+- [x] **Step 2: Implement RAII SCM handles and fixed service configuration**
+- [x] **Step 3: Implement service callback stop control without UI creation**
+- [x] **Step 4: Run Fast/Full and commit `feat: add service lifecycle adapter`**
+
+Task 2 implementation notes: the service name is fixed to `NetworkFlowMonitor`; installation accepts only the quoted executable path supplied by the caller and never accepts arbitrary command arguments. Startup types map to manual, automatic, and delayed-automatic SCM configuration. `ServiceEntry` reports pending/running/stopped states, handles stop/shutdown through a `stop_source`, and delegates only to the service-neutral host.
 
 ### Task 3: Runtime-mode wiring and portable collector launch
 

@@ -2,8 +2,10 @@
 
 #include "network_flow_monitor/app/collector_runtime.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <limits>
 
 namespace nfm::ui {
 namespace {
@@ -108,6 +110,9 @@ int UiController::Run(bool smoke_test) noexcept {
 }
 
 void UiController::Shutdown() noexcept {
+    if (message_window_ != nullptr) {
+        static_cast<void>(::KillTimer(message_window_, kUiInteractionTimerId));
+    }
     if (ipc_client_ != nullptr) {
         ipc_client_->Stop();
         ipc_client_.reset();
@@ -122,6 +127,74 @@ void UiController::Shutdown() noexcept {
 void UiController::AttachMessageWindow(HWND window) noexcept {
     message_window_ = window;
     tray_controller_.SetOwner(window);
+}
+
+void UiController::ApplyInteractionState() noexcept {
+    const auto state = interaction_.state();
+    floating_window_.SetInteractionState(state);
+    switch (state) {
+    case InteractionState::Hidden:
+    case InteractionState::EdgeHidden:
+        ranking_popup_.Hide();
+        floating_window_.Hide();
+        break;
+    case InteractionState::Visible:
+    case InteractionState::DisconnectedOverlay:
+        ranking_popup_.Hide();
+        floating_window_.Show();
+        break;
+    case InteractionState::RankingVisible:
+        floating_window_.Show();
+        ranking_popup_.ShowAt(PopupPlacementContext{.anchor = floating_window_.rect(),
+                                                    .work_area = CurrentWorkArea()});
+        break;
+    }
+}
+
+void UiController::HandleInteraction(InteractionEvent event, MouseTarget target) noexcept {
+    interaction_.Handle(event, InteractionStateMachine::Clock::now(),
+                        InteractionOptionsFromConfig(), target);
+    ApplyInteractionState();
+    ScheduleInteractionTimer();
+}
+
+void UiController::ScheduleInteractionTimer() noexcept {
+    if (message_window_ == nullptr) {
+        return;
+    }
+    const auto deadline = interaction_.next_deadline();
+    if (!deadline.has_value()) {
+        static_cast<void>(::KillTimer(message_window_, kUiInteractionTimerId));
+        return;
+    }
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               *deadline - InteractionStateMachine::Clock::now())
+                               .count();
+    constexpr auto kMaximumTimerMilliseconds =
+        static_cast<std::int64_t>(std::numeric_limits<UINT>::max());
+    const auto delay = static_cast<UINT>(
+        std::clamp<std::int64_t>(remaining <= 0 ? 1 : remaining, 1, kMaximumTimerMilliseconds));
+    static_cast<void>(::SetTimer(message_window_, kUiInteractionTimerId, delay, nullptr));
+}
+
+void UiController::HandleStateOnUiThread(ipc::IpcClientState state) noexcept {
+    HandleInteraction(state == ipc::IpcClientState::Streaming ? InteractionEvent::Reconnected
+                                                              : InteractionEvent::Disconnected);
+}
+
+PixelRect UiController::CurrentWorkArea() const noexcept {
+    const auto monitor = ::MonitorFromWindow(floating_window_.hwnd(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
+    if (monitor != nullptr && ::GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
+        return PixelRect{.left = monitor_info.rcWork.left,
+                         .top = monitor_info.rcWork.top,
+                         .right = monitor_info.rcWork.right,
+                         .bottom = monitor_info.rcWork.bottom};
+    }
+    return PixelRect{.left = 0,
+                     .top = 0,
+                     .right = ::GetSystemMetrics(SM_CXSCREEN),
+                     .bottom = ::GetSystemMetrics(SM_CYSCREEN)};
 }
 
 bool UiController::CreateMessageWindow() noexcept {
@@ -223,6 +296,10 @@ void UiController::StateChanged(ipc::IpcClientState state) noexcept {
     overlay_state_.store(disconnected ? InteractionState::DisconnectedOverlay
                                       : InteractionState::Visible,
                          std::memory_order_release);
+    if (message_window_ != nullptr) {
+        static_cast<void>(
+            ::PostMessageW(message_window_, kUiStateMessage, static_cast<WPARAM>(state), 0));
+    }
 }
 
 void UiController::SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept {
@@ -238,9 +315,7 @@ void UiController::SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept {
 }
 
 void UiController::OnTrayLeftClick() noexcept {
-    interaction_.Handle(InteractionEvent::Toggle, InteractionStateMachine::Clock::now(),
-                        InteractionOptionsFromConfig());
-    floating_window_.SetInteractionState(interaction_.state());
+    HandleInteraction(InteractionEvent::Toggle);
 }
 
 void UiController::OnTrayRightClick() noexcept {
@@ -248,9 +323,7 @@ void UiController::OnTrayRightClick() noexcept {
 }
 
 void UiController::OnTrayHover() noexcept {
-    interaction_.Handle(InteractionEvent::PointerEnter, InteractionStateMachine::Clock::now(),
-                        InteractionOptionsFromConfig(), MouseTarget::Anchor);
-    floating_window_.SetInteractionState(interaction_.state());
+    HandleInteraction(InteractionEvent::PointerEnter, MouseTarget::Anchor);
 }
 
 void UiController::OnTraySettings() noexcept {}
@@ -260,6 +333,11 @@ void UiController::OnTrayExit() noexcept {
 }
 
 void UiController::OnWindowInvalidated(WindowKind /*kind*/) noexcept {}
+
+void UiController::OnWindowPointer(WindowKind, InteractionEvent event,
+                                   MouseTarget target) noexcept {
+    HandleInteraction(event, target);
+}
 
 InteractionOptions UiController::InteractionOptionsFromConfig() const noexcept {
     return {.hover_delay = config_.interaction.hover_delay,
@@ -321,6 +399,17 @@ LRESULT CALLBACK UiController::MessageWindowProc(HWND window, UINT message, WPAR
 
     if (message == kUiSnapshotMessage) {
         static_cast<void>(controller->ProcessPendingSnapshot());
+        return 0;
+    }
+    if (message == kUiStateMessage) {
+        controller->HandleStateOnUiThread(static_cast<ipc::IpcClientState>(wparam));
+        return 0;
+    }
+    if (message == WM_TIMER && wparam == kUiInteractionTimerId) {
+        controller->interaction_.Tick(InteractionStateMachine::Clock::now(),
+                                      controller->InteractionOptionsFromConfig());
+        controller->ApplyInteractionState();
+        controller->ScheduleInteractionTimer();
         return 0;
     }
     if (message == kTrayCallbackMessage) {

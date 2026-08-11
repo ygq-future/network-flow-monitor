@@ -28,6 +28,7 @@ class UiWindowObserver {
     UiWindowObserver& operator=(UiWindowObserver&&) = delete;
 
     virtual void OnWindowInvalidated(WindowKind kind) noexcept = 0;
+    virtual void OnWindowPointer(WindowKind, InteractionEvent, MouseTarget) noexcept {}
 };
 
 using RankingSnapshotPtr = std::shared_ptr<const ranking::RankingSnapshot>;
@@ -80,7 +81,8 @@ class FloatingWindow final {
     RankingSnapshotPtr snapshot_;
     std::uint64_t generation_{};
     InteractionState interaction_state_{InteractionState::Hidden};
-    PixelRect rect_{};
+    PixelRect rect_{.left = 20, .top = 20, .right = 340, .bottom = 84};
+    bool tracking_mouse_{};
 };
 
 } // namespace nfm::ui

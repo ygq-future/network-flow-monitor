@@ -23,6 +23,8 @@
 namespace nfm::ui {
 
 inline constexpr UINT kUiSnapshotMessage = WM_APP + 0x32U;
+inline constexpr UINT kUiStateMessage = WM_APP + 0x33U;
+inline constexpr UINT_PTR kUiInteractionTimerId = 1U;
 
 class UiController final : public ipc::IpcClientObserver,
                            public TrayCallbacks,
@@ -66,10 +68,17 @@ class UiController final : public ipc::IpcClientObserver,
     void OnTraySettings() noexcept override;
     void OnTrayExit() noexcept override;
     void OnWindowInvalidated(WindowKind kind) noexcept override;
+    void OnWindowPointer(WindowKind kind, InteractionEvent event,
+                         MouseTarget target) noexcept override;
 
   private:
     [[nodiscard]] InteractionOptions InteractionOptionsFromConfig() const noexcept;
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
+    void ApplyInteractionState() noexcept;
+    void HandleInteraction(InteractionEvent event, MouseTarget target = MouseTarget::None) noexcept;
+    void ScheduleInteractionTimer() noexcept;
+    void HandleStateOnUiThread(ipc::IpcClientState state) noexcept;
+    [[nodiscard]] PixelRect CurrentWorkArea() const noexcept;
     [[nodiscard]] bool CreateMessageWindow() noexcept;
     void DestroyMessageWindow() noexcept;
     void PostSnapshotMessage() noexcept;

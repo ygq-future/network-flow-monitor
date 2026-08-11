@@ -62,6 +62,7 @@ class RankingPopup final {
     PixelRect anchor_{};
     PixelRect rect_{};
     PixelSize popup_size_{.width = 320, .height = 220};
+    bool tracking_mouse_{};
 };
 
 } // namespace nfm::ui

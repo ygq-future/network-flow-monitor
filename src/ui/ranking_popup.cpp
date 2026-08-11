@@ -196,6 +196,23 @@ LRESULT CALLBACK RankingPopup::WindowProc(HWND window, UINT message, WPARAM wpar
         return MA_NOACTIVATE;
     case WM_NCHITTEST:
         return HTCLIENT;
+    case WM_MOUSEMOVE:
+        if (!self->tracking_mouse_) {
+            TRACKMOUSEEVENT tracking{.cbSize = sizeof(TRACKMOUSEEVENT),
+                                     .dwFlags = TME_LEAVE,
+                                     .hwndTrack = window,
+                                     .dwHoverTime = 0U};
+            static_cast<void>(::TrackMouseEvent(&tracking));
+            self->tracking_mouse_ = true;
+            self->observer_->OnWindowPointer(WindowKind::RankingPopup,
+                                             InteractionEvent::PointerEnter, MouseTarget::Popup);
+        }
+        return 0;
+    case WM_MOUSELEAVE:
+        self->tracking_mouse_ = false;
+        self->observer_->OnWindowPointer(WindowKind::RankingPopup, InteractionEvent::PointerLeave,
+                                         MouseTarget::Popup);
+        return 0;
     case WM_DPICHANGED:
         self->HandleDpiChanged(lparam);
         return 0;
@@ -210,6 +227,7 @@ LRESULT CALLBACK RankingPopup::WindowProc(HWND window, UINT message, WPARAM wpar
         return 0;
     case WM_NCDESTROY:
         self->window_ = nullptr;
+        self->tracking_mouse_ = false;
         ::SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         break;
     default:

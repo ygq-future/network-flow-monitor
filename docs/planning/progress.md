@@ -783,6 +783,7 @@
 | 2026-08-12 | UI Task 4 first Fast build failed on missing Shell API declarations, an invalid tray owner type, and moving from a const factory result | 1 | Added the Shell API header, corrected the owner boundary, and moved from a mutable factory result; the next clean build reached link and test stages. |
 | 2026-08-12 | UI Task 4 first Full analysis found MSVC C6262 for a 65 KiB stack buffer in executable-path lookup | 1 | Replaced the fixed stack array with a heap-backed `std::wstring`; the final `/analyze` and Full gate passed. |
 | 2026-08-12 | UI Task 5 first tidy run rejected Win32 message-window pointer casts and a non-null-terminated string-view data pointer | 1 | Added check-specific ABI `NOLINTNEXTLINE` comments and changed the class name to a null-terminated `std::array`; the next Fast/Full gates passed. |
+| 2026-08-12 | UI Task 5 interaction review found tray clicks changed only the state machine while floating/ranking windows never received mouse transitions | 1 | Added UI-thread state application, mouse enter/leave tracking, popup placement on ranking visibility, and one deadline timer; Fast/Full then passed. |
 
 ## Phase 4.54: Tray/floating UI Task 4 implementation
 - **Status:** complete on Windows 11 25H2 x64; exact 24H2 acceptance remains in Phase 5
@@ -809,9 +810,10 @@
   - Added the internal `--ui-smoke-test` switch. It selects a service-endpoint UI configuration, starts the UI without UAC or collector construction, posts a quit message, and exercises shutdown/cleanup deterministically.
   - Added `ui.integration_smoke`, which creates the controller in service mode and verifies the same loop in-process.
   - Preserved the existing `--collector`, `--service`, `--install`, `--uninstall`, and `--service-control` branches; UI mode is the only branch that creates windows.
+  - Connected tray/window interaction events to the controller: state transitions now show/hide the floating meter and ranking popup, window mouse enter/leave events feed the interaction state machine, and its deadlines use one UI-thread `WM_TIMER` rather than a second data-refresh loop.
   - Real Debug executable smoke run: `NetworkFlowMonitor.exe --ui-smoke-test` exited 0; no message box appeared.
   - Final Fast gate: Pass; clean Debug CTest 31/31, strict warnings, clang-tidy, and Clang Static Analyzer passed.
-  - Final Full gate: Pass in 109.9 seconds; clean Debug/Release CTest 33/33, MSVC `/analyze`, both Clang analyses, and Release x64 passed.
+  - Final Full gate: Pass in 110.0 seconds; clean Debug/Release CTest 33/33, MSVC `/analyze`, both Clang analyses, and Release x64 passed.
 
 ## 5-Question Reboot Check
 | Question | Answer |

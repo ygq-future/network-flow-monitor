@@ -4,10 +4,10 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Execute Milestone 6 Task 5 manual UI smoke checks: verify visible tray/floating interactions on the available Windows 11 host.
+Complete the manual Windows 11 acceptance pass for the tray/floating windows and settings service actions, then begin the Phase 5 compatibility, packaging, footprint, and performance matrix.
 
 ## Current Phase
-Phase 4.55 — tray and floating UI Task 5 implementation checkpoint committed; manual validation pending
+Phase 4.56 — settings and service-management UI implementation checkpoint; visible UI/service acceptance pending
 
 ## Live Execution Queue
 
@@ -21,8 +21,8 @@ This table is the canonical current work queue. Only one milestone may be `in_pr
 | 3 | ETW collector | Privileged TCP/UDP IPv4/IPv6 and process event session, cumulative counters, health/lost-event reporting | complete (implemented and verified on 25H2; 24H2 acceptance deferred to Phase 5) | Collector integration tests cover TCP, UDP, IPv4, IPv6, short/high-rate connections and event-loss diagnostics; full quality gate passes; exact 24H2 schema remains a Phase 5 target-host check |
 | 4 | Secure IPC | Versioned named-pipe framing, explicit ACL, handshake/subscription, bounded parsing, reconnect state | complete | Tasks 1–10 pass; real local-pipe, hostile-input, cancellation, reconnect and live-DACL evidence pass; Full gate passes with 25/25 tests |
 | 5 | Dual collection modes | Portable elevated collector, Windows service lifecycle, install/uninstall/service-control entry implementations | complete | Tasks 1–3 pass; audit records ACL, smoke, size and 24H2 limitations; Full gate passes with Debug/Release CTest 28/28 |
-| 6 | Tray and floating UI | Notification icon, Direct2D/DirectWrite floating meter, hover ranking popup, dynamic placement, edge snap/hide | in_progress (Task 5 implementation committed; manual validation pending) | UI checks cover multi-monitor, mixed DPI, workspace/taskbar changes, tray overflow, hover/dismiss timing, dirty-only redraw, and full quality gate passes |
-| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | queued | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
+| 6 | Tray and floating UI | Notification icon, Direct2D/DirectWrite floating meter, hover ranking popup, dynamic placement, edge snap/hide | implemented (automated smoke complete; visible acceptance deferred to Phase 5) | UI checks cover multi-monitor, mixed DPI, workspace/taskbar changes, tray overflow, hover/dismiss timing, dirty-only redraw, and full quality gate passes |
+| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | in_progress (implementation complete; manual service/UI acceptance pending) | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
 | 8 | Integrated verification and delivery | Packaging plus functional, performance, footprint, compatibility and upgrade measurements | queued | Phase 5 matrix passes on Windows 11 24H2 x64 and measured results are recorded without invented thresholds |
 
 Each implementation milestone follows the same observable sequence: detailed plan -> failing tests -> minimal implementation -> per-task fast gate -> milestone full quality gate -> planning/progress update -> Git commit only when explicitly authorized.
@@ -63,9 +63,9 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Milestone 3: ETW collector and cumulative counters (implementation complete; exact 24H2 compatibility remains in Phase 5)
 - [x] Milestone 4: secure versioned IPC (Tasks 1–10 complete; exact 24H2 acceptance remains in Phase 5)
 - [x] Milestone 5: portable collector and Windows service modes
-- [ ] Milestone 6: tray, floating window, ranking popup, and edge hiding (Tasks 1–4 complete; Task 5 implementation committed; manual validation pending)
-- [ ] Milestone 7: settings and service-management UI
-- [ ] Test incrementally
+- [x] Milestone 6: tray, floating window, ranking popup, and edge hiding (automated implementation and smoke complete; visible acceptance deferred to Phase 5)
+- [ ] Milestone 7: settings and service-management UI (implementation complete; manual acceptance pending)
+- [x] Test incrementally
 - **Status:** in_progress
 
 ### Phase 5: Verification and delivery

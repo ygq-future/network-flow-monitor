@@ -26,6 +26,39 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
     if (argument == L"--service-control") {
         return RuntimeMode::ServiceControl;
     }
+    if (argument == L"--service-install-manual") {
+        return RuntimeMode::ServiceInstallManual;
+    }
+    if (argument == L"--service-install-automatic") {
+        return RuntimeMode::ServiceInstallAutomatic;
+    }
+    if (argument == L"--service-install-automatic-delayed") {
+        return RuntimeMode::ServiceInstallAutomaticDelayed;
+    }
+    if (argument == L"--service-uninstall") {
+        return RuntimeMode::ServiceUninstall;
+    }
+    if (argument == L"--service-start") {
+        return RuntimeMode::ServiceStart;
+    }
+    if (argument == L"--service-stop") {
+        return RuntimeMode::ServiceStop;
+    }
+    if (argument == L"--service-restart") {
+        return RuntimeMode::ServiceRestart;
+    }
+    if (argument == L"--service-configure-manual") {
+        return RuntimeMode::ServiceConfigureManual;
+    }
+    if (argument == L"--service-configure-automatic") {
+        return RuntimeMode::ServiceConfigureAutomatic;
+    }
+    if (argument == L"--service-configure-automatic-delayed") {
+        return RuntimeMode::ServiceConfigureAutomaticDelayed;
+    }
+    if (argument == L"--service-query") {
+        return RuntimeMode::ServiceQuery;
+    }
     return RuntimeMode::Invalid;
 }
 

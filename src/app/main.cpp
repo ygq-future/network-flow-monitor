@@ -1,6 +1,8 @@
 #include "network_flow_monitor/app/collector_runtime.h"
 #include "network_flow_monitor/app/runtime_mode.h"
 #include "network_flow_monitor/config/app_config.h"
+#include "network_flow_monitor/config/config_paths.h"
+#include "network_flow_monitor/config/config_store.h"
 #include "network_flow_monitor/service/service_control.h"
 #include "network_flow_monitor/ui/ui_controller.h"
 
@@ -90,10 +92,39 @@ int RunServiceAction(nfm::app::RuntimeMode mode) {
     case nfm::app::RuntimeMode::Install:
         result = control.Install(nfm::service::ServiceStartType::AutomaticDelayed);
         break;
+    case nfm::app::RuntimeMode::ServiceInstallManual:
+        result = control.Install(nfm::service::ServiceStartType::Manual);
+        break;
+    case nfm::app::RuntimeMode::ServiceInstallAutomatic:
+        result = control.Install(nfm::service::ServiceStartType::Automatic);
+        break;
+    case nfm::app::RuntimeMode::ServiceInstallAutomaticDelayed:
+        result = control.Install(nfm::service::ServiceStartType::AutomaticDelayed);
+        break;
     case nfm::app::RuntimeMode::Uninstall:
+    case nfm::app::RuntimeMode::ServiceUninstall:
         result = control.Uninstall();
         break;
+    case nfm::app::RuntimeMode::ServiceStart:
+        result = control.Start();
+        break;
+    case nfm::app::RuntimeMode::ServiceStop:
+        result = control.Stop();
+        break;
+    case nfm::app::RuntimeMode::ServiceRestart:
+        result = control.Restart();
+        break;
+    case nfm::app::RuntimeMode::ServiceConfigureManual:
+        result = control.ConfigureStartType(nfm::service::ServiceStartType::Manual);
+        break;
+    case nfm::app::RuntimeMode::ServiceConfigureAutomatic:
+        result = control.ConfigureStartType(nfm::service::ServiceStartType::Automatic);
+        break;
+    case nfm::app::RuntimeMode::ServiceConfigureAutomaticDelayed:
+        result = control.ConfigureStartType(nfm::service::ServiceStartType::AutomaticDelayed);
+        break;
     case nfm::app::RuntimeMode::ServiceControl:
+    case nfm::app::RuntimeMode::ServiceQuery:
         result = control.Query();
         break;
     default:
@@ -104,6 +135,22 @@ int RunServiceAction(nfm::app::RuntimeMode mode) {
 
 int RunUi(HINSTANCE instance, bool smoke_test) {
     auto config = nfm::config::DefaultAppConfig();
+    if (!smoke_test) {
+        std::wstring executable_path;
+        if (CurrentExecutablePath(executable_path) == 0) {
+            try {
+                const auto loaded =
+                    nfm::config::LoadConfigFile(nfm::config::PortableConfigPath(executable_path),
+                                                nfm::config::ConfigDocumentKind::User);
+                if (loaded.status == nfm::config::ConfigLoadStatus::Loaded ||
+                    loaded.status == nfm::config::ConfigLoadStatus::LoadedWithDefaults) {
+                    config = loaded.config;
+                }
+            } catch (...) {
+                config = nfm::config::DefaultAppConfig();
+            }
+        }
+    }
     if (smoke_test) {
         config.collector.preferred_mode = nfm::config::CollectorMode::Service;
     }
@@ -127,6 +174,17 @@ int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
         case nfm::app::RuntimeMode::Install:
         case nfm::app::RuntimeMode::Uninstall:
         case nfm::app::RuntimeMode::ServiceControl:
+        case nfm::app::RuntimeMode::ServiceInstallManual:
+        case nfm::app::RuntimeMode::ServiceInstallAutomatic:
+        case nfm::app::RuntimeMode::ServiceInstallAutomaticDelayed:
+        case nfm::app::RuntimeMode::ServiceUninstall:
+        case nfm::app::RuntimeMode::ServiceStart:
+        case nfm::app::RuntimeMode::ServiceStop:
+        case nfm::app::RuntimeMode::ServiceRestart:
+        case nfm::app::RuntimeMode::ServiceConfigureManual:
+        case nfm::app::RuntimeMode::ServiceConfigureAutomatic:
+        case nfm::app::RuntimeMode::ServiceConfigureAutomaticDelayed:
+        case nfm::app::RuntimeMode::ServiceQuery:
             return RunServiceAction(mode);
         case nfm::app::RuntimeMode::Ui:
             return RunUi(instance, smoke_test);

@@ -70,6 +70,7 @@ target_link_libraries(
         nfm_config
         nfm_runtime
         nfm_collector
+        nfm_service
         D2D1
         Dwrite
         Shell32
@@ -93,6 +94,7 @@ target_link_libraries(
         nfm_config
         nfm_runtime
         nfm_collector
+        nfm_service
         D2D1
         Dwrite
         Shell32
@@ -101,6 +103,15 @@ target_link_libraries(
 )
 
 add_test(NAME ui.integration_smoke COMMAND nfm_ui_integration_smoke_tests)
+
+add_executable(nfm_ui_settings_controller_tests ui_settings_controller_tests.cpp)
+
+nfm_configure_target(nfm_ui_settings_controller_tests)
+nfm_enable_static_analysis(nfm_ui_settings_controller_tests)
+
+target_link_libraries(nfm_ui_settings_controller_tests PRIVATE nfm_ui nfm_config nfm_service)
+
+add_test(NAME ui.settings_controller COMMAND nfm_ui_settings_controller_tests)
 
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 

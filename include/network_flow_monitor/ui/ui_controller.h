@@ -9,6 +9,8 @@
 #include "network_flow_monitor/ui/floating_window.h"
 #include "network_flow_monitor/ui/interaction_state.h"
 #include "network_flow_monitor/ui/ranking_popup.h"
+#include "network_flow_monitor/ui/settings_controller.h"
+#include "network_flow_monitor/ui/settings_window.h"
 #include "network_flow_monitor/ui/tray_controller.h"
 
 #include <windows.h>
@@ -28,7 +30,8 @@ inline constexpr UINT_PTR kUiInteractionTimerId = 1U;
 
 class UiController final : public ipc::IpcClientObserver,
                            public TrayCallbacks,
-                           public UiWindowObserver {
+                           public UiWindowObserver,
+                           public SettingsWindowHost {
   public:
     UiController(HINSTANCE instance, const config::AppConfig& config);
     ~UiController() override;
@@ -70,10 +73,15 @@ class UiController final : public ipc::IpcClientObserver,
     void OnWindowInvalidated(WindowKind kind) noexcept override;
     void OnWindowPointer(WindowKind kind, InteractionEvent event,
                          MouseTarget target) noexcept override;
+    [[nodiscard]] SettingsSaveResult SaveSettings(const config::AppConfig& value) noexcept override;
+    [[nodiscard]] SettingsActionResult ExecuteServiceAction(
+        SettingsServiceAction action, config::ServiceStartType start_type) noexcept override;
 
   private:
     [[nodiscard]] InteractionOptions InteractionOptionsFromConfig() const noexcept;
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
+    [[nodiscard]] bool StartCollection() noexcept;
+    void StopCollection() noexcept;
     void ApplyInteractionState() noexcept;
     void HandleInteraction(InteractionEvent event, MouseTarget target = MouseTarget::None) noexcept;
     void ScheduleInteractionTimer() noexcept;
@@ -87,6 +95,10 @@ class UiController final : public ipc::IpcClientObserver,
 
     HINSTANCE instance_{};
     config::AppConfig config_;
+    WindowsSettingsStoreApi settings_store_;
+    WindowsServiceActionApi service_action_api_;
+    SettingsController settings_controller_;
+    SettingsWindow settings_window_;
     ipc::WindowsPipeTransportFactory transport_;
     WindowsShellExecuteApi shell_api_;
     CollectorProcess collector_process_;

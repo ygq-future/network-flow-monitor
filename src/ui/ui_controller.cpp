@@ -1,16 +1,30 @@
 #include "network_flow_monitor/ui/ui_controller.h"
 
 #include "network_flow_monitor/app/collector_runtime.h"
+#include "network_flow_monitor/config/config_paths.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <limits>
+#include <string>
 
 namespace nfm::ui {
 namespace {
 
 constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMessageWindow");
+
+[[nodiscard]] std::filesystem::path DefaultSettingsPath() {
+    std::wstring executable(32'768U, L'\0');
+    const auto length =
+        ::GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+    if (length == 0U || length >= executable.size()) {
+        return {};
+    }
+    executable.resize(length);
+    return config::PortableConfigPath(executable);
+}
 
 [[nodiscard]] int Win32Result(std::uint32_t error) noexcept {
     return error == ERROR_SUCCESS ? 0 : static_cast<int>(error);
@@ -19,7 +33,10 @@ constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMess
 } // namespace
 
 UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
-    : instance_{instance}, config_{config}, collector_process_{shell_api_},
+    : instance_{instance}, config_{config}, settings_store_{}, service_action_api_{},
+      settings_controller_{DefaultSettingsPath(), config::ConfigDocumentKind::User, settings_store_,
+                           service_action_api_},
+      settings_window_{instance_, *this}, collector_process_{shell_api_},
       floating_window_{instance_, render_resources_, *this},
       ranking_popup_{instance_, render_resources_, *this},
       tray_controller_{nullptr, TrayIconOptions{}, tray_api_, *this}, snapshot_generation_{0U},
@@ -39,31 +56,7 @@ bool UiController::Start() noexcept {
         return false;
     }
 
-    const auto endpoint = config_.collector.preferred_mode == config::CollectorMode::Portable
-                              ? ipc::CollectorEndpointMode::Portable
-                              : ipc::CollectorEndpointMode::Service;
-    const auto principal = app::BuildCollectorPrincipal(endpoint);
-    if (!principal.ok()) {
-        return false;
-    }
-    if (endpoint == ipc::CollectorEndpointMode::Portable) {
-        const auto collector = collector_process_.StartPortable({});
-        if (!collector.succeeded) {
-            return false;
-        }
-    }
-
-    try {
-        ipc_client_ = std::make_unique<ipc::IpcClient>(principal.principal, transport_, *this,
-                                                       config_.display.refresh_interval);
-    } catch (...) {
-        static_cast<void>(collector_process_.Stop());
-        memory_error_.store(true, std::memory_order_release);
-        return false;
-    }
-    if (!ipc_client_->Start()) {
-        ipc_client_.reset();
-        static_cast<void>(collector_process_.Stop());
+    if (!StartCollection()) {
         return false;
     }
 
@@ -113,14 +106,10 @@ void UiController::Shutdown() noexcept {
     if (message_window_ != nullptr) {
         static_cast<void>(::KillTimer(message_window_, kUiInteractionTimerId));
     }
-    if (ipc_client_ != nullptr) {
-        ipc_client_->Stop();
-        ipc_client_.reset();
-    }
     ranking_popup_.Destroy();
     floating_window_.Destroy();
     tray_controller_.Shutdown();
-    static_cast<void>(collector_process_.Stop());
+    StopCollection();
     started_ = false;
 }
 
@@ -326,7 +315,30 @@ void UiController::OnTrayHover() noexcept {
     HandleInteraction(InteractionEvent::PointerEnter, MouseTarget::Anchor);
 }
 
-void UiController::OnTraySettings() noexcept {}
+void UiController::OnTraySettings() noexcept {
+    const auto loaded = settings_controller_.Load();
+    if (loaded.status == config::ConfigLoadStatus::Loaded ||
+        loaded.status == config::ConfigLoadStatus::LoadedWithDefaults ||
+        loaded.status == config::ConfigLoadStatus::Missing) {
+        if (!UpdateRankingOptions(loaded.config.ranking.top_n, loaded.config.ranking.window)) {
+            static_cast<void>(::MessageBoxW(message_window_,
+                                            L"The saved ranking settings could not be applied.",
+                                            L"Network Flow Monitor", MB_OK | MB_ICONERROR));
+            return;
+        }
+        config_ = loaded.config;
+    } else if (loaded.error.has_value()) {
+        static_cast<void>(::MessageBoxW(
+            message_window_,
+            L"The configuration file is damaged or incompatible; safe defaults are in use.",
+            L"Network Flow Monitor", MB_OK | MB_ICONWARNING));
+    }
+    if (!settings_window_.Show(message_window_, config_)) {
+        static_cast<void>(::MessageBoxW(message_window_,
+                                        L"The settings window could not be opened.",
+                                        L"Network Flow Monitor", MB_OK | MB_ICONERROR));
+    }
+}
 
 void UiController::OnTrayExit() noexcept {
     ::PostQuitMessage(0);
@@ -337,6 +349,98 @@ void UiController::OnWindowInvalidated(WindowKind /*kind*/) noexcept {}
 void UiController::OnWindowPointer(WindowKind, InteractionEvent event,
                                    MouseTarget target) noexcept {
     HandleInteraction(event, target);
+}
+
+bool UiController::StartCollection() noexcept {
+    const auto endpoint = config_.collector.preferred_mode == config::CollectorMode::Portable
+                              ? ipc::CollectorEndpointMode::Portable
+                              : ipc::CollectorEndpointMode::Service;
+    const auto principal = app::BuildCollectorPrincipal(endpoint);
+    if (!principal.ok()) {
+        return false;
+    }
+    if (endpoint == ipc::CollectorEndpointMode::Portable) {
+        const auto collector = collector_process_.StartPortable({});
+        if (!collector.succeeded) {
+            return false;
+        }
+    }
+
+    try {
+        ipc_client_ = std::make_unique<ipc::IpcClient>(principal.principal, transport_, *this,
+                                                       config_.display.refresh_interval);
+    } catch (...) {
+        static_cast<void>(collector_process_.Stop());
+        memory_error_.store(true, std::memory_order_release);
+        return false;
+    }
+    if (!ipc_client_->Start()) {
+        ipc_client_.reset();
+        static_cast<void>(collector_process_.Stop());
+        return false;
+    }
+    return true;
+}
+
+void UiController::StopCollection() noexcept {
+    if (ipc_client_ != nullptr) {
+        ipc_client_->Stop();
+        ipc_client_.reset();
+    }
+    static_cast<void>(collector_process_.Stop());
+}
+
+// NOLINTNEXTLINE(bugprone-exception-escape): settings persistence and rollback are caught below.
+SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) noexcept {
+    const auto previous = config_;
+    if (!UpdateRankingOptions(value.ranking.top_n, value.ranking.window)) {
+        return {.saved = false,
+                .error = config::ConfigError{.code = config::ConfigErrorCode::OutOfRange,
+                                             .field_path = "ranking",
+                                             .detail =
+                                                 "the ranking engine rejected the selected options",
+                                             .system_error = ERROR_INVALID_DATA}};
+    }
+    const auto reconnect =
+        started_ && (value.collector.preferred_mode != previous.collector.preferred_mode ||
+                     value.display.refresh_interval != previous.display.refresh_interval);
+    config_ = value;
+    if (reconnect) {
+        StopCollection();
+        if (!StartCollection()) {
+            config_ = previous;
+            static_cast<void>(
+                UpdateRankingOptions(previous.ranking.top_n, previous.ranking.window));
+            static_cast<void>(StartCollection());
+            return {.saved = false,
+                    .error = config::ConfigError{
+                        .code = config::ConfigErrorCode::WriteFailed,
+                        .field_path = "collector.preferred_mode",
+                        .detail = "the collector could not be restarted with the new settings",
+                        .system_error = ERROR_FUNCTION_FAILED}};
+        }
+    }
+    const auto result = settings_controller_.Save(value);
+    if (!result.saved) {
+        if (reconnect) {
+            StopCollection();
+            config_ = previous;
+            static_cast<void>(StartCollection());
+        } else {
+            static_cast<void>(
+                UpdateRankingOptions(previous.ranking.top_n, previous.ranking.window));
+        }
+        config_ = previous;
+        return result;
+    }
+    ApplyInteractionState();
+    ScheduleInteractionTimer();
+    return result;
+}
+
+SettingsActionResult UiController::ExecuteServiceAction(
+    SettingsServiceAction action, config::ServiceStartType start_type) noexcept {
+    return settings_controller_.ExecuteService(action, start_type);
 }
 
 InteractionOptions UiController::InteractionOptionsFromConfig() const noexcept {

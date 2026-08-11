@@ -14,6 +14,17 @@ enum class RuntimeMode : std::uint8_t {
     Install,
     Uninstall,
     ServiceControl,
+    ServiceInstallManual,
+    ServiceInstallAutomatic,
+    ServiceInstallAutomaticDelayed,
+    ServiceUninstall,
+    ServiceStart,
+    ServiceStop,
+    ServiceRestart,
+    ServiceConfigureManual,
+    ServiceConfigureAutomatic,
+    ServiceConfigureAutomaticDelayed,
+    ServiceQuery,
     Invalid,
 };
 

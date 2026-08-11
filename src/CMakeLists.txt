@@ -19,6 +19,8 @@ add_library(
         ui/floating_window.cpp
         ui/ranking_popup.cpp
         ui/collector_process.cpp
+        ui/settings_controller.cpp
+        ui/settings_window.cpp
         ui/ui_controller.cpp
 )
 

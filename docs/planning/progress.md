@@ -815,11 +815,25 @@
   - Final Fast gate: Pass; clean Debug CTest 31/31, strict warnings, clang-tidy, and Clang Static Analyzer passed.
   - Final Full gate: Pass in 110.0 seconds; clean Debug/Release CTest 33/33, MSVC `/analyze`, both Clang analyses, and Release x64 passed.
 
+## Phase 4.56: Settings and service-management UI implementation checkpoint
+- **Status:** implementation complete; manual UI and real SCM acceptance pending on a Windows 11 target
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Added `SettingsController` and a native Win32 settings window covering every current public `AppConfig` option: Top N, ranking window, display refresh interval, hover/dismiss timing, edge behavior, opacity, speed unit, collector mode, service start type, log level, display toggles, and UI-at-login.
+  - Added versioned config load/save wiring at UI startup and from the settings window. Invalid values are rejected before persistence; damaged/missing files use the existing safe-default path and retain diagnostics.
+  - Added service actions to the settings UI: install, uninstall, start, stop, restart, query, and start-type configuration. Mutating actions use an explicit UAC `runas` boundary; query remains a normal read-only SCM operation.
+  - Added internal runtime verbs for the elevated service actions and controller tests for load/save delegation, validation rejection, service-action forwarding, and start-type forwarding.
+  - Added runtime rollback when changing collector mode or display refresh requires reconnecting the collector; a failed reconnect or persistence operation restores the previous ranking and collection state.
+  - Fixed an MSVC `/analyze` null-handle diagnostic in the settings window by making the post-creation handle check explicit.
+  - Fast quality gate: Pass (format, strict Debug build, non-admin CTest, clang-tidy/Clang analysis build).
+  - Full quality gate: Pass; clean Debug/Release CTest 34/34, MSVC `/analyze`, both Clang analyses, and Release x64 build passed on Windows 11 25H2 x64.
+- **Remaining acceptance:** visually exercise tray/floating/settings windows, verify service install/start/stop/restart/uninstall against actual SCM state with UAC, then run the Windows 11 24H2 x64 compatibility and packaging matrix.
+
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.55; tray/floating UI implementation Tasks 1-5 are committed and the visible 25H2 interaction checklist is pending; exact 24H2 acceptance remains pending for Phase 5. |
-| Where am I going? | Design and implement native tray/floating UI, then settings, integrated verification, and delivery. |
+| Where am I? | Phase 4.56; tray/floating and settings implementations pass the unified Full gate with 34 tests on 25H2; visible UI/service acceptance and exact 24H2 acceptance remain pending. |
+| Where am I going? | Complete manual UI/SCM acceptance, then run the Phase 5 compatibility, packaging, footprint, and performance matrix. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and the implementation portion of UI Tasks 1-5; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, IPC/ranking bridge, portable process lifetime, message loop, and smoke harness pass the unified Full gate with Debug/Release CTest 33/33 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and the implementation portions of UI Tasks 1-5 plus Settings Task 1; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, settings persistence/UI, SCM action bridge, IPC/ranking bridge, portable process lifetime, message loop, and smoke harness pass the unified Full gate with Debug/Release CTest 34/34 on 25H2. |

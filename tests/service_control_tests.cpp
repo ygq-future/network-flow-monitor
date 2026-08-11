@@ -250,6 +250,15 @@ void CheckServiceControl(TestContext& context) {
                           L"\"C:\\Program Files\\Network Flow Monitor\\NetworkFlowMonitor.exe\"",
                   "install quotes the executable path and selects manual startup");
 
+    ServiceControl upgraded{api,
+                            L"C:\\Program Files\\Network Flow Monitor\\NetworkFlowMonitor-v2.exe"};
+    const auto upgraded_result = upgraded.Install(ServiceStartType::Automatic);
+    context.Check(upgraded_result.ok() && api.create_calls == 1U && api.change_calls == 1U &&
+                      api.configured_start_type == SERVICE_AUTO_START &&
+                      api.last_binary_path ==
+                          L"\"C:\\Program Files\\Network Flow Monitor\\NetworkFlowMonitor-v2.exe\"",
+                  "install updates an existing service during an upgrade");
+
     context.Check(control.ConfigureStartType(ServiceStartType::Automatic).ok() &&
                       api.configured_start_type == SERVICE_AUTO_START && !api.delayed_autostart,
                   "startup type changes through typed configuration");

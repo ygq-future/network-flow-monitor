@@ -31,3 +31,26 @@ add_subdirectory(src)
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
+
+include(GNUInstallDirs)
+
+install(
+    TARGETS NetworkFlowMonitor
+    RUNTIME DESTINATION .
+    COMPONENT runtime
+)
+install(
+    FILES README.md
+    DESTINATION .
+    COMPONENT documentation
+)
+
+set(CPACK_PACKAGE_NAME "NetworkFlowMonitor")
+set(CPACK_PACKAGE_VENDOR "Network Flow Monitor")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Lightweight Windows 11 per-application network flow monitor")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_FILE_NAME "NetworkFlowMonitor-${PROJECT_VERSION}-win-x64")
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+include(CPack)

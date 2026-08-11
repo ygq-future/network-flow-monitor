@@ -829,11 +829,24 @@
   - Full quality gate: Pass; clean Debug/Release CTest 34/34, MSVC `/analyze`, both Clang analyses, and Release x64 build passed on Windows 11 25H2 x64.
 - **Remaining acceptance:** visually exercise tray/floating/settings windows, verify service install/start/stop/restart/uninstall against actual SCM state with UAC, then run the Windows 11 24H2 x64 compatibility and packaging matrix.
 
+## Phase 5.1: Release packaging and measurement checkpoint
+- **Status:** ZIP packaging and current-host measurements complete; Windows 11 24H2 and manual acceptance pending
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Added a CMake install target and CPack ZIP configuration for the static-runtime x64 Release executable plus README.
+  - Added `tools/package.ps1`, which rebuilds Release, creates a guarded `dist/` install tree, rejects optional DLLs, and emits the ZIP artifact.
+  - Added `tools/measure-release.ps1`, which records executable size, SHA-256, `dumpbin` dependencies, OS build, and the UI smoke exit/time into an ignored JSON report.
+  - Added an automated native settings-window creation/close smoke test; the clean Debug CTest run now contains 35 tests.
+  - Updated the delivery documentation and ADR 0012 to distinguish a portable ZIP from a future full installer. Service registration currently uses the absolute path of the stable extracted executable and does not silently copy or move user files.
+  - Full quality gate: Pass; Debug/Release CTest 35/35, MSVC `/analyze`, both Clang analyses, Release build, and CPack ZIP generation passed on Windows 11 25H2 x64.
+  - Current Release measurement: executable 652,288 bytes, ZIP 311,533 bytes, UI smoke exit code 0, and dependencies limited to Windows system components; detailed values are in `docs/delivery.md` and the generated ignored report.
+- **Remaining acceptance:** execute the same package on Windows 11 24H2 x64, perform real SCM/UAC lifecycle and upgrade/uninstall checks, and collect multi-monitor/mixed-DPI visual plus CPU/workset/latency measurements.
+
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.56; tray/floating and settings implementations pass the unified Full gate with 34 tests on 25H2; visible UI/service acceptance and exact 24H2 acceptance remain pending. |
-| Where am I going? | Complete manual UI/SCM acceptance, then run the Phase 5 compatibility, packaging, footprint, and performance matrix. |
+| Where am I? | Phase 5.1; tray/floating/settings implementations and ZIP packaging pass the unified Full gate with 35 tests on 25H2; target-host acceptance remains pending. |
+| Where am I going? | Run the packaged artifact and lifecycle/visual/performance matrix on Windows 11 24H2 x64, then close upgrade/uninstall evidence. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and the implementation portions of UI Tasks 1-5 plus Settings Task 1; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, settings persistence/UI, SCM action bridge, IPC/ranking bridge, portable process lifetime, message loop, and smoke harness pass the unified Full gate with Debug/Release CTest 34/34 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, UI implementation Tasks 1-5, Settings implementation, and the ZIP/measurement checkpoint; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, settings persistence/UI, SCM action bridge, IPC/ranking bridge, portable process lifetime, message loop, packaging target, and smoke harness pass the unified Full gate with Debug/Release CTest 35/35 on 25H2. |

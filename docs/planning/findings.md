@@ -111,6 +111,23 @@
   process-handle shutdown and mode switching are intentionally left for the tray/settings
   milestones; the collector itself handles console/session control shutdown.
 
+## Release packaging audit (2026-08-12)
+
+- CMake now exposes an install target and CPack ZIP generator. The portable package contains the
+  Release executable and README only; the current static-runtime build did not require optional
+  MSVC DLLs.
+- `tools/package.ps1` generated `NetworkFlowMonitor-0.1.0-win-x64.zip` at 311,533 bytes. The
+  executable inside the install tree measured 652,288 bytes on the current 25H2 toolchain.
+- `tools/measure-release.ps1` recorded a successful `--ui-smoke-test` exit code 0 and an 84.017 ms
+  wall-clock run for that short smoke path. This is a startup/teardown observation, not a UI or
+  collector latency guarantee.
+- `dumpbin /DEPENDENTS` reported only Windows system components (`ADVAPI32`, `DWrite`, `d2d1`,
+  `GDI32`, `KERNEL32`, `SHELL32`, `tdh`, `USER32`, and a synchronization API-set). The exact
+  dependency and binary-size result must be rechecked on the final 24H2 build toolchain.
+- The service control adapter registers the absolute path of the stable extracted executable; it
+  does not silently copy or move a portable file. A future Program Files installer or upgrade
+  migration requires a separate design and test path.
+
 ## Resources
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip-v0-typegroup1

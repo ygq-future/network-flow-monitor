@@ -4,10 +4,10 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Complete the manual Windows 11 acceptance pass for the tray/floating windows and settings service actions, then begin the Phase 5 compatibility, packaging, footprint, and performance matrix.
+Run the target Windows 11 24H2 x64 acceptance matrix for the already-generated ZIP package, then close the remaining service upgrade/uninstall and visual/UAC evidence gaps.
 
 ## Current Phase
-Phase 4.56 — settings and service-management UI implementation checkpoint; visible UI/service acceptance pending
+Phase 5.1 — Release ZIP packaging and measurement checkpoint; 24H2 and manual acceptance pending
 
 ## Live Execution Queue
 
@@ -22,8 +22,8 @@ This table is the canonical current work queue. Only one milestone may be `in_pr
 | 4 | Secure IPC | Versioned named-pipe framing, explicit ACL, handshake/subscription, bounded parsing, reconnect state | complete | Tasks 1–10 pass; real local-pipe, hostile-input, cancellation, reconnect and live-DACL evidence pass; Full gate passes with 25/25 tests |
 | 5 | Dual collection modes | Portable elevated collector, Windows service lifecycle, install/uninstall/service-control entry implementations | complete | Tasks 1–3 pass; audit records ACL, smoke, size and 24H2 limitations; Full gate passes with Debug/Release CTest 28/28 |
 | 6 | Tray and floating UI | Notification icon, Direct2D/DirectWrite floating meter, hover ranking popup, dynamic placement, edge snap/hide | implemented (automated smoke complete; visible acceptance deferred to Phase 5) | UI checks cover multi-monitor, mixed DPI, workspace/taskbar changes, tray overflow, hover/dismiss timing, dirty-only redraw, and full quality gate passes |
-| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | in_progress (implementation complete; manual service/UI acceptance pending) | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
-| 8 | Integrated verification and delivery | Packaging plus functional, performance, footprint, compatibility and upgrade measurements | queued | Phase 5 matrix passes on Windows 11 24H2 x64 and measured results are recorded without invented thresholds |
+| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | implemented (automated controller/window smoke complete; real SCM/UI acceptance pending) | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
+| 8 | Integrated verification and delivery | Packaging plus functional, performance, footprint, compatibility and upgrade measurements | in_progress (ZIP target and 25H2 measurements complete; target acceptance pending) | Phase 5 matrix passes on Windows 11 24H2 x64 and measured results are recorded without invented thresholds |
 
 Each implementation milestone follows the same observable sequence: detailed plan -> failing tests -> minimal implementation -> per-task fast gate -> milestone full quality gate -> planning/progress update -> Git commit only when explicitly authorized.
 
@@ -64,15 +64,17 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Milestone 4: secure versioned IPC (Tasks 1–10 complete; exact 24H2 acceptance remains in Phase 5)
 - [x] Milestone 5: portable collector and Windows service modes
 - [x] Milestone 6: tray, floating window, ranking popup, and edge hiding (automated implementation and smoke complete; visible acceptance deferred to Phase 5)
-- [ ] Milestone 7: settings and service-management UI (implementation complete; manual acceptance pending)
+- [x] Milestone 7: settings and service-management UI (automated implementation and window smoke complete; real SCM/UI acceptance pending)
 - [x] Test incrementally
 - **Status:** in_progress
 
 ### Phase 5: Verification and delivery
-- [ ] Run functional, performance, packaging, and compatibility checks
-- [ ] Update progress and decision records
-- [ ] Deliver the verified artifacts
-- **Status:** pending
+- [x] Add Release install target and ZIP packaging validation
+- [x] Add reproducible Release size/dependency/UI-smoke measurement script
+- [ ] Run functional, performance, packaging, and compatibility checks on Windows 11 24H2 x64
+- [x] Update progress and decision records with current-host evidence
+- [ ] Deliver the verified artifacts after target-host acceptance
+- **Status:** in_progress
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

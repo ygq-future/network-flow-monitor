@@ -113,6 +113,26 @@ target_link_libraries(nfm_ui_settings_controller_tests PRIVATE nfm_ui nfm_config
 
 add_test(NAME ui.settings_controller COMMAND nfm_ui_settings_controller_tests)
 
+add_executable(nfm_ui_settings_window_tests ui_settings_window_tests.cpp)
+
+nfm_configure_target(nfm_ui_settings_window_tests)
+nfm_enable_static_analysis(nfm_ui_settings_window_tests)
+
+target_link_libraries(
+    nfm_ui_settings_window_tests
+    PRIVATE
+        nfm_ui
+        nfm_config
+        nfm_service
+        D2D1
+        Dwrite
+        Shell32
+        User32
+        Advapi32
+)
+
+add_test(NAME ui.settings_window COMMAND nfm_ui_settings_window_tests)
+
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 
 nfm_configure_target(nfm_config_model_tests)

@@ -38,10 +38,11 @@ Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArgumen
 
 $cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
 $ninja = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' | Select-Object -First 1)
+$cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cpack.exe' | Select-Object -First 1)
 $clangFormat = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-format.exe' | Select-Object -First 1)
 $clangTidy = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-tidy.exe' | Select-Object -First 1)
 
-foreach ($tool in @($cmake, $ninja, $clangFormat, $clangTidy)) {
+foreach ($tool in @($cmake, $ninja, $cpack, $clangFormat, $clangTidy)) {
     if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool)) {
         throw "A required build tool could not be located: $tool"
     }
@@ -119,6 +120,10 @@ if ($Mode -eq 'Full') {
     Invoke-Native -FilePath $cmake -ArgumentList @(
         '-E', 'chdir', 'build/windows-x64-release',
         'ctest', '--output-on-failure'
+    )
+    Invoke-Native -FilePath $cpack -ArgumentList @(
+        '--config', (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake'),
+        '-B', (Join-Path $projectRoot 'build\windows-x64-release')
     )
 }
 

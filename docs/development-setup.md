@@ -87,6 +87,22 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 - Process Explorer：检查权限、服务进程和句柄。
 - `sc.exe`：仅用于诊断 SCM 状态；正常服务操作由应用设置界面完成。
 
+## Release 打包与测量
+
+Release 产物使用静态 MSVC 运行库，并通过 CMake 安装目标和 CPack ZIP 目标生成绿色包：
+
+```powershell
+pwsh -NoProfile -File tools/package.ps1 -Configuration Release
+```
+
+`tools/quality.ps1 -Mode Full` 会额外验证 CPack ZIP 目标。要记录当前主机的可执行文件大小、SHA-256、系统依赖和 UI smoke 退出结果：
+
+```powershell
+pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
+```
+
+生成的 `dist/` 目录和测量 JSON 被 `.gitignore` 排除。服务模式应从解压到稳定位置的副本安装；服务安装后不要移动或删除该目录。
+
 ## 常见问题
 
 ### `cl`、CMake 或 Ninja 不在 PATH

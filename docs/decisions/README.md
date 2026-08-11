@@ -13,5 +13,6 @@
 | [0009](0009-custom-realtime-system-etw-session.md) | 使用自定义实时 SystemTraceProvider 会话 | 已接受 |
 | [0010](0010-owner-scoped-versioned-named-pipe-ipc.md) | 使用所有者限定的版本化命名管道 IPC | 已接受 |
 | [0011](0011-settings-service-actions-uac.md) | 设置界面管理服务并隔离 UAC | 已接受 |
+| [0012](0012-zip-portable-delivery.md) | 使用静态运行库 ZIP 作为首版交付物 | 已接受 |
 
 改变已接受 ADR 的结论时，应新增取代它的 ADR 或明确更新状态及理由，不应静默修改历史。

@@ -513,7 +513,7 @@
 - **Status:** complete for Tasks 1–3; Task 4 audit is next
 - **Started:** 2026-08-12
 - Current task:
-  - Audit the dual-mode evidence and hand off to the native UI milestone.
+  - Dual-mode audit is complete; design the tray and floating UI implementation next.
 - Completed work:
   - Added `EtwSnapshotProvider`, which maps `WindowsEtwSession::FlushAndQuery()` into the existing IPC capture model, preserves current collector health on failure, and timestamps successful snapshots exactly once.
   - Added `CollectorHost`, a service-neutral lifecycle owner that wires the subscription observer before startup, starts ETW before IPC, rolls ETW back when IPC startup fails, schedules `SnapshotPublisher::RunDue()` only at publisher deadlines, and makes stop idempotent.
@@ -534,6 +534,9 @@
   - Task 3 Fast passed: clean Debug CTest 26/26, strict MSVC build, clang-tidy and Clang Static Analyzer.
   - Task 3 Full passed: clean Debug/Release CTest 28/28 including live IPC and ETW integrations, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
   - Exact Windows 11 24H2 behavior and UI-owned portable process-handle shutdown remain open audit items; current evidence is Windows 11 25H2 and the runtime binary is not yet the finished tray UI.
+  - Dual-mode audit recorded the Release binary measurement (340,992 bytes), reachable dependencies, direct service/query smoke exit codes (1063/1060), and the deliberate no-real-SCM-mutation policy in `findings.md`.
+  - Final audit Full gate passed after the documentation and packaging evidence sync: Debug/Release CTest 28/28, live IPC/ETW integrations, strict builds, both Clang analyses, MSVC `/analyze`, and Release x64.
+  - Milestone 5 is complete. Milestone 6 is now the only `in_progress` milestone; its first task is UI design and native Win32/Direct2D boundary definition.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -598,6 +601,7 @@
 | Dual modes Task 3 runtime smoke | Debug `NetworkFlowMonitor.exe --service` and `--service-control` | Direct service entry is rejected by SCM with a classified error; query reports an absent service without mutation | Exit 1063 (`ERROR_FAILED_SERVICE_CONTROLLER_CONNECT`) and 1060 (`ERROR_SERVICE_DOES_NOT_EXIST`); no service was installed or changed | Pass on 25H2 |
 | Dual modes Task 3 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, runtime test and Clang analyses pass | Exit 0; clean Debug CTest 26/26 and both Clang analyses passed | Pass |
 | Dual modes Task 3 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates, live integrations, `/analyze`, and Release x64 pass | Exit 0; clean Debug/Release CTest 28/28, live IPC/ETW integrations, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Dual modes Task 4 audit Full gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` after runtime docs and packaging evidence sync | Final source and documentation state remains green | Exit 0; clean Debug/Release CTest 28/28, live IPC/ETW integrations, strict builds, both Clang analyses, `/analyze`, and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -722,8 +726,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.43; Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-3 are complete on the available 25H2 host; the dual-mode audit is next, and exact 24H2 acceptance remains pending for Phase 5. |
-| Where am I going? | Audit service/portable evidence and then build native tray/floating UI, settings, and integrated delivery. |
+| Where am I? | Phase 4.50; Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-4 are complete on the available 25H2 host; tray/floating UI design is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I going? | Design and implement native tray/floating UI, then settings, integrated verification, and delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-3; the service lifecycle adapter, service-neutral host, runtime principal wiring, and hostile-input/reconnect integrations pass the unified Full gate with Debug/Release CTest 28/28 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-4; the service lifecycle adapter, service-neutral host, runtime principal wiring, audit evidence, and hostile-input/reconnect integrations pass the unified Full gate with Debug/Release CTest 28/28 on 25H2. |

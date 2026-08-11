@@ -91,6 +91,26 @@
 | Taskbar integration conflicts with an existing TrafficMonitor installation and relies on unstable Win11 internals | Removed taskbar integration from scope. |
 | "Green" distribution was initially treated as incompatible with elevation | Clarified that a portable executable can launch an elevated collector each run; installation and privilege are separate concerns. |
 
+## Dual-mode runtime audit (2026-08-12)
+
+- The runtime composition root now links the single executable to the existing ETW, IPC and SCM
+  boundaries. The default UI branch does not construct or start an ETW session.
+- Portable IPC authorization uses the current logon SID for both the client identity and the
+  temporary collector's server logon ACE. Service IPC authorization uses the built-in Users SID
+  for clients and LocalSystem for the service server. These shapes are validated in the runtime
+  integration test and are not a substitute for a cross-user live test.
+- Direct Release smoke launches classify `--service` as `ERROR_FAILED_SERVICE_CONTROLLER_CONNECT`
+  (1063) when not started by SCM and classify `--service-control` as
+  `ERROR_SERVICE_DOES_NOT_EXIST` (1060) before any service is installed. CI deliberately does not
+  install, start, upgrade, or delete a real machine service.
+- The post-wiring Release executable measured 340,992 bytes on the current toolchain. `dumpbin`
+  reports SHELL32, USER32, TDH, ADVAPI32, KERNEL32 and the synchronization API-set; this is a
+  development measurement, not a product-size target or a claim of self-contained packaging.
+- The available host is Windows 11 25H2 build 26200. Exact Windows 11 24H2 schema, privilege,
+  service-install, and mixed-DPI acceptance remain Phase 5 verification work. UI-owned portable
+  process-handle shutdown and mode switching are intentionally left for the tray/settings
+  milestones; the collector itself handles console/session control shutdown.
+
 ## Resources
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip-v0-typegroup1

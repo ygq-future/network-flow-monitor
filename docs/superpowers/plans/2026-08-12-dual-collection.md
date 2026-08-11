@@ -118,7 +118,12 @@ shapes and non-zero instance identity. CI does not install or mutate a real SCM 
 - Modify: `docs/planning/task_plan.md`
 - Modify: `docs/planning/progress.md`
 
-- [ ] **Step 1: Map service/portable/security requirements to evidence**
-- [ ] **Step 2: Record 24H2 and privilege-environment limitations explicitly**
-- [ ] **Step 3: Run Full, packaging smoke checks and commit `feat: complete dual collection modes`**
-- [ ] **Step 4: Mark exactly one next milestone in progress: tray and floating UI**
+- [x] **Step 1: Map service/portable/security requirements to evidence**
+- [x] **Step 2: Record 24H2 and privilege-environment limitations explicitly**
+- [x] **Step 3: Run Full, packaging smoke checks and commit `feat: complete dual collection modes`**
+- [x] **Step 4: Mark exactly one next milestone in progress: tray and floating UI**
+
+Task 4 audit notes: the Release smoke entry points returned 1063 for a direct service dispatch
+and 1060 for a query before installation. No real SCM mutation was performed. The Release binary
+measurement and dependency list are recorded in `docs/planning/findings.md`; exact 24H2 behavior
+and UI-owned portable process lifetime remain explicit Phase 5/UI verification items.

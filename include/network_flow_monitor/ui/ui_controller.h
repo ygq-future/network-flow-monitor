@@ -36,6 +36,7 @@ class UiController final : public ipc::IpcClientObserver,
     UiController& operator=(UiController&&) = delete;
 
     [[nodiscard]] bool Start() noexcept;
+    [[nodiscard]] int Run(bool smoke_test = false) noexcept;
     void Shutdown() noexcept;
     void AttachMessageWindow(HWND window) noexcept;
     [[nodiscard]] bool ProcessPendingSnapshot() noexcept;
@@ -69,7 +70,11 @@ class UiController final : public ipc::IpcClientObserver,
   private:
     [[nodiscard]] InteractionOptions InteractionOptionsFromConfig() const noexcept;
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
+    [[nodiscard]] bool CreateMessageWindow() noexcept;
+    void DestroyMessageWindow() noexcept;
     void PostSnapshotMessage() noexcept;
+    static LRESULT CALLBACK MessageWindowProc(HWND window, UINT message, WPARAM wparam,
+                                              LPARAM lparam) noexcept;
 
     HINSTANCE instance_{};
     config::AppConfig config_;

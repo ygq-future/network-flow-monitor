@@ -782,6 +782,7 @@
 | 2026-08-12 | UI Task 3 first Full gate found MSVC C6326 on constant runtime style comparisons | 1 | Converted fixed window-style checks to compile-time `static_assert`; Fast and Full then passed. |
 | 2026-08-12 | UI Task 4 first Fast build failed on missing Shell API declarations, an invalid tray owner type, and moving from a const factory result | 1 | Added the Shell API header, corrected the owner boundary, and moved from a mutable factory result; the next clean build reached link and test stages. |
 | 2026-08-12 | UI Task 4 first Full analysis found MSVC C6262 for a 65 KiB stack buffer in executable-path lookup | 1 | Replaced the fixed stack array with a heap-backed `std::wstring`; the final `/analyze` and Full gate passed. |
+| 2026-08-12 | UI Task 5 first tidy run rejected Win32 message-window pointer casts and a non-null-terminated string-view data pointer | 1 | Added check-specific ABI `NOLINTNEXTLINE` comments and changed the class name to a null-terminated `std::array`; the next Fast/Full gates passed. |
 
 ## Phase 4.54: Tray/floating UI Task 4 implementation
 - **Status:** complete on Windows 11 25H2 x64; exact 24H2 acceptance remains in Phase 5
@@ -798,11 +799,25 @@
   - Final Fast gate: Pass; clean Debug CTest 30/30, strict warnings, clang-tidy, and Clang Static Analyzer passed.
   - Final Full gate: Pass in 107.7 seconds; clean Debug/Release CTest 32/32, MSVC `/analyze`, both Clang analyses, and Release x64 passed. The 32-test count includes the two administrator-labelled live integration tests, both executed successfully on this host.
 
+## Phase 4.55: Tray/floating UI Task 5 implementation checkpoint
+- **Status:** implementation committed; visible interaction validation pending on Windows 11 25H2
+- **Started:** 2026-08-12
+- **Current task:**
+  - Run the visible 25H2 tray/floating interaction checklist, then begin the Milestone 6 audit.
+- **Actions taken:**
+  - Replaced the bootstrap information message box with `UiController::Run`, a hidden message-only window, tray callback dispatch, snapshot-message dispatch, and a clean Win32 message loop.
+  - Added the internal `--ui-smoke-test` switch. It selects a service-endpoint UI configuration, starts the UI without UAC or collector construction, posts a quit message, and exercises shutdown/cleanup deterministically.
+  - Added `ui.integration_smoke`, which creates the controller in service mode and verifies the same loop in-process.
+  - Preserved the existing `--collector`, `--service`, `--install`, `--uninstall`, and `--service-control` branches; UI mode is the only branch that creates windows.
+  - Real Debug executable smoke run: `NetworkFlowMonitor.exe --ui-smoke-test` exited 0; no message box appeared.
+  - Final Fast gate: Pass; clean Debug CTest 31/31, strict warnings, clang-tidy, and Clang Static Analyzer passed.
+  - Final Full gate: Pass in 109.9 seconds; clean Debug/Release CTest 33/33, MSVC `/analyze`, both Clang analyses, and Release x64 passed.
+
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.54; Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and tray/floating UI Tasks 1-4 are complete on the available 25H2 host; Task 5 is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.55; tray/floating UI implementation Tasks 1-5 are committed and the visible 25H2 interaction checklist is pending; exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Design and implement native tray/floating UI, then settings, integrated verification, and delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and UI Tasks 1-4; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, IPC/ranking bridge, portable process lifetime, audit evidence, hostile-input/reconnect integrations, and UI model pass the unified Full gate with Debug/Release CTest 32/32 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and the implementation portion of UI Tasks 1-5; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, IPC/ranking bridge, portable process lifetime, message loop, and smoke harness pass the unified Full gate with Debug/Release CTest 33/33 on 25H2. |

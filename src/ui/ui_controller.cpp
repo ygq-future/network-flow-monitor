@@ -2,9 +2,19 @@
 
 #include "network_flow_monitor/app/collector_runtime.h"
 
+#include <array>
 #include <chrono>
 
 namespace nfm::ui {
+namespace {
+
+constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMessageWindow");
+
+[[nodiscard]] int Win32Result(std::uint32_t error) noexcept {
+    return error == ERROR_SUCCESS ? 0 : static_cast<int>(error);
+}
+
+} // namespace
 
 UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
     : instance_{instance}, config_{config}, collector_process_{shell_api_},
@@ -62,6 +72,41 @@ bool UiController::Start() noexcept {
     return true;
 }
 
+int UiController::Run(bool smoke_test) noexcept {
+    if (!CreateMessageWindow()) {
+        const auto error = ::GetLastError();
+        return Win32Result(error == ERROR_SUCCESS ? ERROR_FUNCTION_FAILED : error);
+    }
+    AttachMessageWindow(message_window_);
+    if (!Start()) {
+        Shutdown();
+        DestroyMessageWindow();
+        return ERROR_FUNCTION_FAILED;
+    }
+    if (smoke_test) {
+        ::PostQuitMessage(0);
+    }
+
+    int result = 0;
+    MSG message{};
+    while (true) {
+        const auto status = ::GetMessageW(&message, nullptr, 0U, 0U);
+        if (status == -1) {
+            result = Win32Result(::GetLastError());
+            break;
+        }
+        if (status == 0) {
+            break;
+        }
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+    }
+
+    Shutdown();
+    DestroyMessageWindow();
+    return result;
+}
+
 void UiController::Shutdown() noexcept {
     if (ipc_client_ != nullptr) {
         ipc_client_->Stop();
@@ -77,6 +122,43 @@ void UiController::Shutdown() noexcept {
 void UiController::AttachMessageWindow(HWND window) noexcept {
     message_window_ = window;
     tray_controller_.SetOwner(window);
+}
+
+bool UiController::CreateMessageWindow() noexcept {
+    if (message_window_ != nullptr) {
+        return true;
+    }
+    if (instance_ == nullptr) {
+        instance_ = ::GetModuleHandleW(nullptr);
+    }
+
+    const WNDCLASSEXW window_class{.cbSize = sizeof(WNDCLASSEXW),
+                                   .style = 0,
+                                   .lpfnWndProc = &UiController::MessageWindowProc,
+                                   .cbClsExtra = 0,
+                                   .cbWndExtra = 0,
+                                   .hInstance = instance_,
+                                   .hIcon = nullptr,
+                                   .hCursor = nullptr,
+                                   .hbrBackground = nullptr,
+                                   .lpszMenuName = nullptr,
+                                   .lpszClassName = kUiMessageWindowClass.data(),
+                                   .hIconSm = nullptr};
+    if (::RegisterClassExW(&window_class) == 0 && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        return false;
+    }
+
+    message_window_ = ::CreateWindowExW(0U, kUiMessageWindowClass.data(), L"Network Flow Monitor",
+                                        0U, 0, 0, 0, 0, HWND_MESSAGE, nullptr, instance_, this);
+    return message_window_ != nullptr;
+}
+
+void UiController::DestroyMessageWindow() noexcept {
+    if (message_window_ != nullptr) {
+        auto* const window = message_window_;
+        message_window_ = nullptr;
+        ::DestroyWindow(window);
+    }
 }
 
 std::optional<ipc::ClientSnapshot> UiController::TakePendingSnapshot() noexcept {
@@ -217,6 +299,36 @@ void UiController::PostSnapshotMessage() noexcept {
         const std::scoped_lock lock{pending_mutex_};
         pending_message_posted_ = false;
     }
+}
+
+LRESULT CALLBACK UiController::MessageWindowProc(HWND window, UINT message, WPARAM wparam,
+                                                 LPARAM lparam) noexcept {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): Win32 stores the controller pointer in LONG_PTR.
+    auto* controller = reinterpret_cast<UiController*>(::GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        // NOLINTNEXTLINE(performance-no-int-to-ptr): Win32 LPARAM carries CREATESTRUCTW here.
+        const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lparam);
+        controller = static_cast<UiController*>(create->lpCreateParams);
+        ::SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(controller));
+        return TRUE;
+    }
+    if (message == WM_NCDESTROY) {
+        ::SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+    }
+    if (controller == nullptr) {
+        return ::DefWindowProcW(window, message, wparam, lparam);
+    }
+
+    if (message == kUiSnapshotMessage) {
+        static_cast<void>(controller->ProcessPendingSnapshot());
+        return 0;
+    }
+    if (message == kTrayCallbackMessage) {
+        static_cast<void>(controller->tray_controller_.HandleCallback(TrayNotification{
+            .icon_id = static_cast<UINT>(wparam), .message = static_cast<UINT>(lparam)}));
+        return 0;
+    }
+    return ::DefWindowProcW(window, message, wparam, lparam);
 }
 
 } // namespace nfm::ui

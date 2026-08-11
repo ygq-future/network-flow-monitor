@@ -159,4 +159,19 @@ add_executable(NetworkFlowMonitor WIN32 app/main.cpp)
 nfm_configure_target(NetworkFlowMonitor)
 nfm_enable_static_analysis(NetworkFlowMonitor ENABLE_EXCEPTIONS)
 
-target_link_libraries(NetworkFlowMonitor PRIVATE nfm_runtime nfm_service nfm_ipc Shell32 User32)
+target_link_libraries(
+    NetworkFlowMonitor
+    PRIVATE
+        nfm_ui
+        nfm_runtime
+        nfm_service
+        nfm_ipc
+        nfm_collector
+        nfm_ranking
+        nfm_process
+        nfm_config
+        D2D1
+        Dwrite
+        Shell32
+        User32
+)

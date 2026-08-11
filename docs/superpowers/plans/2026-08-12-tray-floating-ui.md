@@ -173,11 +173,11 @@ Commit `feat: bridge ui to ipc and ranking` after the checks pass.
 - Modify: `docs/architecture.md`
 - Modify: `docs/configuration.md`
 
-- [ ] **Step 1: Add a non-blocking UI smoke test**
+- [x] **Step 1: Add a non-blocking UI smoke test**
 
 Launch the Release executable with an internal test switch that creates and destroys the UI message loop without a message box; verify clean exit, tray cleanup and no collector construction in UI mode.
 
-- [ ] **Step 2: Wire `wWinMain` to `UiController::Run`**
+- [x] **Step 2: Wire `wWinMain` to `UiController::Run`**
 
 Keep existing runtime-mode parsing; default mode is the only branch that creates UI windows. All privileged modes remain the previously implemented collector/service branches.
 
@@ -185,9 +185,9 @@ Keep existing runtime-mode parsing; default mode is the only branch that creates
 
 Verify tray left/right click, floating drag/snap/hide, hover ranking, disconnect overlay, monitor/DPI/work-area changes, and Release dependency output. Record only observed behavior.
 
-- [ ] **Step 4: Run Full and commit**
+- [x] **Step 4: Run Full and commit implementation checkpoint**
 
-Commit `feat: wire native tray and floating ui` only after Debug/Release tests, strict builds, both Clang analyses, `/analyze`, and Release x64 pass.
+The implementation checkpoint is committed only after Debug/Release tests, strict builds, both Clang analyses, `/analyze`, and Release x64 pass. Step 3 remains open until the visible 25H2 interaction checks are observed.
 
 ### Task 6: Milestone 6 audit and handoff to settings
 

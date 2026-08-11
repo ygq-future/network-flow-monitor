@@ -79,6 +79,29 @@ target_link_libraries(
 
 add_test(NAME ui.controller COMMAND nfm_ui_controller_tests)
 
+add_executable(nfm_ui_integration_smoke_tests ui_integration_smoke_tests.cpp)
+
+nfm_configure_target(nfm_ui_integration_smoke_tests)
+nfm_enable_static_analysis(nfm_ui_integration_smoke_tests)
+
+target_link_libraries(
+    nfm_ui_integration_smoke_tests
+    PRIVATE
+        nfm_ui
+        nfm_ipc
+        nfm_ranking
+        nfm_config
+        nfm_runtime
+        nfm_collector
+        D2D1
+        Dwrite
+        Shell32
+        User32
+        Advapi32
+)
+
+add_test(NAME ui.integration_smoke COMMAND nfm_ui_integration_smoke_tests)
+
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 
 nfm_configure_target(nfm_config_model_tests)

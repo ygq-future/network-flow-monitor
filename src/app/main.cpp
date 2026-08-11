@@ -1,6 +1,8 @@
 #include "network_flow_monitor/app/collector_runtime.h"
 #include "network_flow_monitor/app/runtime_mode.h"
+#include "network_flow_monitor/config/app_config.h"
 #include "network_flow_monitor/service/service_control.h"
+#include "network_flow_monitor/ui/ui_controller.h"
 
 #include <windows.h>
 
@@ -100,7 +102,16 @@ int RunServiceAction(nfm::app::RuntimeMode mode) {
     return ResultCode(result.win32_error);
 }
 
-int RunMode(nfm::app::RuntimeMode mode) {
+int RunUi(HINSTANCE instance, bool smoke_test) {
+    auto config = nfm::config::DefaultAppConfig();
+    if (smoke_test) {
+        config.collector.preferred_mode = nfm::config::CollectorMode::Service;
+    }
+    nfm::ui::UiController controller{instance, config};
+    return controller.Run(smoke_test);
+}
+
+int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
     if (mode == nfm::app::RuntimeMode::Invalid) {
         ::MessageBoxW(nullptr, L"Unsupported command-line arguments.", L"Network Flow Monitor",
                       MB_OK | MB_ICONERROR);
@@ -118,7 +129,7 @@ int RunMode(nfm::app::RuntimeMode mode) {
         case nfm::app::RuntimeMode::ServiceControl:
             return RunServiceAction(mode);
         case nfm::app::RuntimeMode::Ui:
-            break;
+            return RunUi(instance, smoke_test);
         case nfm::app::RuntimeMode::Invalid:
             return ResultCode(ERROR_INVALID_PARAMETER);
         }
@@ -126,9 +137,7 @@ int RunMode(nfm::app::RuntimeMode mode) {
         return ResultCode(ERROR_NOT_ENOUGH_MEMORY);
     }
 
-    ::MessageBoxW(nullptr, L"Network Flow Monitor project bootstrap is ready.",
-                  L"Network Flow Monitor", MB_OK | MB_ICONINFORMATION);
-    return 0;
+    return ResultCode(ERROR_INVALID_PARAMETER);
 }
 
 nfm::app::RuntimeMode ParseCommandLineArguments(wchar_t** arguments, int argument_count) noexcept {
@@ -146,6 +155,11 @@ nfm::app::RuntimeMode ParseCommandLineArguments(wchar_t** arguments, int argumen
     return nfm::app::ParseRuntimeMode(std::span<const std::wstring_view>{&mode_argument, 1});
 }
 
+bool IsUiSmokeTestArguments(wchar_t** arguments, int argument_count) noexcept {
+    return arguments != nullptr && argument_count == 2 && arguments[1] != nullptr &&
+           std::wstring_view{arguments[1]} == L"--ui-smoke-test";
+}
+
 } // namespace
 
 int WINAPI wWinMain(
@@ -154,7 +168,6 @@ int WINAPI wWinMain(
     _In_opt_ HINSTANCE hPrevInstance,
     _In_ LPWSTR lpCmdLine, // NOLINT(readability-non-const-parameter) -- Win32 ABI requires LPWSTR.
     _In_ int nShowCmd) {
-    static_cast<void>(hInstance);
     static_cast<void>(hPrevInstance);
     static_cast<void>(lpCmdLine);
     static_cast<void>(nShowCmd);
@@ -166,5 +179,8 @@ int WINAPI wWinMain(
     }
 
     const std::unique_ptr<wchar_t*, LocalFreeDeleter> arguments_owner{raw_arguments};
-    return RunMode(ParseCommandLineArguments(raw_arguments, argument_count));
+    const auto smoke_test = IsUiSmokeTestArguments(raw_arguments, argument_count);
+    const auto mode = smoke_test ? nfm::app::RuntimeMode::Ui
+                                 : ParseCommandLineArguments(raw_arguments, argument_count);
+    return RunMode(mode, hInstance, smoke_test);
 }

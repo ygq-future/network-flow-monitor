@@ -4,10 +4,10 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Execute Milestone 5: implement portable elevated collection and Windows service lifecycle.
+Execute Milestone 5 Task 2: add the service lifecycle policy and SCM adapter.
 
 ## Current Phase
-Phase 4.40 — dual collection modes and service lifecycle
+Phase 4.41 — dual collection modes Task 2 design
 
 ## Live Execution Queue
 
@@ -20,7 +20,7 @@ This table is the canonical current work queue. Only one milestone may be `in_pr
 | 2 | Process identity | Process lifetime tracking, PID-reuse defense, package/path-based application identity, expiring identity cache | complete | Unit tests cover process exit, PID reuse, inaccessible paths, package identity, same-name/different-path separation, and multi-process identity merge; full quality gate passes |
 | 3 | ETW collector | Privileged TCP/UDP IPv4/IPv6 and process event session, cumulative counters, health/lost-event reporting | complete (implemented and verified on 25H2; 24H2 acceptance deferred to Phase 5) | Collector integration tests cover TCP, UDP, IPv4, IPv6, short/high-rate connections and event-loss diagnostics; full quality gate passes; exact 24H2 schema remains a Phase 5 target-host check |
 | 4 | Secure IPC | Versioned named-pipe framing, explicit ACL, handshake/subscription, bounded parsing, reconnect state | complete | Tasks 1–10 pass; real local-pipe, hostile-input, cancellation, reconnect and live-DACL evidence pass; Full gate passes with 25/25 tests |
-| 5 | Dual collection modes | Portable elevated collector, Windows service lifecycle, install/uninstall/service-control entry implementations | in_progress (design) | Tests must cover install, start, stop, restart, startup type, upgrade/uninstall, portable shutdown, UI reconnection, and full quality gate passes |
+| 5 | Dual collection modes | Portable elevated collector, Windows service lifecycle, install/uninstall/service-control entry implementations | in_progress (Task 2 design) | Tests must cover install, start, stop, restart, startup type, upgrade/uninstall, portable shutdown, UI reconnection, and full quality gate passes |
 | 6 | Tray and floating UI | Notification icon, Direct2D/DirectWrite floating meter, hover ranking popup, dynamic placement, edge snap/hide | queued | UI checks cover multi-monitor, mixed DPI, workspace/taskbar changes, tray overflow, hover/dismiss timing, dirty-only redraw, and full quality gate passes |
 | 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | queued | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
 | 8 | Integrated verification and delivery | Packaging plus functional, performance, footprint, compatibility and upgrade measurements | queued | Phase 5 matrix passes on Windows 11 24H2 x64 and measured results are recorded without invented thresholds |

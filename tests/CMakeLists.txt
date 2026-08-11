@@ -110,6 +110,15 @@ target_link_libraries(nfm_collector_core_tests PRIVATE nfm_collector)
 
 add_test(NAME collector.core COMMAND nfm_collector_core_tests)
 
+add_executable(nfm_collector_host_tests collector_host_tests.cpp)
+
+nfm_configure_target(nfm_collector_host_tests)
+nfm_enable_static_analysis(nfm_collector_host_tests)
+
+target_link_libraries(nfm_collector_host_tests PRIVATE nfm_collector nfm_ipc Advapi32 Tdh)
+
+add_test(NAME collector.host COMMAND nfm_collector_host_tests)
+
 add_executable(nfm_ipc_frame_codec_tests ipc_frame_codec_tests.cpp)
 
 nfm_configure_target(nfm_ipc_frame_codec_tests)

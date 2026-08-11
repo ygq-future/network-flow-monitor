@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -110,6 +111,7 @@ class SnapshotPublisher final : public ClientSessionObserver {
     std::optional<std::chrono::steady_clock::time_point> last_capture_;
     std::uint64_t snapshot_sequence_{};
     PublisherError pending_error_{PublisherError::None};
+    mutable std::mutex mutex_;
 };
 
 } // namespace nfm::ipc

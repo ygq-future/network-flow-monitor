@@ -49,6 +49,7 @@ std::uint64_t SnapshotPublisher::UptimeMicroseconds(
 }
 
 void SnapshotPublisher::SubscriptionChanged(ClientSubscription subscription) noexcept {
+    const std::scoped_lock lock{mutex_};
     if (!IsValidSubscription(subscription)) {
         pending_error_ = PublisherError::InvalidSubscription;
         return;
@@ -64,6 +65,7 @@ void SnapshotPublisher::SubscriptionChanged(ClientSubscription subscription) noe
 }
 
 void SnapshotPublisher::ClientDisconnected(std::uint64_t client_id) noexcept {
+    const std::scoped_lock lock{mutex_};
     subscriptions_.erase(client_id);
 }
 
@@ -108,6 +110,7 @@ PublisherResult SnapshotPublisher::PublishStatus(
 }
 
 PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point now) noexcept {
+    const std::scoped_lock lock{mutex_};
     if (pending_error_ != PublisherError::None) {
         const auto error = pending_error_;
         pending_error_ = PublisherError::None;
@@ -205,6 +208,7 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
 
 std::optional<std::chrono::steady_clock::time_point> SnapshotPublisher::next_deadline()
     const noexcept {
+    const std::scoped_lock lock{mutex_};
     if (subscriptions_.empty()) {
         return std::nullopt;
     }

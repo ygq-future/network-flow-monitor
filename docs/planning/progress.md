@@ -538,6 +538,21 @@
   - Final audit Full gate passed after the documentation and packaging evidence sync: Debug/Release CTest 28/28, live IPC/ETW integrations, strict builds, both Clang analyses, MSVC `/analyze`, and Release x64.
   - Milestone 5 is complete. Milestone 6 is now the only `in_progress` milestone; its first task is UI design and native Win32/Direct2D boundary definition.
 
+### Phase 4.51: Tray and floating UI — Task 1 implementation
+- **Status:** complete; Task 1 commit follows this record
+- **Started:** 2026-08-12
+- Current task:
+  - Task 1 now provides platform-neutral DPI geometry, work-area clamping/snap, deterministic popup placement, and the hover/dismiss/auto-hide interaction state machine.
+  - Task 2 is next: Direct2D/DirectWrite resource ownership and the fakeable notification-area controller.
+- Completed work:
+  - Added `nfm_ui` as a first-party static library with no Win32 window dependency in the pure logic layer.
+  - Added coverage for 96/144 DPI conversion, negative multi-monitor coordinates, oversized/clamped rectangles, popup placement, hover/dismiss timing, edge reveal, auto-hide, and data dirty flags.
+  - The deliberate red phase produced the expected missing-header C1083 before implementation.
+  - The corrected implementation passed the Fast gate: strict Debug build, clang-tidy/Clang Static Analyzer, and CTest 27/27.
+- Open evidence:
+  - Full quality gate passed in 98.2 seconds: Debug/Release CTest 29/29, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64.
+  - The Task 1 commit is the next repository operation; Task 2 remains the only active implementation item afterward.
+
 ## Test Results
 | Test | Input | Expected | Actual | Status |
 |------|-------|----------|--------|--------|
@@ -546,6 +561,9 @@
 | Placeholder scan | All repository Markdown files | No unresolved TODO/TBD/placeholder content | No unresolved placeholders | Pass |
 | Relative-link validation | All repository Markdown links | Every relative target exists | All targets resolved | Pass |
 | Secure IPC plan self-review | Approved specification plus ten-task implementation plan | No placeholders, unbalanced fences, undefined transport seam, scope gap, or whitespace error | 10 tasks and 51 explicit steps; 32 fences balanced; undefined factory and wiring corrected; `git diff --check` passed | Pass |
+| UI Task 1 red phase | Fast gate after registering `ui.layout` before adding geometry/state headers | Compilation fails only for the missing UI header | C1083 for `network_flow_monitor/ui/dpi_layout.h` | Pass |
+| UI Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after state-machine fix | Strict Debug build, Clang analysis, and all tests pass | Process exited 0; Debug CTest 27/27 and `Quality gate 'Fast' passed.` | Pass |
+| UI Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release tests pass | Process exited 0 in 98.2 seconds; Debug/Release CTest 29/29, both Clang analyses, `/analyze`, and Release x64 passed | Pass |
 | Secure IPC Task 1 red phase | Two focused Debug targets after adding bounded-accumulator tests | Fail only for the absent timestamp/watermark/disposition API, capacity constants and health fields | Expected MSVC missing-member and wrong-arity diagnostics; no unrelated failure | Pass |
 | Secure IPC Task 1 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format check, strict Debug, non-admin tests and Clang analyses pass | Exit 0 in 36.0 s; Debug CTest 14/14; clang-tidy and Clang Static Analyzer passed | Pass |
 | Secure IPC Task 1 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release live integration pass | Exit 0 in 75.7 s; Debug and Release CTest 15/15; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
@@ -722,12 +740,13 @@
 | 2026-08-11 | Task 5 first Clang analysis found Win32 const-SID adapters, unsafe dynamic indexes, inconsistent enum values and test-style diagnostics | 1 | Concentrated legacy `PSID` const adaptation into two check-specific documented helpers, used vector/span bounds, explicit enum values and qualified types; the next focused analysis was zero-diagnostic. |
 | 2026-08-11 | Task 6 first implementation build could not deduce `std::array` and returned an operation result from connection factories | 1 | Traced the diagnostics to the missing `<array>` include and an unadapted result layer; added the include and an explicit connection-error classifier, then the focused strict build passed. |
 | 2026-08-11 | Enabling exception-aware IPC analysis exposed potentially throwing work behind three `noexcept` boundaries | 1 | Kept exception analysis enabled, removed `noexcept` from the value-level catalog constructor, caught token-query allocation failures at the Win32 adapter boundary, and retained explicit catch/classification in transport allocation paths. |
+| 2026-08-12 | UI Task 1 first Fast run found the ranking dismiss timer was not armed after leaving the anchor during popup transition | 1 | Treated anchor leave as a temporary no-target state; the popup enter event can still cancel the timer, and the corrected Fast/Full gates passed. |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.50; Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-4 are complete on the available 25H2 host; tray/floating UI design is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.51; Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and tray/floating UI Task 1 are complete on the available 25H2 host; Task 2 is next, and exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Design and implement native tray/floating UI, then settings, integrated verification, and delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, and Dual Modes Tasks 1-4; the service lifecycle adapter, service-neutral host, runtime principal wiring, audit evidence, and hostile-input/reconnect integrations pass the unified Full gate with Debug/Release CTest 28/28 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, and UI Task 1; the service lifecycle adapter, service-neutral host, runtime principal wiring, audit evidence, hostile-input/reconnect integrations, and pure UI model pass the unified Full gate with Debug/Release CTest 29/29 on 25H2. |

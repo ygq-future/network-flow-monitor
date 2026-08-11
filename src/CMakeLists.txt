@@ -9,6 +9,17 @@ target_include_directories(
 nfm_configure_target(nfm_runtime)
 nfm_enable_static_analysis(nfm_runtime ENABLE_EXCEPTIONS)
 
+add_library(nfm_ui STATIC ui/dpi_layout.cpp ui/interaction_state.cpp)
+
+target_include_directories(
+    nfm_ui
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/include"
+)
+
+nfm_configure_target(nfm_ui)
+nfm_enable_static_analysis(nfm_ui)
+
 add_library(
     nfm_config
     STATIC

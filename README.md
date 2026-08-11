@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-项目已完成原生 C++20/CMake 初始化、单一二进制运行模式骨架、schema-1 配置与实时排行核心、进程生命周期与身份解析，以及实时 ETW Collector 实现。Collector 已在 Windows 11 25H2 x64 管理员环境通过 TCP/UDP、IPv4/IPv6、双向、短命进程、burst、丢失诊断和降权权限集成测试；首发目标 Windows 11 24H2 x64 仍须在对应系统完成最终兼容性验收。IPC、双采集运行模式、服务和最终 UI 继续按独立计划推进。已确认的首版方向：
+项目已完成原生 C++20/CMake 初始化、schema-1 配置与实时排行核心、进程生命周期与身份解析、实时 ETW Collector，以及带显式 ACL 的本地 IPC（服务端会话、发布调度、重连客户端和真实管道集成测试）。当前开发主线转入双采集运行模式；托盘/悬浮 UI、设置窗口和最终打包仍未完成。Collector 与 IPC 已在 Windows 11 25H2 x64 管理员环境通过完整质量门；首发目标 Windows 11 24H2 x64 仍须在对应系统完成最终兼容性验收。已确认的首版方向：
 
 - Windows 11 24H2 或更高版本，首发仅支持 x64。
 - C++20、CMake、原生 Win32、Direct2D 和 DirectWrite。

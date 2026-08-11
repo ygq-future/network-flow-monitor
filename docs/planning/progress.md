@@ -462,7 +462,7 @@
 - **Status:** in_progress
 - **Started:** 2026-08-11
 - Current task:
-  - Task 10 — real local-pipe integration, hostile-input/cancellation audit, and Milestone 4 closure.
+  - Milestone 5 — dual collection modes and Windows service lifecycle design.
 - Completed work:
   - Task 1 introduced a 15-second active horizon, monotonic watermarks, 4094 dynamic application slots, fixed Unattributed/Other buckets, deterministic overflow aggregation and rollback-safe counter overflow handling.
   - Collector traffic now passes ETW observation time into accumulation, advances the same accepted watermark through process and ranking state, preserves global protocol/direction totals for aggregated traffic, and exposes saturating capacity diagnostics that degrade a running collector on the first hit.
@@ -505,6 +505,9 @@
   - Task 9 added a pure reconnect policy with bounded exponential delays and injected jitter, plus a reconnecting client facade that owns the worker boundary and exposes explicit `Unauthorized`, `Incompatible`, `Backoff` and `Failed` states.
   - The client protocol validates Hello/Subscribe request IDs, applies complete full/delta catalog sequences atomically, rejects duplicate/unknown handles and metadata regressions, rejects snapshot/catalog/uptime/counter rollback, and maps each counter to the stable `ipc:<instance-guid>:<handle>` ranking identity. Instance and reconnect resets clear the catalog and prior snapshot before a new baseline.
   - Task 9's red phase failed only with the expected missing client/reconnect headers. Focused client tests then passed after isolating terminal-state cases and correcting removed-entry metadata in the test fixture. Final Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 24/24, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Current-host evidence is Windows 11 25H2; exact 24H2 acceptance remains deferred.
+  - Task 10 added a serialized real-pipe integration target. It runs two clients with different requested intervals, exercises catalog/snapshot delivery, a slow reader, a live DACL/mask check, first-instance conflict, unknown-version/oversized/truncated frames, client reconnect after server restart, and idempotent Stop cleanup. Cross-user anonymous/remote evidence is explicitly limited by the available single-user host and remains a Phase 5 environment item.
+  - The real integration run exposed and fixed the initial subscription-ack compatibility gap, stale finished-session pipe handles, and the accept-loop termination on recoverable instance-cap Busy. These fixes preserve the four-client bound while allowing later clients after handles are reaped.
+  - Task 10 final Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 25/25 including non-skipped `ipc.integration`, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Milestone 4 is closed on the available Windows 11 25H2 host; exact 24H2 acceptance remains deferred.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -556,6 +559,9 @@
 | Secure IPC Task 9 focused client tests | `nfm_ipc_client_tests.exe` | Reconnect delays/jitter, handshake IDs, catalog full/delta/removal, rollback rejection, instance reset and facade state transitions pass | Exit 0; `ipc client tests passed` | Pass on 25H2 |
 | Secure IPC Task 9 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, client tests and Clang analyses pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 24/24 | Pass on 25H2 |
 | Secure IPC Task 9 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release tests pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 24/24, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Secure IPC Task 10 real integration | `nfm_ipc_integration_tests.exe` | Real clients, slow-reader isolation, live DACL/mask, first-instance conflict, hostile frames, reconnect and Stop cleanup pass | Exit 0; `ipc integration tests passed`; no skipped path | Pass on 25H2 |
+| Secure IPC Task 10 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, non-admin tests and Clang analyses pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 24/24 (integration is serialized `requires-admin`) | Pass on 25H2 |
+| Secure IPC Task 10 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Milestone gate including live integration, `/analyze`, and Release x64 pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 25/25, `ipc.integration` non-skipped, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -680,8 +686,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.31; Secure IPC Tasks 1-9 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 10 is the remaining integration/audit closure, and exact 24H2 acceptance remains pending for Phase 5. |
-| Where am I going? | Close Secure IPC with real hostile-input/cancellation evidence, then implement dual collection modes, native tray/floating UI/settings, and integrated delivery. |
+| Where am I? | Phase 4.40; Milestones 1-3 and Secure IPC Tasks 1-10 are complete on the available 25H2 host; dual collection modes are the active milestone, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I going? | Design and implement portable/service collection hosts, then native tray/floating UI/settings and integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-9; secure server sessions, the deadline-aware publisher, and the reconnecting ranking adapter pass pure tests, real owner-scoped local-pipe integration, and the unified Full gate with Debug/Release CTest 24/24 on 25H2. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-10; secure server sessions, the deadline-aware publisher, the reconnecting ranking adapter and real hostile-input/reconnect integration pass the unified Full gate with Debug/Release CTest 25/25 on 25H2. |

@@ -594,7 +594,7 @@ PipeConnectionResult WindowsPipeTransportFactory::CreateServer(
                                                    .security = security.descriptor->attributes()},
                                                   error);
         if (pipe == INVALID_HANDLE_VALUE) {
-            if (acquire_endpoint_ownership && error == ERROR_ACCESS_DENIED) {
+            if (error == ERROR_PIPE_BUSY || error == ERROR_ACCESS_DENIED) {
                 return {.error = PipeIoError::Busy, .win32_error = error};
             }
             return ClassifyConnectionError(error);

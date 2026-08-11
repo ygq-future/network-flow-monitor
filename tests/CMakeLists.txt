@@ -192,6 +192,16 @@ target_link_libraries(nfm_ipc_client_tests PRIVATE nfm_ipc)
 
 add_test(NAME ipc.client COMMAND nfm_ipc_client_tests)
 
+add_executable(nfm_ipc_integration_tests ipc_integration_tests.cpp)
+
+nfm_configure_target(nfm_ipc_integration_tests)
+nfm_enable_static_analysis(nfm_ipc_integration_tests)
+
+target_link_libraries(nfm_ipc_integration_tests PRIVATE nfm_ipc Advapi32)
+
+add_test(NAME ipc.integration COMMAND nfm_ipc_integration_tests)
+set_tests_properties(ipc.integration PROPERTIES LABELS "requires-admin" RUN_SERIAL TRUE)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

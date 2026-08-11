@@ -867,28 +867,28 @@ Run Format, Fast, and Full. Require Debug/Release CTest 24/24. The red phase fai
 - Consumes: all Task 1–9 public interfaces and a deterministic fake SnapshotProvider.
 - Produces: a non-skipped `ipc.integration` CTest and complete specification-to-evidence mapping.
 
-- [ ] **Step 1: Add the serialized Windows integration target**
+- [x] **Step 1: Add the serialized Windows integration target**
 
 Create a unique owner-scoped endpoint for the current logon and use the real descriptor/transport/server/client. Test two simultaneous clients at different intervals, catalog/snapshot delivery, subscription update, one client that stops reading, independent healthy delivery, disconnect/reconnect and no remaining named pipe/thread after Stop.
 
-- [ ] **Step 2: Verify actual security and hostile inputs**
+- [x] **Step 2: Verify actual security and hostile inputs**
 
 Inspect the live descriptor with `GetSecurityInfo`, compare exact ACE SIDs/masks, impersonate anonymous for a connection-denied check, evaluate an unrelated SID token with `AccessCheck`, verify first-instance conflict, confirm remote-reject mode, and send real truncated/oversized/unknown-version frames that terminate only their connection.
 
 If the host cannot manufacture a genuinely different Windows user/session, record that limitation; do not replace descriptor/token evidence with a false multi-user claim. Cross-user installed-service validation remains Milestone 5.
 
-- [ ] **Step 3: Verify cancellation and slow-client cleanup**
+- [x] **Step 3: Verify cancellation and slow-client cleanup**
 
 Force pending connect/read/write operations, call Stop in each state, and require completion before handle/thread destruction. Confirm the 5-second slow-client path uses cancel-and-drain while another client receives a later snapshot.
 
-- [ ] **Step 4: Run the milestone quality and hygiene gates**
+- [x] **Step 4: Run the milestone quality and hygiene gates**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 25/25 with `ipc.integration` non-skipped. Then run `git diff --check`, navigational Markdown validation, ignore probes, `dumpbin /dependents`, exact Release EXE/test sizes, and `git status --short`.
+Run Format, Fast, and Full. Require Debug/Release CTest 25/25 with `ipc.integration` non-skipped. Then run `git diff --check`, navigational Markdown validation, ignore probes, `dumpbin /dependents`, exact Release EXE/test sizes, and `git status --short`. Final Full passed with 25/25 tests and non-skipped `ipc.integration` on the 25H2 host.
 
-- [ ] **Step 5: Audit and document every specification requirement**
+- [x] **Step 5: Audit and document every specification requirement**
 
 Map security, framing, catalog, snapshot, active-capacity, publisher, slow-client, cancellation, reconnect, privacy and Windows integration requirements to named tests or explicit invariants. Correct every uncovered gap before closing.
 
-- [ ] **Step 6: Close Milestone 4**
+- [x] **Step 6: Close Milestone 4**
 
-Mark secure IPC complete and exactly one next item in progress: dual portable/service host design. Preserve exact 24H2 validation as Phase 5 debt. Proposed checkpoint: `feat: complete secure collector ipc`; leave the verified worktree uncommitted unless the user explicitly authorizes a Git commit.
+Mark secure IPC complete and exactly one next item in progress: dual portable/service host design. Preserve exact 24H2 validation as Phase 5 debt. Task 10 evidence includes live DACL/mask and first-instance checks plus explicit current-host limitations for cross-user/remote impersonation. Proposed checkpoint: `feat: complete secure collector ipc`.

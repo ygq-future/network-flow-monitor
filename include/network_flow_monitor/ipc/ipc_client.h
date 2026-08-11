@@ -132,6 +132,7 @@ class IpcClientProtocol final {
     bool instance_known_{};
     std::uint64_t hello_request_id_{};
     std::uint64_t subscription_request_id_{};
+    bool initial_subscription_acknowledged_{};
     std::uint64_t catalog_sequence_{};
     std::unordered_map<std::uint64_t, CatalogEntry> catalog_;
     std::optional<CatalogAssembly> catalog_assembly_;

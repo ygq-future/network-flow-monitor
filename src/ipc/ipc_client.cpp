@@ -207,6 +207,7 @@ void IpcClientProtocol::ResetForReconnect() noexcept {
     state_ = IpcClientState::Disconnected;
     hello_request_id_ = 0U;
     subscription_request_id_ = 0U;
+    initial_subscription_acknowledged_ = false;
     catalog_sequence_ = 0U;
     catalog_.clear();
     catalog_assembly_.reset();
@@ -283,6 +284,7 @@ IpcClientResult IpcClientProtocol::ReceiveControl(FrameView frame) {
         catalog_.clear();
         catalog_assembly_.reset();
         previous_snapshot_.reset();
+        initial_subscription_acknowledged_ = false;
         subscription_request_id_ = NextRequestId(hello_request_id_);
         const auto encoded =
             EncodeSubscribe({.requested_refresh = requested_refresh_}, subscription_request_id_);
@@ -292,9 +294,17 @@ IpcClientResult IpcClientProtocol::ReceiveControl(FrameView frame) {
         return {.outbound = encoded.bytes};
     }
     if (const auto* accepted = std::get_if<SubscriptionAccepted>(&*decoded.message)) {
-        if (state_ != IpcClientState::Handshaking ||
-            frame.header.request_id != subscription_request_id_ ||
-            accepted->effective_refresh.count() <= 0) {
+        if (state_ != IpcClientState::Handshaking || accepted->effective_refresh.count() <= 0) {
+            return Failure(IpcClientError::Protocol, ProtocolErrorCode::UnexpectedMessage);
+        }
+        if (frame.header.request_id == hello_request_id_) {
+            if (initial_subscription_acknowledged_) {
+                return Failure(IpcClientError::Protocol, ProtocolErrorCode::UnexpectedMessage);
+            }
+            initial_subscription_acknowledged_ = true;
+            return {};
+        }
+        if (frame.header.request_id != subscription_request_id_) {
             return Failure(IpcClientError::Protocol, ProtocolErrorCode::UnexpectedMessage);
         }
         state_ = IpcClientState::Streaming;

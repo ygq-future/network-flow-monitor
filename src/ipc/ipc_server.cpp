@@ -907,10 +907,36 @@ class IpcServer::Impl final {
         static_cast<void>(connection->CancelAndDrain());
     }
 
+    void ReapFinishedSessions() noexcept {
+        std::array<std::shared_ptr<Session>, kMaximumIpcClients> finished{};
+        std::size_t finished_count{};
+        {
+            std::scoped_lock lock{mutex};
+            for (auto iterator = sessions.begin(); iterator != sessions.end();) {
+                if (*iterator == nullptr || !(*iterator)->finished.load()) {
+                    ++iterator;
+                    continue;
+                }
+                if (finished_count < finished.size()) {
+                    finished.at(finished_count++) = std::move(*iterator);
+                    iterator = sessions.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+        }
+        for (std::size_t index = 0U; index < finished_count; ++index) {
+            if (finished.at(index)->thread.joinable()) {
+                finished.at(index)->thread.join();
+            }
+        }
+    }
+
     void AcceptLoop() noexcept {
         try {
             std::unique_ptr<NamedPipeConnection> pending = std::move(initial_connection);
             for (;;) {
+                ReapFinishedSessions();
                 if (IsStopping()) {
                     if (pending != nullptr) {
                         static_cast<void>(pending->CancelAndDrain());
@@ -920,6 +946,14 @@ class IpcServer::Impl final {
                 if (pending == nullptr) {
                     auto created = factory->CreateServer(principal, false);
                     if (!created.ok()) {
+                        if (created.error == PipeIoError::Busy) {
+                            const auto wait = WaitForSingleObject(
+                                stop_event.get(), static_cast<DWORD>(kPipeBusyWait.count()));
+                            if (wait == WAIT_OBJECT_0) {
+                                break;
+                            }
+                            continue;
+                        }
                         SetFailure(IpcServerError::TransportFailure, created.win32_error);
                         break;
                     }

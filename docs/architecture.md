@@ -35,32 +35,41 @@ ETW 网络/进程事件
 
 ### ETW Session
 
-- 启用 TCP/IP、UDP/IP 和进程生命周期事件。
-- 解析事件自身的 PID 和字节大小，不使用可能属于记录线程的事件头 PID。
-- 记录丢失事件、缓冲区压力和会话健康状态。
-- 只统计元数据，不抓取或保存报文载荷。
+- `WindowsEtwSession` 拥有固定名称/GUID 的 QPC 实时 SystemTraceProvider logger，启用 TCP/IP、UDP/IP 和进程生命周期事件；controller、consumer 和处理线程分别由 RAII 管理。
+- TCP/UDP 热路径只接受 version 2 的已知 opcode，并在边界检查后从 payload 前缀读取 PID 和字节大小；不使用可能属于记录线程的事件头 PID。
+- 进程 Start、End 和 DCStart 只接受 version 2/3/4，通过 TDH 读取 `UniqueProcessKey`、`ProcessId` 和 `ImageFileName`。25H2 build 26200 实测生命周期事件为 version 4；24H2 仍需目标机确认。
+- `FlushAndQuery` 发布实际 buffer 数量/尺寸及 `EventsLost`、`LogBuffersLost`、`RealTimeBuffersLost`；任何可见丢失都会降低健康状态，不能通过重启伪装为完整计数。
+- 会话不默认抢占同名 logger；部分启动、重复停止、callback/worker 失败和明确 recovery policy 均有测试覆盖。
+- 只统计归属、字节和健康元数据，不抓取或保存报文载荷、远端地址、端口、SID 或命令行。
 
 ### Process Tracker
 
-- 在采集启动时枚举当前进程，并持续消费进程启动/结束事件。
-- 用 PID、创建时间或内核提供的唯一进程信息减少 PID 复用误归属。
-- 进程消失后保留短时间的身份缓存，使迟到的网络事件仍能归属。
+- Collector 在采集启动时消费进程 Rundown，随后持续消费启动和结束事件；实际 PID 必须来自 ETW 事件负载，不能把事件头 PID 当作目标进程。
+- 每次开始事件分配 tracker-local generation，以 `(pid, generation)` 构成 `ProcessInstanceId`。ETW kernel process key 只用于核对生命周期事件，不单独充当长期应用身份。
+- 生命周期采用事件时间的半开区间 `[started_at, ended_at)`；网络事件只匹配覆盖该事件时间的实例，不因当前活动进程 PID 相同而回退猜测。
+- 已结束实例默认保留 30 秒且最多 65,536 个；先按水位清理到期项，仍超限则确定性驱逐最早结束项。两者都是内部保护边界，不属于用户配置。
+- Win32 探测结果按完整实例 ID 回写。若探测到的创建时间晚于 Start 或 Rundown 观察时间，则把结果判为 PID 已可能复用并拒绝应用。
 
 ### Application Identity Resolver
 
 应用身份按以下优先级构造：
 
-1. MSIX/UWP 包身份和应用标识。
-2. 规范化可执行文件完整路径。
-3. 无法访问路径时使用受限的进程映像名和安全上下文占位身份。
+1. 非空 AUMID：`package-app:<aumid>`。
+2. 没有 AUMID 但有包族：`package-family:<package-family-name>`。
+3. 结构规范化后的可执行文件完整路径：`executable:<normalized-path>`。
+4. 已验证的 PID 0 Idle 和带 `System` 映像提示的 PID 4：固定系统身份。
+5. 其他情况：实例专属 `unresolved:<pid>:<generation>`。
 
-同一应用的多个 PID 合并。不能仅按文件名合并不同目录中的同名程序。系统、Service Host 和无法可靠拆分的代理流量应明确显示为系统/宿主项，不伪造归属。
+同一稳定 Application ID 的多个 PID 合并。不能仅按文件名合并不同目录中的同名程序，也不能把一个包内不同 AUMID 合并。路径规范化不访问文件系统并保留大小写，可能产生可诊断的 false split，但优先避免 false merge。`svchost.exe` 等系统宿主只显示为宿主项，不虚构到具体服务；无法解析的不同进程实例也不互相合并。
+
+属性探测每次只短暂打开一个不可继承的 `PROCESS_QUERY_LIMITED_INFORMATION` 句柄，并用 RAII 关闭；不启用 `SeDebugPrivilege`、不读取进程内存/token/命令行，也不长期缓存句柄。命令行、SID、远端地址和报文载荷不进入身份模型或普通日志；完整映像路径只留在 Collector 身份数据及未来确有必要且受 ACL 保护的 IPC 字段中。
 
 ### Counter Store
 
-- 为每个 Application ID 维护单调递增的上传和下载 `uint64` 计数。
+- `ApplicationAccumulator` 是纯逻辑的应用合并边界：接收 Collector 已归属到 Application ID 的字节增量，为每个 ID 维护单调递增的上传和下载 `uint64` 计数。
+- 同一 ID 的多个进程事件在累计阶段合并；空 ID 和累计溢出被拒绝且不修改状态，元数据冲突保留首个有效值并计入诊断。
 - 计数更新与 IPC 快照解耦，避免 UI 刷新频率影响 ETW 消费。
-- 快照包含单调时钟时间戳、应用 ID、累计计数、显示元数据版本和健康状态。
+- 累计器输出按 ID 确定性排序的快照；IPC 后续在其外层补充协议版本和采集健康状态。
 
 ## IPC
 
@@ -74,13 +83,15 @@ ETW 网络/进程事件
 
 ### Rate History
 
-UI 保存足以覆盖 `ranking.window_ms` 的累计计数快照。每次新快照到达时：
+`RankingEngine` 由每个 UI 客户端独立拥有，只保存最长 10 秒的短期累计快照历史，不启动计时器，也不依赖窗口或 IPC。每次新快照到达时：
 
 1. 找到窗口起点附近的基准快照。
 2. 用累计计数差除以真实单调时间差，计算上传和下载速率。
 3. 按上传加下载总速率排序。
 4. 取 `ranking.top_n`，但继续显示所有正在传输项的正确总速率。
 5. 标记总速率和排行区域为脏并请求一次重绘。
+
+时间戳必须严格递增，快照中的 Application ID 必须非空且唯一；非法输入不修改历史。计数下降按应用和方向建立新纪元，只抑制该方向一次，避免回绕或 Collector 重启产生虚假巨速。排序依次使用总速率、下载速率、上传速率和 Application ID；Top N 只截断列表，不截断系统总速率。窗口或 Top N 热更新会复用仍保留的历史，不足新窗口时明确回到预热状态。
 
 窗口长度与刷新间隔不同：窗口决定平滑程度，刷新间隔决定可见数据更新频率。不存在第二个固定 UI 刷新循环。
 

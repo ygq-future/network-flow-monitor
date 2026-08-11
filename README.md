@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-项目已完成原生 C++20/CMake 初始化和单一二进制运行模式骨架。ETW、IPC、服务和最终 UI 仍按独立实现计划推进。已确认的首版方向：
+项目已完成原生 C++20/CMake 初始化、单一二进制运行模式骨架、schema-1 配置与实时排行核心、进程生命周期与身份解析，以及实时 ETW Collector 实现。Collector 已在 Windows 11 25H2 x64 管理员环境通过 TCP/UDP、IPv4/IPv6、双向、短命进程、burst、丢失诊断和降权权限集成测试；首发目标 Windows 11 24H2 x64 仍须在对应系统完成最终兼容性验收。IPC、双采集运行模式、服务和最终 UI 继续按独立计划推进。已确认的首版方向：
 
 - Windows 11 24H2 或更高版本，首发仅支持 x64。
 - C++20、CMake、原生 Win32、Direct2D 和 DirectWrite。
@@ -19,6 +19,8 @@
 - [设计规格](docs/superpowers/specs/2026-08-10-network-flow-monitor-design.md)
 - [架构说明](docs/architecture.md)
 - [配置模型](docs/configuration.md)
+- [进程身份设计](docs/superpowers/specs/2026-08-11-process-identity-design.md)
+- [ETW Collector 设计](docs/superpowers/specs/2026-08-11-etw-collector-design.md)
 - [开发环境](docs/development-setup.md)
 - [代码质量与提交门](docs/code-quality.md)
 - [架构决策记录](docs/decisions/README.md)
@@ -51,4 +53,4 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
 ## 开发前提
 
-参见 [开发环境](docs/development-setup.md)。当前骨架可直接使用 CMake 预设构建；后续子系统仍须先有审阅通过的实现计划。
+参见 [开发环境](docs/development-setup.md)。当前实现可直接使用 CMake 预设构建；后续子系统仍须先有审阅通过的实现计划。

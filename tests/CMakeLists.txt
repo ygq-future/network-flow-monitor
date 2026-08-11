@@ -1,5 +1,11 @@
 add_executable(nfm_bootstrap_tests bootstrap_tests.cpp)
 
+target_include_directories(
+    nfm_bootstrap_tests
+    PRIVATE
+        "${PROJECT_BINARY_DIR}/generated"
+)
+
 nfm_configure_target(nfm_bootstrap_tests)
 nfm_enable_static_analysis(nfm_bootstrap_tests)
 
@@ -13,3 +19,151 @@ nfm_enable_static_analysis(nfm_runtime_mode_tests)
 target_link_libraries(nfm_runtime_mode_tests PRIVATE nfm_runtime)
 
 add_test(NAME app.runtime_mode COMMAND nfm_runtime_mode_tests)
+
+add_executable(nfm_config_model_tests config_model_tests.cpp)
+
+nfm_configure_target(nfm_config_model_tests)
+nfm_enable_static_analysis(nfm_config_model_tests)
+
+target_link_libraries(nfm_config_model_tests PRIVATE nfm_config)
+
+add_test(NAME config.model COMMAND nfm_config_model_tests)
+
+add_executable(nfm_config_codec_tests config_codec_tests.cpp)
+
+nfm_configure_target(nfm_config_codec_tests)
+nfm_enable_static_analysis(nfm_config_codec_tests)
+
+target_link_libraries(nfm_config_codec_tests PRIVATE nfm_config)
+
+add_test(NAME config.codec COMMAND nfm_config_codec_tests)
+
+add_executable(nfm_config_store_tests config_store_tests.cpp)
+
+nfm_configure_target(nfm_config_store_tests)
+nfm_enable_static_analysis(nfm_config_store_tests)
+
+target_link_libraries(nfm_config_store_tests PRIVATE nfm_config)
+
+add_test(NAME config.store COMMAND nfm_config_store_tests)
+
+add_executable(nfm_application_accumulator_tests application_accumulator_tests.cpp)
+
+nfm_configure_target(nfm_application_accumulator_tests)
+nfm_enable_static_analysis(nfm_application_accumulator_tests)
+
+target_link_libraries(nfm_application_accumulator_tests PRIVATE nfm_ranking)
+
+add_test(NAME ranking.accumulator COMMAND nfm_application_accumulator_tests)
+
+add_executable(nfm_ranking_engine_tests ranking_engine_tests.cpp)
+
+nfm_configure_target(nfm_ranking_engine_tests)
+nfm_enable_static_analysis(nfm_ranking_engine_tests)
+
+target_link_libraries(nfm_ranking_engine_tests PRIVATE nfm_ranking)
+
+add_test(NAME ranking.engine COMMAND nfm_ranking_engine_tests)
+
+add_executable(nfm_identity_resolver_tests identity_resolver_tests.cpp)
+
+nfm_configure_target(nfm_identity_resolver_tests)
+nfm_enable_static_analysis(nfm_identity_resolver_tests)
+
+target_link_libraries(nfm_identity_resolver_tests PRIVATE nfm_process)
+
+add_test(NAME identity.resolver COMMAND nfm_identity_resolver_tests)
+
+add_executable(nfm_process_tracker_tests process_tracker_tests.cpp)
+
+nfm_configure_target(nfm_process_tracker_tests)
+nfm_enable_static_analysis(nfm_process_tracker_tests)
+
+target_link_libraries(nfm_process_tracker_tests PRIVATE nfm_process)
+
+add_test(NAME process.tracker COMMAND nfm_process_tracker_tests)
+
+add_executable(nfm_windows_process_probe_tests windows_process_probe_tests.cpp)
+
+nfm_configure_target(nfm_windows_process_probe_tests)
+nfm_enable_static_analysis(nfm_windows_process_probe_tests)
+
+target_link_libraries(nfm_windows_process_probe_tests PRIVATE nfm_process)
+
+add_test(NAME process.windows_probe COMMAND nfm_windows_process_probe_tests)
+
+add_executable(nfm_network_event_decoder_tests network_event_decoder_tests.cpp)
+
+nfm_configure_target(nfm_network_event_decoder_tests)
+nfm_enable_static_analysis(nfm_network_event_decoder_tests)
+
+target_link_libraries(nfm_network_event_decoder_tests PRIVATE nfm_collector)
+
+add_test(NAME collector.network_decoder COMMAND nfm_network_event_decoder_tests)
+
+add_executable(nfm_collector_core_tests collector_core_tests.cpp)
+
+nfm_configure_target(nfm_collector_core_tests)
+nfm_enable_static_analysis(nfm_collector_core_tests)
+
+target_link_libraries(nfm_collector_core_tests PRIVATE nfm_collector)
+
+add_test(NAME collector.core COMMAND nfm_collector_core_tests)
+
+add_executable(nfm_ipc_frame_codec_tests ipc_frame_codec_tests.cpp)
+
+nfm_configure_target(nfm_ipc_frame_codec_tests)
+nfm_enable_static_analysis(nfm_ipc_frame_codec_tests)
+
+target_link_libraries(nfm_ipc_frame_codec_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.frame_codec COMMAND nfm_ipc_frame_codec_tests)
+
+add_executable(nfm_ipc_snapshot_codec_tests ipc_snapshot_codec_tests.cpp)
+
+nfm_configure_target(nfm_ipc_snapshot_codec_tests)
+nfm_enable_static_analysis(nfm_ipc_snapshot_codec_tests)
+
+target_link_libraries(nfm_ipc_snapshot_codec_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.snapshot_codec COMMAND nfm_ipc_snapshot_codec_tests)
+
+add_executable(nfm_ipc_application_catalog_tests ipc_application_catalog_tests.cpp)
+
+nfm_configure_target(nfm_ipc_application_catalog_tests)
+nfm_enable_static_analysis(nfm_ipc_application_catalog_tests)
+
+target_link_libraries(nfm_ipc_application_catalog_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.application_catalog COMMAND nfm_ipc_application_catalog_tests)
+
+add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
+
+nfm_configure_target(nfm_windows_etw_record_decoder_tests)
+nfm_enable_static_analysis(nfm_windows_etw_record_decoder_tests)
+
+target_link_libraries(nfm_windows_etw_record_decoder_tests PRIVATE nfm_collector)
+
+add_test(NAME collector.windows_record_decoder COMMAND nfm_windows_etw_record_decoder_tests)
+
+add_executable(nfm_windows_etw_session_tests windows_etw_session_tests.cpp)
+
+nfm_configure_target(nfm_windows_etw_session_tests)
+nfm_enable_static_analysis(nfm_windows_etw_session_tests)
+
+target_link_libraries(nfm_windows_etw_session_tests PRIVATE nfm_collector)
+
+add_test(NAME collector.windows_session COMMAND nfm_windows_etw_session_tests)
+
+add_executable(nfm_etw_collector_integration_tests etw_collector_integration_tests.cpp)
+
+nfm_configure_target(nfm_etw_collector_integration_tests)
+nfm_enable_static_analysis(nfm_etw_collector_integration_tests)
+
+target_link_libraries(
+    nfm_etw_collector_integration_tests
+    PRIVATE nfm_collector Advapi32 Ws2_32
+)
+
+add_test(NAME collector.etw_integration COMMAND nfm_etw_collector_integration_tests)
+set_tests_properties(collector.etw_integration PROPERTIES LABELS "requires-admin" RUN_SERIAL TRUE)

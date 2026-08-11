@@ -4,7 +4,7 @@ project(
     NetworkFlowMonitor
     VERSION 0.1.0
     DESCRIPTION "Lightweight Windows 11 per-application network flow monitor"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -18,6 +18,14 @@ include(ProjectOptions)
 include(StaticAnalysis)
 include(CTest)
 
+set(NFM_YYJSON_VERSION "0.12.0")
+configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake/dependencies.h.in"
+    "${PROJECT_BINARY_DIR}/generated/network_flow_monitor/build/dependencies.h"
+    @ONLY
+)
+
+add_subdirectory(third_party/yyjson)
 add_subdirectory(src)
 
 if(BUILD_TESTING)

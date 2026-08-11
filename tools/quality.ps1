@@ -71,8 +71,20 @@ foreach ($file in $sourceFiles) {
 }
 
 Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-debug')
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', '--preset', 'windows-x64-debug')
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', 'build/windows-x64-debug', '--target', 'test')
+Invoke-Native -FilePath $cmake -ArgumentList @(
+    '--build', '--preset', 'windows-x64-debug', '--clean-first'
+)
+if ($Mode -eq 'Fast') {
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-debug',
+        'ctest', '--output-on-failure', '-LE', 'requires-admin'
+    )
+} else {
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-debug',
+        'ctest', '--output-on-failure'
+    )
+}
 
 $tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
 Invoke-Native -FilePath $cmake -ArgumentList @(
@@ -85,7 +97,7 @@ Invoke-Native -FilePath $cmake -ArgumentList @(
     "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy",
     "-DCMAKE_MAKE_PROGRAM=$ninja"
 )
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', $tidyBuild)
+Invoke-Native -FilePath $cmake -ArgumentList @('--build', $tidyBuild, '--clean-first')
 
 if ($Mode -eq 'Full') {
     $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
@@ -98,11 +110,16 @@ if ($Mode -eq 'Full') {
         '-DNFM_ENABLE_MSVC_ANALYZE=ON',
         "-DCMAKE_MAKE_PROGRAM=$ninja"
     )
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', $analyzeBuild)
+    Invoke-Native -FilePath $cmake -ArgumentList @('--build', $analyzeBuild, '--clean-first')
 
     Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-release')
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', '--preset', 'windows-x64-release')
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', 'build/windows-x64-release', '--target', 'test')
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '--build', '--preset', 'windows-x64-release', '--clean-first'
+    )
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-release',
+        'ctest', '--output-on-failure'
+    )
 }
 
 Write-Host "Quality gate '$Mode' passed."

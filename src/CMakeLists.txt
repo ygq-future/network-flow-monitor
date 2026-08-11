@@ -1,4 +1,4 @@
-add_library(nfm_runtime STATIC app/runtime_mode.cpp)
+add_library(nfm_runtime STATIC app/runtime_mode.cpp app/collector_runtime.cpp)
 
 target_include_directories(
     nfm_runtime
@@ -7,7 +7,7 @@ target_include_directories(
 )
 
 nfm_configure_target(nfm_runtime)
-nfm_enable_static_analysis(nfm_runtime)
+nfm_enable_static_analysis(nfm_runtime ENABLE_EXCEPTIONS)
 
 add_library(
     nfm_config
@@ -133,6 +133,6 @@ nfm_enable_static_analysis(nfm_service ENABLE_EXCEPTIONS)
 add_executable(NetworkFlowMonitor WIN32 app/main.cpp)
 
 nfm_configure_target(NetworkFlowMonitor)
-nfm_enable_static_analysis(NetworkFlowMonitor)
+nfm_enable_static_analysis(NetworkFlowMonitor ENABLE_EXCEPTIONS)
 
-target_link_libraries(NetworkFlowMonitor PRIVATE nfm_runtime Shell32 User32)
+target_link_libraries(NetworkFlowMonitor PRIVATE nfm_runtime nfm_service nfm_ipc Shell32 User32)

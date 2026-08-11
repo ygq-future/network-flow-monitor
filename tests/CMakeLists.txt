@@ -20,6 +20,15 @@ target_link_libraries(nfm_runtime_mode_tests PRIVATE nfm_runtime)
 
 add_test(NAME app.runtime_mode COMMAND nfm_runtime_mode_tests)
 
+add_executable(nfm_runtime_collector_integration_tests runtime_collector_integration_tests.cpp)
+
+nfm_configure_target(nfm_runtime_collector_integration_tests)
+nfm_enable_static_analysis(nfm_runtime_collector_integration_tests)
+
+target_link_libraries(nfm_runtime_collector_integration_tests PRIVATE nfm_runtime nfm_collector nfm_ipc)
+
+add_test(NAME app.runtime_collector_integration COMMAND nfm_runtime_collector_integration_tests)
+
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 
 nfm_configure_target(nfm_config_model_tests)

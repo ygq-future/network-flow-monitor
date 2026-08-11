@@ -85,6 +85,8 @@ Task 2 implementation notes: the service name is fixed to `NetworkFlowMonitor`; 
 
 - Modify: `src/app/main.cpp`
 - Modify: `src/CMakeLists.txt`
+- Create: `include/network_flow_monitor/app/collector_runtime.h`
+- Create: `src/app/collector_runtime.cpp`
 - Create: `tests/runtime_collector_integration_tests.cpp`
 - Modify: `docs/architecture.md`
 - Modify: `docs/configuration.md`
@@ -94,10 +96,17 @@ Task 2 implementation notes: the service name is fixed to `NetworkFlowMonitor`; 
 - `--collector` launches the collector host after the explicit UAC boundary; `--service` enters `StartServiceCtrlDispatcherW`; `--install`, `--uninstall` and `--service-control` call only typed service actions.
 - UI mode remains normal privilege and reports collector/service state through the existing IPC client; it never starts ETW directly.
 
-- [ ] **Step 1: Register runtime dispatch tests and prove unsupported modes remain classified**
-- [ ] **Step 2: Wire portable host and service entry without window calls**
-- [ ] **Step 3: Verify portable shutdown, service startup and reconnect behavior**
-- [ ] **Step 4: Run Full and commit `feat: wire dual collection modes`**
+- [x] **Step 1: Register runtime dispatch tests and prove unsupported modes remain classified**
+- [x] **Step 2: Wire portable host and service entry without window calls**
+- [x] **Step 3: Verify portable shutdown, service startup and reconnect behavior**
+- [x] **Step 4: Run Full and commit `feat: wire dual collection modes`**
+
+Task 3 implementation notes: `CollectorRuntime` is the application-side composition root for
+ETW, IPC and `CollectorHost`. Portable mode derives an owner-scoped pipe principal from the
+current logon SID and registers console/session control shutdown; service mode derives a Users
+client principal and enters `ServiceEntry`. The runtime integration test validates both principal
+shapes and non-zero instance identity. CI does not install or mutate a real SCM service; live
+24H2 and UI-owned portable process-handle shutdown remain verification/audit work.
 
 ### Task 4: Milestone 5 audit and handoff to UI
 

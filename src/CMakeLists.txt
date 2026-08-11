@@ -91,6 +91,8 @@ add_library(
         ipc/frame_codec.cpp
         ipc/ipc_server.cpp
         ipc/named_pipe_transport.cpp
+        ipc/ipc_client.cpp
+        ipc/reconnect_policy.cpp
         ipc/security_policy.cpp
         ipc/snapshot_codec.cpp
         ipc/snapshot_publisher.cpp

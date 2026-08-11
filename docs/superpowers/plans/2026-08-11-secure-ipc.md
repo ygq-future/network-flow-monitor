@@ -826,25 +826,25 @@ class IpcClientObserver {
 
 The adapter constructs `ipc:<guid>:<handle>` IDs and converts validated uptime microseconds to an arbitrary-epoch `steady_clock::time_point`. It clears catalog and caller-visible ranking history on instance change.
 
-- [ ] **Step 1: Register failing client/reconnect tests**
+- [x] **Step 1: Register failing client/reconnect tests**
 
 Cover exact delay sequence/cap, deterministic injected jitter, success reset, endpoint missing/busy/broken-pipe recovery, Unauthorized/Incompatible terminal states, Hello/reply IDs, catalog full/delta/removal, snapshot-before-catalog rejection, strict sequence/uptime/counters, instance reset, same-instance reconnect baseline, UI non-real-time state on every Streaming exit, and no stale snapshot callback.
 
-- [ ] **Step 2: Run the red phase**
+- [x] **Step 2: Run the red phase**
 
 Format and run Fast for missing client headers.
 
-- [ ] **Step 3: Implement reconnect and protocol receive state**
+- [x] **Step 3: Implement reconnect and protocol receive state**
 
 Keep the reconnect policy pure with injected jitter. Client worker catches exceptions at its thread boundary, cancels/drains transport, and posts only value callbacks. Protocol invariant failures enter Failed without retry; version and authorization use their dedicated terminal states.
 
-- [ ] **Step 4: Implement catalog-to-ranking adaptation**
+- [x] **Step 4: Implement catalog-to-ranking adaptation**
 
 Apply a complete catalog sequence atomically. Reject unknown handles, duplicate records, counter decrease or non-increasing snapshot/uptime. On instance change emit state transition before the first new snapshot so the future UI can clear its RankingEngine deterministically.
 
-- [ ] **Step 5: Verify Task 9**
+- [x] **Step 5: Verify Task 9**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 23/23. Proposed checkpoint: `feat: reconnect ipc clients`; leave uncommitted.
+Run Format, Fast, and Full. Require Debug/Release CTest 24/24. The red phase failed only with the expected missing client headers; the final Fast and Full gates passed with strict Debug/Release builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and 24/24 tests. Current-host evidence is Windows 11 25H2; exact 24H2 acceptance remains deferred. Checkpoint: `feat: reconnect ipc clients`.
 
 ---
 
@@ -883,7 +883,7 @@ Force pending connect/read/write operations, call Stop in each state, and requir
 
 - [ ] **Step 4: Run the milestone quality and hygiene gates**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 24/24 with `ipc.integration` non-skipped. Then run `git diff --check`, navigational Markdown validation, ignore probes, `dumpbin /dependents`, exact Release EXE/test sizes, and `git status --short`.
+Run Format, Fast, and Full. Require Debug/Release CTest 25/25 with `ipc.integration` non-skipped. Then run `git diff --check`, navigational Markdown validation, ignore probes, `dumpbin /dependents`, exact Release EXE/test sizes, and `git status --short`.
 
 - [ ] **Step 5: Audit and document every specification requirement**
 

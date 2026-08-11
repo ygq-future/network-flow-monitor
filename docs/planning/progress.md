@@ -462,7 +462,7 @@
 - **Status:** in_progress
 - **Started:** 2026-08-11
 - Current task:
-  - Task 8 — central subscription-aware snapshot publisher.
+  - Task 10 — real local-pipe integration, hostile-input/cancellation audit, and Milestone 4 closure.
 - Completed work:
   - Task 1 introduced a 15-second active horizon, monotonic watermarks, 4094 dynamic application slots, fixed Unattributed/Other buckets, deterministic overflow aggregation and rollback-safe counter overflow handling.
   - Collector traffic now passes ETW observation time into accumulation, advances the same accepted watermark through process and ranking state, preserves global protocol/direction totals for aggregated traffic, and exposes saturating capacity diagnostics that degrade a running collector on the first hit.
@@ -502,6 +502,9 @@
   - The first unified Fast invocation after Task 7 was externally time-limited while the host emitted the very large MSVC dependency-scan output; the unchanged gate was rerun with output redirected and ended with `Quality gate 'Fast' passed.`. The subsequent Full gate also ended with `Quality gate 'Full' passed.`, including strict Debug/Release builds, MSVC `/analyze`, both Clang analyses, and 22/22 CTest tests in each configuration. This is 25H2 evidence; exact 24H2 acceptance remains deferred.
   - Task 8 added `SnapshotPublisher`, which keeps one deadline per subscribed client, captures once for all simultaneously due clients, publishes only to the due client ids, uses a retry deadline after provider failure, and atomically commits catalog/sequence state only after server publication succeeds. The server preserves empty-recipient broadcast compatibility for existing callers; targeted recipients are an internal delivery filter and do not change the wire protocol.
   - Task 8 tests cover no-client/no-capture, immediate first subscription, shortest-deadline scheduling, per-client due filtering, update/removal, provider failure status, bounded retry and invalid-subscription reporting. Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 23/23, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Current-host evidence is Windows 11 25H2; exact 24H2 acceptance remains deferred.
+  - Task 9 added a pure reconnect policy with bounded exponential delays and injected jitter, plus a reconnecting client facade that owns the worker boundary and exposes explicit `Unauthorized`, `Incompatible`, `Backoff` and `Failed` states.
+  - The client protocol validates Hello/Subscribe request IDs, applies complete full/delta catalog sequences atomically, rejects duplicate/unknown handles and metadata regressions, rejects snapshot/catalog/uptime/counter rollback, and maps each counter to the stable `ipc:<instance-guid>:<handle>` ranking identity. Instance and reconnect resets clear the catalog and prior snapshot before a new baseline.
+  - Task 9's red phase failed only with the expected missing client/reconnect headers. Focused client tests then passed after isolating terminal-state cases and correcting removed-entry metadata in the test fixture. Final Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 24/24, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Current-host evidence is Windows 11 25H2; exact 24H2 acceptance remains deferred.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -549,6 +552,10 @@
 | Secure IPC Task 8 scheduler tests | `nfm_ipc_snapshot_publisher_tests.exe` | Deadline coalescing, due filtering, provider failure retry, removal and invalid subscription behavior pass | Exit 0; `ipc snapshot publisher tests passed` | Pass on 25H2 |
 | Secure IPC Task 8 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, clang-tidy, Clang Static Analyzer and non-admin tests pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 22/22 | Pass on 25H2 |
 | Secure IPC Task 8 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release integration pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 23/23, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Secure IPC Task 9 red phase | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` after registering `ipc.client` | Compilation fails only for the absent reconnect/client headers | C1083 for `network_flow_monitor/ipc/reconnect_policy.h` and `ipc_client.h`; no unrelated failure | Pass |
+| Secure IPC Task 9 focused client tests | `nfm_ipc_client_tests.exe` | Reconnect delays/jitter, handshake IDs, catalog full/delta/removal, rollback rejection, instance reset and facade state transitions pass | Exit 0; `ipc client tests passed` | Pass on 25H2 |
+| Secure IPC Task 9 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, client tests and Clang analyses pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 24/24 | Pass on 25H2 |
+| Secure IPC Task 9 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release tests pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 24/24, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -673,8 +680,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.30; Secure IPC Tasks 1-8 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 9 reconnecting client is next, and exact 24H2 acceptance remains pending for Phase 5. |
-| Where am I going? | Process identity, ETW, IPC, dual collection modes, native UI/settings, then integrated delivery. |
+| Where am I? | Phase 4.31; Secure IPC Tasks 1-9 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 10 is the remaining integration/audit closure, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I going? | Close Secure IPC with real hostile-input/cancellation evidence, then implement dual collection modes, native tray/floating UI/settings, and integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-8; secure server sessions and the central deadline-aware publisher pass pure tests, real owner-scoped local-pipe integration, and the unified Full gate with Debug/Release CTest 23/23 on 25H2. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-9; secure server sessions, the deadline-aware publisher, and the reconnecting ranking adapter pass pure tests, real owner-scoped local-pipe integration, and the unified Full gate with Debug/Release CTest 24/24 on 25H2. |

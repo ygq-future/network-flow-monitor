@@ -183,6 +183,15 @@ target_link_libraries(nfm_ipc_snapshot_publisher_tests PRIVATE nfm_ipc)
 
 add_test(NAME ipc.snapshot_publisher COMMAND nfm_ipc_snapshot_publisher_tests)
 
+add_executable(nfm_ipc_client_tests ipc_client_tests.cpp)
+
+nfm_configure_target(nfm_ipc_client_tests)
+nfm_enable_static_analysis(nfm_ipc_client_tests)
+
+target_link_libraries(nfm_ipc_client_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.client COMMAND nfm_ipc_client_tests)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

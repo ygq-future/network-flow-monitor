@@ -500,6 +500,8 @@
   - The real local-pipe integration test uses the current user SID with the concrete Windows descriptor and overlapped transport. It verifies ServerHello, initial and updated subscriptions, full catalog plus snapshot delivery, health accounting, repeated Stop, and no cross-session teardown. Debug CTest ran 21/21 with the integration test non-skipped; the server/client data path passed after fixing synchronous completion-event reuse and looping partial overlapped transfers.
   - The client ACE was validated with `FILE_GENERIC_READ | FILE_GENERIC_WRITE` rather than `FILE_ALL_ACCESS`; service-mode authorization remains user-SID based and portable-mode authorization remains logon-group based. This is a current Windows 11 25H2 observation; 24H2 acceptance remains deferred.
   - The first unified Fast invocation after Task 7 was externally time-limited while the host emitted the very large MSVC dependency-scan output; the unchanged gate was rerun with output redirected and ended with `Quality gate 'Fast' passed.`. The subsequent Full gate also ended with `Quality gate 'Full' passed.`, including strict Debug/Release builds, MSVC `/analyze`, both Clang analyses, and 22/22 CTest tests in each configuration. This is 25H2 evidence; exact 24H2 acceptance remains deferred.
+  - Task 8 added `SnapshotPublisher`, which keeps one deadline per subscribed client, captures once for all simultaneously due clients, publishes only to the due client ids, uses a retry deadline after provider failure, and atomically commits catalog/sequence state only after server publication succeeds. The server preserves empty-recipient broadcast compatibility for existing callers; targeted recipients are an internal delivery filter and do not change the wire protocol.
+  - Task 8 tests cover no-client/no-capture, immediate first subscription, shortest-deadline scheduling, per-client due filtering, update/removal, provider failure status, bounded retry and invalid-subscription reporting. Fast completed with `Quality gate 'Fast' passed.`; Full completed with `Quality gate 'Full' passed.`, Debug/Release CTest 23/23, MSVC `/analyze`, both Clang analyses, strict builds and Release x64. Current-host evidence is Windows 11 25H2; exact 24H2 acceptance remains deferred.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -544,6 +546,9 @@
 | Secure IPC Task 7 Debug CTest | `ctest -C Debug --output-on-failure -LE requires-admin` | All registered tests pass with integration non-skipped | 21/21 passed in 1.61 s | Pass on 25H2 |
 | Secure IPC Task 7 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, clang-tidy, Clang Static Analyzer and non-admin tests pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 21/21 | Pass on 25H2 |
 | Secure IPC Task 7 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release integration pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 22/22, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Secure IPC Task 8 scheduler tests | `nfm_ipc_snapshot_publisher_tests.exe` | Deadline coalescing, due filtering, provider failure retry, removal and invalid subscription behavior pass | Exit 0; `ipc snapshot publisher tests passed` | Pass on 25H2 |
+| Secure IPC Task 8 Fast quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Fast` | Format, strict Debug, clang-tidy, Clang Static Analyzer and non-admin tests pass | Final line `Quality gate 'Fast' passed.`; Debug CTest 22/22 | Pass on 25H2 |
+| Secure IPC Task 8 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates plus Debug/Release integration pass | Final line `Quality gate 'Full' passed.`; Debug/Release CTest 23/23, `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
 | IDE/AI-IDE ignore coverage | Required-pattern scan of `.gitignore` | All selected patterns present | Confirmed | Pass |
 | Task 1 full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | Format, Debug, lint/analyzer, `/analyze`, tests, and Release pass | Final line `Quality gate 'Full' passed.`; Debug and Release CTest 1/1 passed | Pass |
@@ -668,8 +673,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.29; Secure IPC Tasks 1-7 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 8 central publisher is next, and exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.30; Secure IPC Tasks 1-8 are implemented and their focused/real-pipe tests pass on the available 25H2 host; Task 9 reconnecting client is next, and exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Process identity, ETW, IPC, dual collection modes, native UI/settings, then integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-7; the bounded server/session layer passes pure protocol tests, real owner-scoped local-pipe integration, and Debug CTest 21/21 on 25H2. Task 7 still requires the final unified Full quality-gate marker before commit. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-8; secure server sessions and the central deadline-aware publisher pass pure tests, real owner-scoped local-pipe integration, and the unified Full gate with Debug/Release CTest 23/23 on 25H2. |

@@ -174,6 +174,15 @@ target_link_libraries(nfm_ipc_server_integration_tests PRIVATE nfm_ipc Advapi32)
 
 add_test(NAME ipc.server_integration COMMAND nfm_ipc_server_integration_tests)
 
+add_executable(nfm_ipc_snapshot_publisher_tests ipc_snapshot_publisher_tests.cpp)
+
+nfm_configure_target(nfm_ipc_snapshot_publisher_tests)
+nfm_enable_static_analysis(nfm_ipc_snapshot_publisher_tests)
+
+target_link_libraries(nfm_ipc_snapshot_publisher_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.snapshot_publisher COMMAND nfm_ipc_snapshot_publisher_tests)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

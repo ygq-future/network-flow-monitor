@@ -32,6 +32,9 @@ struct PublishedSnapshot {
     SnapshotMessage message;
     std::vector<CatalogEntry> latest_changes;
     std::vector<CatalogEntry> full_catalog;
+    // Empty means broadcast. A publisher can restrict delivery to clients whose
+    // refresh deadlines have elapsed without changing the wire payload.
+    std::vector<std::uint64_t> recipient_client_ids;
 };
 
 enum class IpcServerError : std::uint8_t {

@@ -93,6 +93,7 @@ add_library(
         ipc/named_pipe_transport.cpp
         ipc/security_policy.cpp
         ipc/snapshot_codec.cpp
+        ipc/snapshot_publisher.cpp
         ipc/windows_pipe_security.cpp
 )
 

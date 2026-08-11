@@ -1051,7 +1051,14 @@ class IpcServer::Impl final {
                 return ServerError(IpcServerError::AlreadyRunning);
             }
             for (const auto& session : sessions) {
-                if (session != nullptr && !session->finished.load()) {
+                if (session == nullptr || session->finished.load()) {
+                    continue;
+                }
+                const bool selected =
+                    snapshot->recipient_client_ids.empty() ||
+                    std::ranges::find(snapshot->recipient_client_ids, session->id) !=
+                        snapshot->recipient_client_ids.end();
+                if (selected) {
                     current.push_back(session);
                 }
             }

@@ -761,25 +761,25 @@ class SnapshotPublisher final : public ClientSessionObserver {
 
 Production `Capture()` wiring to `WindowsEtwSession::FlushAndQuery`/`MakeSnapshot` is deferred to the dual-mode host milestone; this task uses a fake and preserves the module boundary.
 
-- [ ] **Step 1: Register failing scheduler tests**
+- [x] **Step 1: Register failing scheduler tests**
 
 Cover no-client no-capture, immediate first capture, min of 100/500/5000ms subscriptions, one provider call for multiple due clients, per-client due filtering, update/remove, actual-sample-time deadlines without drift, backward time rejection, provider failure status, snapshot/catalog sequence, strictly increasing uptime/sequence and saturation of publisher diagnostics.
 
-- [ ] **Step 2: Run the red phase**
+- [x] **Step 2: Run the red phase**
 
 Format and run Fast for missing `snapshot_publisher.h`.
 
-- [ ] **Step 3: Implement deterministic deadline state**
+- [x] **Step 3: Implement deterministic deadline state**
 
 Store each client's next deadline. The first valid subscription is due immediately. After a capture at `now`, advance each due client's deadline to `now + interval`, not `old_deadline + interval`. A failed capture publishes status if available and applies a bounded retry deadline without fabricating counters.
 
-- [ ] **Step 4: Integrate ApplicationCatalog and server publication**
+- [x] **Step 4: Integrate ApplicationCatalog and server publication**
 
 On successful capture, validate strict `captured_at`, publish through `ApplicationCatalog`, assign instance-local snapshot sequence/uptime, and pass one immutable `PublishedSnapshot` to the server. Strong rollback preserves prior sequence/catalog on any failure.
 
-- [ ] **Step 5: Verify Task 8**
+- [x] **Step 5: Verify Task 8**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 22/22. Proposed checkpoint: `feat: coalesce ipc snapshot subscriptions`; leave uncommitted.
+Run Format, Fast, and Full. Require Debug/Release CTest 23/23. The scheduler tests and targeted-recipient publication path pass; both unified gates include strict builds, static analysis, MSVC `/analyze`, Release x64 and the live ETW integration. Checkpoint: `feat: coalesce ipc snapshot subscriptions`; commit only after the gate under the standing user authorization.
 
 ---
 

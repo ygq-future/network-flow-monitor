@@ -146,6 +146,15 @@ target_link_libraries(nfm_ipc_security_policy_tests PRIVATE nfm_ipc)
 
 add_test(NAME ipc.security_policy COMMAND nfm_ipc_security_policy_tests)
 
+add_executable(nfm_ipc_named_pipe_transport_tests ipc_named_pipe_transport_tests.cpp)
+
+nfm_configure_target(nfm_ipc_named_pipe_transport_tests)
+nfm_enable_static_analysis(nfm_ipc_named_pipe_transport_tests)
+
+target_link_libraries(nfm_ipc_named_pipe_transport_tests PRIVATE nfm_ipc)
+
+add_test(NAME ipc.named_pipe_transport COMMAND nfm_ipc_named_pipe_transport_tests)
+
 add_executable(nfm_windows_etw_record_decoder_tests windows_etw_record_decoder_tests.cpp)
 
 nfm_configure_target(nfm_windows_etw_record_decoder_tests)

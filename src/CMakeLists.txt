@@ -89,6 +89,7 @@ add_library(
     STATIC
         ipc/application_catalog.cpp
         ipc/frame_codec.cpp
+        ipc/named_pipe_transport.cpp
         ipc/security_policy.cpp
         ipc/snapshot_codec.cpp
         ipc/windows_pipe_security.cpp
@@ -103,7 +104,7 @@ target_include_directories(
 target_link_libraries(nfm_ipc PRIVATE nfm_config Advapi32)
 
 nfm_configure_target(nfm_ipc)
-nfm_enable_static_analysis(nfm_ipc)
+nfm_enable_static_analysis(nfm_ipc ENABLE_EXCEPTIONS)
 
 add_executable(NetworkFlowMonitor WIN32 app/main.cpp)
 

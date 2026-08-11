@@ -65,7 +65,7 @@ bool ApplicationCatalogResult::accepted() const noexcept {
     return error == ApplicationCatalogError::None;
 }
 
-ApplicationCatalog::ApplicationCatalog(ApplicationCatalogSeed seed) noexcept
+ApplicationCatalog::ApplicationCatalog(ApplicationCatalogSeed seed)
     : next_handle_{seed.first_handle}, initial_revision_{seed.initial_revision} {}
 
 void ApplicationCatalog::RemoveMissingApplications(const ranking::CounterSnapshot& snapshot,

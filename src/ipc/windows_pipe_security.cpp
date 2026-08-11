@@ -81,7 +81,7 @@ class ImpersonationGuard final {
 };
 
 bool ReadTokenInformation(HANDLE token, TOKEN_INFORMATION_CLASS information_class,
-                          std::vector<std::byte>& storage, std::uint32_t& error) noexcept {
+                          std::vector<std::byte>& storage, std::uint32_t& error) {
     DWORD required_size{};
     static_cast<void>(GetTokenInformation(token, information_class, nullptr, 0U, &required_size));
     if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || required_size == 0U ||
@@ -255,55 +255,61 @@ bool WindowsPipeSecurityApi::Impersonate(HANDLE pipe, std::uint32_t& error) noex
 
 bool WindowsPipeSecurityApi::QueryThreadIdentity(QueriedClientIdentity& identity,
                                                  std::uint32_t& error) noexcept {
-    HANDLE raw_token{};
-    if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &raw_token) == FALSE) {
-        error = GetLastError();
-        return false;
-    }
-    const UniqueHandle token{raw_token};
-
-    QueriedClientIdentity candidate;
-    std::vector<std::byte> user_storage;
-    if (!ReadTokenInformation(token.get(), TokenUser, user_storage, error)) {
-        return false;
-    }
-    if (user_storage.size() < sizeof(TOKEN_USER)) {
-        error = ERROR_BAD_LENGTH;
-        return false;
-    }
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(user_storage.data());
-    if (!CopyValidatedSid(user->User.Sid, candidate.user_sid)) {
-        error = ERROR_INVALID_SID;
-        return false;
-    }
-
-    std::vector<std::byte> groups_storage;
-    if (!ReadTokenInformation(token.get(), TokenGroups, groups_storage, error)) {
-        return false;
-    }
-    const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(groups_storage.data());
-    constexpr auto groups_offset = offsetof(TOKEN_GROUPS, Groups);
-    if (groups_storage.size() < groups_offset ||
-        groups->GroupCount > (groups_storage.size() - groups_offset) / sizeof(SID_AND_ATTRIBUTES)) {
-        error = ERROR_BAD_LENGTH;
-        return false;
-    }
-    candidate.group_sids.reserve(groups->GroupCount);
-    const std::span<const SID_AND_ATTRIBUTES> group_view{groups->Groups, groups->GroupCount};
-    for (const auto& group : group_view) {
-        if ((group.Attributes & SE_GROUP_LOGON_ID) != SE_GROUP_LOGON_ID) {
-            continue;
+    try {
+        HANDLE raw_token{};
+        if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &raw_token) == FALSE) {
+            error = GetLastError();
+            return false;
         }
-        std::vector<std::byte> group_sid;
-        if (!CopyValidatedSid(group.Sid, group_sid)) {
+        const UniqueHandle token{raw_token};
+
+        QueriedClientIdentity candidate;
+        std::vector<std::byte> user_storage;
+        if (!ReadTokenInformation(token.get(), TokenUser, user_storage, error)) {
+            return false;
+        }
+        if (user_storage.size() < sizeof(TOKEN_USER)) {
+            error = ERROR_BAD_LENGTH;
+            return false;
+        }
+        const auto* user = reinterpret_cast<const TOKEN_USER*>(user_storage.data());
+        if (!CopyValidatedSid(user->User.Sid, candidate.user_sid)) {
             error = ERROR_INVALID_SID;
             return false;
         }
-        candidate.group_sids.push_back(std::move(group_sid));
+
+        std::vector<std::byte> groups_storage;
+        if (!ReadTokenInformation(token.get(), TokenGroups, groups_storage, error)) {
+            return false;
+        }
+        const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(groups_storage.data());
+        constexpr auto groups_offset = offsetof(TOKEN_GROUPS, Groups);
+        if (groups_storage.size() < groups_offset ||
+            groups->GroupCount >
+                (groups_storage.size() - groups_offset) / sizeof(SID_AND_ATTRIBUTES)) {
+            error = ERROR_BAD_LENGTH;
+            return false;
+        }
+        candidate.group_sids.reserve(groups->GroupCount);
+        const std::span<const SID_AND_ATTRIBUTES> group_view{groups->Groups, groups->GroupCount};
+        for (const auto& group : group_view) {
+            if ((group.Attributes & SE_GROUP_LOGON_ID) != SE_GROUP_LOGON_ID) {
+                continue;
+            }
+            std::vector<std::byte> group_sid;
+            if (!CopyValidatedSid(group.Sid, group_sid)) {
+                error = ERROR_INVALID_SID;
+                return false;
+            }
+            candidate.group_sids.push_back(std::move(group_sid));
+        }
+        identity = std::move(candidate);
+        error = ERROR_SUCCESS;
+        return true;
+    } catch (...) {
+        error = ERROR_NOT_ENOUGH_MEMORY;
+        return false;
     }
-    identity = std::move(candidate);
-    error = ERROR_SUCCESS;
-    return true;
 }
 
 bool WindowsPipeSecurityApi::Revert(std::uint32_t& error) noexcept {

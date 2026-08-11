@@ -43,7 +43,7 @@ struct ApplicationCatalogSeed {
 
 class ApplicationCatalog final {
   public:
-    explicit ApplicationCatalog(ApplicationCatalogSeed seed = {}) noexcept;
+    explicit ApplicationCatalog(ApplicationCatalogSeed seed = {});
 
     [[nodiscard]] ApplicationCatalogResult Publish(const ranking::CounterSnapshot& snapshot);
 

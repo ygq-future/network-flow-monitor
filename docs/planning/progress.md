@@ -462,7 +462,7 @@
 - **Status:** in_progress
 - **Started:** 2026-08-11
 - Current task:
-  - Task 6 — cancellable overlapped named-pipe transport.
+  - Task 7 — server handshake and bounded client sessions.
 - Completed work:
   - Task 1 introduced a 15-second active horizon, monotonic watermarks, 4094 dynamic application slots, fixed Unattributed/Other buckets, deterministic overflow aggregation and rollback-safe counter overflow handling.
   - Collector traffic now passes ETW observation time into accumulation, advances the same accepted watermark through process and ranking state, preserves global protocol/direction totals for aggregated traffic, and exposes saturating capacity diagnostics that degrade a running collector on the first hit.
@@ -490,6 +490,12 @@
   - The common portable case where elevated server and UI share one logon SID is tested and retains the unioned server access. Maximum-length valid SID names remain below the fixed 256-character limit; the public API accepts no arbitrary raw pipe name, so a fabricated valid over-limit SID is not a real input case.
   - `WindowsPipeSecurityApi` queries only the impersonated thread user and logon group SIDs through bounded token buffers. `VerifyPipeClient` rejects invalid principals before impersonation, matches service user or portable logon group by binary SID, and performs exactly one revert on every successful impersonation path. All non-`None` results are authorization failures; detailed internal error/Win32 values are not protocol disclosures.
   - Task 5 red Fast failed only with C1083 for `network_flow_monitor/ipc/security_policy.h`. Final `Format -> Fast` passed in 45.8 seconds with Debug 19/19; Full passed in 86.1 seconds with Debug/Release 19/19, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze` and Release x64. The security test reaches ADVAPI32/KERNEL32, while the unlinked product remains SHELL32/USER32/KERNEL32 and 111,616 bytes; zero matching ETW error windows remained.
+  - Task 6 added a non-copyable Windows named-pipe transport with distinct manual-reset connect/read/write events, explicit Idle/Pending/Completed/CancelRequested operation states, immediate and pending completion paths, `ERROR_PIPE_CONNECTED` race handling, and final-completion-only reuse.
+  - `NamedPipeConnection` owns the buffers passed to pending Win32 I/O. Exact reads use an internal staging buffer before copying to the caller destination; writes copy their source before beginning. Partial transfers continue iteratively, zero-progress success is rejected, and cancellation always drains `GetOverlappedResult` before any buffer, `OVERLAPPED`, event, or pipe handle is released.
+  - The concrete factory always passes Task 5's explicit security attributes, configures duplex/overlapped byte-mode local-only server instances with a four-instance cap, applies first-instance ownership only to the initial server handle, and opens clients with exact data/synchronize rights plus identification-only SQOS. `WaitNamedPipeW` is used only after `ERROR_PIPE_BUSY` and is bounded to 250 ms.
+  - The plan's initial interface listed server creation but omitted the client factory and completion-event access needed by its own Step 4 and Task 7. The implemented boundary adds those required operations without changing the accepted transport, security, or concurrency model.
+  - Task 6 red Fast failed only on the missing `network_flow_monitor/ipc/named_pipe_transport.h`. The first implementation build then exposed one missing standard header and a result-type mismatch; focused diagnosis fixed their sources. The first exception-aware analysis also exposed two pre-existing unsafe exception declarations in the same IPC target: `ApplicationCatalog` no longer promises a potentially throwing default construction is `noexcept`, and token-query allocation failures are now caught and classified at the Win32 security API boundary.
+  - Final `Format -> Fast` passed in 48.8 seconds with Debug 20/20 and both Clang analyses. Full passed in 98.5 seconds with Debug/Release 20/20, strict builds, clang-tidy, Clang Static Analyzer, MSVC `/analyze`, and Release x64. The transport test is 260,096 bytes and reaches ADVAPI32/KERNEL32 through security construction; the still-unlinked product remains 111,616 bytes.
 
 ## Test Results
 | Test | Input | Expected | Actual | Status |
@@ -522,6 +528,11 @@
 | Secure IPC Task 5 final Format/Fast sequence | `tools/quality.ps1 -Mode Format`, then `Fast` | Strict Debug, 19 tests and both Clang analyses pass | Exit 0 in 45.8 s; Debug CTest 19/19 | Pass |
 | Secure IPC Task 5 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release integration pass | Exit 0 in 86.1 s; Debug/Release CTest 19/19; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
 | Secure IPC Task 5 dependency/size boundary | `dumpbin /dependents`, Release length and post-gate window scan | Advapi32 is isolated to reachable security code; product remains unchanged; no stale dialog | Test: ADVAPI32/KERNEL32; product: SHELL32/USER32/KERNEL32, 111,616 bytes; 0 matching windows | Pass on 25H2 |
+| Secure IPC Task 6 red phase | Register `ipc.named_pipe_transport` before adding its public API | Compilation fails only for the missing transport header | C1083 for `network_flow_monitor/ipc/named_pipe_transport.h`; no unrelated failure | Pass |
+| Secure IPC Task 6 operation and factory behavior | Focused injected-API test | Immediate/pending/partial/error/cancel races, exact buffer ownership, flags, ACL pointer, SQOS, retry and RAII cleanup are deterministic | Focused Debug executable exit 0; all scripted lifecycle assertions passed | Pass on 25H2 |
+| Secure IPC Task 6 final Format/Fast sequence | `tools/quality.ps1 -Mode Format`, then `Fast` | Strict Debug, 20 tests and both Clang analyses pass | Exit 0 in 48.8 s; Debug CTest 20/20 | Pass |
+| Secure IPC Task 6 Full quality gate | `pwsh -NoProfile -File tools/quality.ps1 -Mode Full` | All mandatory gates and Debug/Release integration pass | Exit 0 in 98.5 s; Debug/Release CTest 20/20; `/analyze`, both Clang analyses and Release x64 passed | Pass on 25H2 |
+| Secure IPC Task 6 dependency/size boundary | `dumpbin /dependents` and Release lengths | Transport/security reachability and still-unlinked product boundary are recorded exactly | Test: ADVAPI32/KERNEL32, 260,096 bytes; product remains 111,616 bytes | Pass on 25H2 |
 | clang-format configuration | `clang-format --style=file --dump-config` | Configuration parses | Exit 0 | Pass |
 | clang-tidy configuration | `clang-tidy --verify-config` | Configuration parses | “No config errors detected”, exit 0 | Pass |
 | Planning-file relocation | Root path checks and repository reference scan | No root planning files; references target `docs/planning/` | Confirmed | Pass |
@@ -642,12 +653,14 @@
 | 2026-08-11 | Task 4 first complete clang-tidy run found swappable constructor parameters and excessive `Publish` cognitive complexity | 1 | Replaced positional test seams with `ApplicationCatalogSeed` and split candidate removal, merge, sequence and assembly steps; the focused and full analysis builds then passed without suppression. |
 | 2026-08-11 | The first catch-up staged snapshot found an extra blank line at EOF in ADR 0008 | 1 | Removed only the redundant final blank line, restaged the ADR and required `git diff --cached --check` to pass before commit. |
 | 2026-08-11 | Task 5 first Clang analysis found Win32 const-SID adapters, unsafe dynamic indexes, inconsistent enum values and test-style diagnostics | 1 | Concentrated legacy `PSID` const adaptation into two check-specific documented helpers, used vector/span bounds, explicit enum values and qualified types; the next focused analysis was zero-diagnostic. |
+| 2026-08-11 | Task 6 first implementation build could not deduce `std::array` and returned an operation result from connection factories | 1 | Traced the diagnostics to the missing `<array>` include and an unadapted result layer; added the include and an explicit connection-error classifier, then the focused strict build passed. |
+| 2026-08-11 | Enabling exception-aware IPC analysis exposed potentially throwing work behind three `noexcept` boundaries | 1 | Kept exception analysis enabled, removed `noexcept` from the value-level catalog constructor, caught token-query allocation failures at the Win32 adapter boundary, and retained explicit catch/classification in transport allocation paths. |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4.27; Secure IPC Tasks 1-5 are complete on the available 25H2 host and Task 6 cancellable named-pipe transport is next; exact 24H2 acceptance remains pending for Phase 5. |
+| Where am I? | Phase 4.28; Secure IPC Tasks 1-6 are complete on the available 25H2 host and Task 7 server handshake/client sessions is next; exact 24H2 acceptance remains pending for Phase 5. |
 | Where am I going? | Process identity, ETW, IPC, dual collection modes, native UI/settings, then integrated delivery. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-5; explicit owner-scoped pipe security now passes the clean Debug/Release 19/19 full gate on 25H2. |
+| What have I done? | Completed Milestones 1-3 and Secure IPC Tasks 1-6; cancellable owner-scoped overlapped pipe transport now passes the clean Debug/Release 20/20 full gate on 25H2. |

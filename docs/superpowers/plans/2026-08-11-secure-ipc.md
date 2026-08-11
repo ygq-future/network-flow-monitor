@@ -590,27 +590,27 @@ class PipeTransportFactory {
 
 Buffers referenced by pending operations remain owned by `NamedPipeConnection` until completion. No caller may free/reuse an `OVERLAPPED` after only requesting cancellation.
 
-- [ ] **Step 1: Register injected-API lifecycle tests**
+- [x] **Step 1: Register injected-API lifecycle tests**
 
 Cover immediate completion, `ERROR_IO_PENDING`, partial read/write, `ERROR_MORE_DATA` rejection in byte mode, broken pipe, already-connected race, cancel success, `ERROR_NOT_FOUND`, cancel-vs-normal-completion race, completion error, repeated shutdown, destructor cleanup and no handle inheritance.
 
 Assert CreateNamedPipe flags include duplex/overlapped/first-instance on the first call, byte/read-byte/wait/reject-remote, max instances 4, and the exact explicit security attributes pointer.
 
-- [ ] **Step 2: Run the red phase**
+- [x] **Step 2: Run the red phase**
 
 Format and run Fast for the expected missing transport header.
 
-- [ ] **Step 3: Implement operation state machines and RAII**
+- [x] **Step 3: Implement operation state machines and RAII**
 
 Use separate manual-reset events and `OVERLAPPED` objects for connect/read/write. Treat immediate success and pending completion distinctly. `RequestCancel` changes state but never finalizes it; `Complete` is the only transition back to Idle.
 
-- [ ] **Step 4: Implement server/client open and exact transfer**
+- [x] **Step 4: Implement server/client open and exact transfer**
 
 Server creation always receives Task 5 security attributes. Client opens with specific data/synchronize rights and `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`; use `WaitNamedPipeW` only for classified busy retry. Exact read/write loops reject zero-progress success.
 
-- [ ] **Step 5: Verify Task 6**
+- [x] **Step 5: Verify Task 6**
 
-Run Format, Fast, and Full. Require Debug/Release CTest 20/20. Proposed checkpoint: `feat: add cancellable named pipe transport`; leave uncommitted.
+Run Format, Fast, and Full. Require Debug/Release CTest 20/20. Commit the verified checkpoint as `feat: add cancellable named pipe transport` under the user's standing stage-commit authorization.
 
 ---
 

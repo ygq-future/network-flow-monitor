@@ -11,6 +11,7 @@
 #include "network_flow_monitor/ui/ranking_popup.h"
 #include "network_flow_monitor/ui/settings_controller.h"
 #include "network_flow_monitor/ui/settings_window.h"
+#include "network_flow_monitor/ui/startup_registration.h"
 #include "network_flow_monitor/ui/tray_controller.h"
 
 #include <windows.h>
@@ -82,6 +83,8 @@ class UiController final : public ipc::IpcClientObserver,
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
     [[nodiscard]] bool StartCollection() noexcept;
     void StopCollection() noexcept;
+    void RestoreCollectionState(const config::AppConfig& previous, bool reconnect,
+                                bool service_stopped) noexcept;
     void ApplyInteractionState() noexcept;
     void HandleInteraction(InteractionEvent event, MouseTarget target = MouseTarget::None) noexcept;
     void ScheduleInteractionTimer() noexcept;
@@ -97,7 +100,9 @@ class UiController final : public ipc::IpcClientObserver,
     config::AppConfig config_;
     WindowsSettingsStoreApi settings_store_;
     WindowsServiceActionApi service_action_api_;
+    WindowsStartupRunKeyStoreApi startup_store_;
     SettingsController settings_controller_;
+    StartupRegistration startup_registration_;
     SettingsWindow settings_window_;
     ipc::WindowsPipeTransportFactory transport_;
     WindowsShellExecuteApi shell_api_;

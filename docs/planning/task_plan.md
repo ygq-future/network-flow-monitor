@@ -7,7 +7,7 @@ Design, document, implement, and verify a very small Windows 11 network-flow mon
 Run the target Windows 11 24H2 x64 acceptance matrix for the already-generated ZIP package, then close the remaining service upgrade/uninstall and visual/UAC evidence gaps.
 
 ## Current Phase
-Phase 5.1 — Release ZIP packaging and measurement checkpoint; 24H2 and manual acceptance pending
+Phase 5.2 — Settings integration closure; 24H2 and manual acceptance pending
 
 ## Live Execution Queue
 
@@ -22,7 +22,7 @@ This table is the canonical current work queue. Only one milestone may be `in_pr
 | 4 | Secure IPC | Versioned named-pipe framing, explicit ACL, handshake/subscription, bounded parsing, reconnect state | complete | Tasks 1–10 pass; real local-pipe, hostile-input, cancellation, reconnect and live-DACL evidence pass; Full gate passes with 25/25 tests |
 | 5 | Dual collection modes | Portable elevated collector, Windows service lifecycle, install/uninstall/service-control entry implementations | complete | Tasks 1–3 pass; audit records ACL, smoke, size and 24H2 limitations; Full gate passes with Debug/Release CTest 28/28 |
 | 6 | Tray and floating UI | Notification icon, Direct2D/DirectWrite floating meter, hover ranking popup, dynamic placement, edge snap/hide | implemented (automated smoke complete; visible acceptance deferred to Phase 5) | UI checks cover multi-monitor, mixed DPI, workspace/taskbar changes, tray overflow, hover/dismiss timing, dirty-only redraw, and full quality gate passes |
-| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | implemented (automated controller/window smoke complete; real SCM/UI acceptance pending) | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
+| 7 | Settings and service management UI | All public configuration pages plus real SCM status/actions with explicit UAC | implemented (status, login startup, and mode-transition cleanup automated; real SCM/UI acceptance pending) | Settings round-trip and service actions are verified against actual state; failures expose system error details; full quality gate passes |
 | 8 | Integrated verification and delivery | Packaging plus functional, performance, footprint, compatibility and upgrade measurements | in_progress (ZIP target and 25H2 measurements complete; target acceptance pending) | Phase 5 matrix passes on Windows 11 24H2 x64 and measured results are recorded without invented thresholds |
 
 Each implementation milestone follows the same observable sequence: detailed plan -> failing tests -> minimal implementation -> per-task fast gate -> milestone full quality gate -> planning/progress update -> Git commit only when explicitly authorized.
@@ -75,6 +75,15 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Update progress and decision records with current-host evidence
 - [ ] Deliver the verified artifacts after target-host acceptance
 - **Status:** in_progress
+
+### Phase 5.2: Settings integration closure
+- [x] Implement real per-user login startup registration/removal through the HKCU Run key
+- [x] Display current SCM service state when opening settings and after service actions
+- [x] Stop the old service after a successful switch back to portable mode, with rollback on failure
+- [x] Add startup-registration and settings-window status smoke coverage
+- [x] Run the complete 36-test Full quality gate and regenerate the CPack package
+- [ ] Run the Windows 11 24H2 x64, UAC/SCM, visual, and performance acceptance matrix
+- **Status:** implementation complete; target-host acceptance pending
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

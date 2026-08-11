@@ -839,14 +839,25 @@
   - Added an automated native settings-window creation/close smoke test; the clean Debug CTest run now contains 35 tests.
   - Updated the delivery documentation and ADR 0012 to distinguish a portable ZIP from a future full installer. Service registration currently uses the absolute path of the stable extracted executable and does not silently copy or move user files.
   - Full quality gate: Pass; Debug/Release CTest 35/35, MSVC `/analyze`, both Clang analyses, Release build, and CPack ZIP generation passed on Windows 11 25H2 x64.
-  - Current Release measurement: executable 652,288 bytes, ZIP 311,533 bytes, UI smoke exit code 0, and dependencies limited to Windows system components; detailed values are in `docs/delivery.md` and the generated ignored report.
+  - Current Release measurement: executable 658,944 bytes, ZIP 314,540 bytes, UI smoke exit code 0, and dependencies limited to Windows system components; detailed values are in `docs/delivery.md` and the generated ignored report.
 - **Remaining acceptance:** execute the same package on Windows 11 24H2 x64, perform real SCM/UAC lifecycle and upgrade/uninstall checks, and collect multi-monitor/mixed-DPI visual plus CPU/workset/latency measurements.
+
+## Phase 5.2: Settings integration closure
+- **Status:** implementation complete; target-host and visual acceptance pending
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Added a typed startup-registration boundary. Enabling `startup.ui_at_login` writes a quoted executable path to the current user's `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`; disabling it removes the value without requiring elevation. Registry failures are returned through the normal settings error path and persistence rollback.
+  - Added fake-backed tests for startup enable/disable, quoted executable-path generation, error propagation, and a settings-window smoke assertion that real SCM status is queried when the window opens.
+  - Added a read-only service status line that distinguishes running/stopped/pending, not-installed, and query-failed states. Service actions refresh the line from a new SCM query rather than trusting button state.
+  - When switching from service mode to portable mode, the UI starts and connects the portable collector before requesting service stop. Stop failures restore the service endpoint and previous configuration; persistence/startup-registration failures also restore the previous collection state.
+  - The clean Debug/Release Full gate passed with 36/36 CTest tests, strict builds, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack ZIP on Windows 11 25H2 x64.
+- **Remaining acceptance:** execute the package on Windows 11 24H2 x64, manually validate UAC/SCM install/start/stop/restart/uninstall and upgrade paths, exercise all visible UI on mixed-DPI/multiple-monitor setups, and collect target-host CPU/workset/latency/ETW-loss measurements.
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 5.1; tray/floating/settings implementations and ZIP packaging pass the unified Full gate with 35 tests on 25H2; target-host acceptance remains pending. |
+| Where am I? | Phase 5.2; tray/floating/settings implementations and ZIP packaging pass the unified Full gate with 36 tests on 25H2; target-host acceptance remains pending. |
 | Where am I going? | Run the packaged artifact and lifecycle/visual/performance matrix on Windows 11 24H2 x64, then close upgrade/uninstall evidence. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
-| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, UI implementation Tasks 1-5, Settings implementation, and the ZIP/measurement checkpoint; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, settings persistence/UI, SCM action bridge, IPC/ranking bridge, portable process lifetime, message loop, packaging target, and smoke harness pass the unified Full gate with Debug/Release CTest 35/35 on 25H2. |
+| What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, UI implementation Tasks 1-5, Settings integration, and the ZIP/measurement checkpoint; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, settings persistence/UI, SCM status/action bridge, login startup registration, IPC/ranking bridge, portable process lifetime, message loop, packaging target, and smoke harness pass the unified Full gate with Debug/Release CTest 36/36 on 25H2. |

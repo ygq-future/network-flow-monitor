@@ -3,6 +3,7 @@
 
 #include <windows.h>
 
+#include <cstddef>
 #include <iostream>
 
 namespace {
@@ -16,11 +17,15 @@ class FakeSettingsHost final : public nfm::ui::SettingsWindowHost {
     }
 
     [[nodiscard]] nfm::ui::SettingsActionResult ExecuteServiceAction(
-        nfm::ui::SettingsServiceAction, nfm::config::ServiceStartType) noexcept override {
-        return {.succeeded = true};
+        nfm::ui::SettingsServiceAction action, nfm::config::ServiceStartType) noexcept override {
+        if (action == nfm::ui::SettingsServiceAction::Query) {
+            ++query_calls;
+        }
+        return {.succeeded = true, .state = nfm::service::ServiceState::Running};
     }
 
     nfm::config::AppConfig saved{};
+    std::size_t query_calls{};
 };
 
 } // namespace
@@ -31,6 +36,10 @@ int main() {
     const auto shown = window.Show(nullptr, nfm::config::DefaultAppConfig());
     if (!shown || window.hwnd() == nullptr) {
         std::cerr << "settings window creation failed\n";
+        return 1;
+    }
+    if (host.query_calls != 1U) {
+        std::cerr << "settings window did not query service status\n";
         return 1;
     }
 

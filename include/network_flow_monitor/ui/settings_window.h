@@ -74,6 +74,7 @@ class SettingsWindow final {
     [[nodiscard]] bool CreateSettingsWindow(HWND owner) noexcept;
     [[nodiscard]] bool CreateControls() noexcept;
     void PopulateControls(const config::AppConfig& value) noexcept;
+    void UpdateServiceStatus(const config::AppConfig& value) noexcept;
     [[nodiscard]] bool ReadControls(config::AppConfig& value) const noexcept;
     void HandleCommand(int control_id) noexcept;
     void HandleServiceCommand(int control_id) noexcept;
@@ -104,6 +105,7 @@ class SettingsWindow final {
     HWND show_download_{};
     HWND auto_hide_{};
     HWND ui_at_login_{};
+    HWND service_status_{};
 };
 
 } // namespace nfm::ui

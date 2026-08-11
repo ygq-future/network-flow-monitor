@@ -100,6 +100,16 @@ void SetChecked(HWND control, bool checked) noexcept {
     return L"unknown";
 }
 
+[[nodiscard]] std::wstring ServiceStatusText(const SettingsActionResult& result) {
+    if (result.succeeded) {
+        return L"Service status: " + std::wstring{ServiceStateText(result.state)};
+    }
+    if (result.win32_error == ERROR_SERVICE_DOES_NOT_EXIST) {
+        return L"Service status: not installed";
+    }
+    return L"Service status: query failed (Win32 " + std::to_wstring(result.win32_error) + L")";
+}
+
 } // namespace
 
 SettingsWindow::SettingsWindow(HINSTANCE instance, SettingsWindowHost& host) noexcept
@@ -116,6 +126,7 @@ bool SettingsWindow::Show(HWND owner, const config::AppConfig& value) noexcept {
             return false;
         }
         PopulateControls(value);
+        UpdateServiceStatus(value);
         const auto window = window_;
         if (window == nullptr) {
             return false;
@@ -238,17 +249,37 @@ bool SettingsWindow::CreateControls() noexcept {
     CreateButton(window_, instance_, kUninstallService, L"Uninstall", 460, y, 100);
     y += 35;
     CreateButton(window_, instance_, kQueryService, L"Query service status", 20, y, 180);
+    y += 35;
+    service_status_ = CreateLabel(window_, instance_, L"Service status: unknown", y);
+    if (service_status_ != nullptr) {
+        ::SetWindowPos(service_status_, nullptr, kControlX, y, kControlWidth, 22,
+                       SWP_NOACTIVATE | SWP_NOZORDER);
+    }
 
-    const std::array<HWND, 17> controls{
+    const std::array<HWND, 18> controls{
         top_n_,          ranking_window_,     refresh_interval_, hover_delay_, dismiss_delay_,
         snap_distance_,  auto_hide_delay_,    reveal_strip_,     opacity_,     speed_unit_,
         collector_mode_, service_start_type_, log_level_,        show_upload_, show_download_,
-        auto_hide_,      ui_at_login_};
+        auto_hide_,      ui_at_login_,        service_status_};
     for (const auto control : controls) {
         static_cast<void>(
             ::SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE));
     }
     return true;
+}
+
+void SettingsWindow::UpdateServiceStatus(const config::AppConfig& value) noexcept {
+    if (service_status_ == nullptr) {
+        return;
+    }
+    try {
+        const auto result =
+            host_->ExecuteServiceAction(SettingsServiceAction::Query, value.service.start_type);
+        const auto text = ServiceStatusText(result);
+        ::SetWindowTextW(service_status_, text.c_str());
+    } catch (...) {
+        ::SetWindowTextW(service_status_, L"Service status: unavailable");
+    }
 }
 
 void SettingsWindow::PopulateControls(const config::AppConfig& value) noexcept {
@@ -399,7 +430,9 @@ void SettingsWindow::HandleServiceCommand(int control_id) noexcept {
         ShowError(L"Invalid settings", L"Correct the settings values before managing the service.");
         return;
     }
-    ShowServiceResult(host_->ExecuteServiceAction(action, value.service.start_type));
+    const auto result = host_->ExecuteServiceAction(action, value.service.start_type);
+    ShowServiceResult(result);
+    UpdateServiceStatus(value);
 }
 
 void SettingsWindow::ShowError(const wchar_t* title, const wchar_t* message) const noexcept {

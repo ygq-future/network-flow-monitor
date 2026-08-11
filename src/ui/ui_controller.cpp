@@ -30,14 +30,20 @@ constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMess
     return error == ERROR_SUCCESS ? 0 : static_cast<int>(error);
 }
 
+[[nodiscard]] bool ServiceStopSatisfied(const SettingsActionResult& result) noexcept {
+    return result.ok() || result.win32_error == ERROR_SERVICE_DOES_NOT_EXIST ||
+           result.win32_error == ERROR_SERVICE_NOT_ACTIVE;
+}
+
 } // namespace
 
 UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
     : instance_{instance}, config_{config}, settings_store_{}, service_action_api_{},
+      startup_store_{},
       settings_controller_{DefaultSettingsPath(), config::ConfigDocumentKind::User, settings_store_,
                            service_action_api_},
-      settings_window_{instance_, *this}, collector_process_{shell_api_},
-      floating_window_{instance_, render_resources_, *this},
+      startup_registration_{startup_store_}, settings_window_{instance_, *this},
+      collector_process_{shell_api_}, floating_window_{instance_, render_resources_, *this},
       ranking_popup_{instance_, render_resources_, *this},
       tray_controller_{nullptr, TrayIconOptions{}, tray_api_, *this}, snapshot_generation_{0U},
       memory_error_{false} {
@@ -390,6 +396,22 @@ void UiController::StopCollection() noexcept {
     static_cast<void>(collector_process_.Stop());
 }
 
+void UiController::RestoreCollectionState(const config::AppConfig& previous, bool reconnect,
+                                          bool service_stopped) noexcept {
+    if (reconnect) {
+        StopCollection();
+    }
+    config_ = previous;
+    static_cast<void>(UpdateRankingOptions(previous.ranking.top_n, previous.ranking.window));
+    if (reconnect) {
+        if (service_stopped) {
+            static_cast<void>(
+                ExecuteServiceAction(SettingsServiceAction::Start, previous.service.start_type));
+        }
+        static_cast<void>(StartCollection());
+    }
+}
+
 // NOLINTNEXTLINE(bugprone-exception-escape): settings persistence and rollback are caught below.
 SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) noexcept {
     const auto previous = config_;
@@ -404,14 +426,15 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
     const auto reconnect =
         started_ && (value.collector.preferred_mode != previous.collector.preferred_mode ||
                      value.display.refresh_interval != previous.display.refresh_interval);
+    const auto leaving_service =
+        started_ && previous.collector.preferred_mode == config::CollectorMode::Service &&
+        value.collector.preferred_mode == config::CollectorMode::Portable;
+    bool service_stopped{};
     config_ = value;
     if (reconnect) {
         StopCollection();
         if (!StartCollection()) {
-            config_ = previous;
-            static_cast<void>(
-                UpdateRankingOptions(previous.ranking.top_n, previous.ranking.window));
-            static_cast<void>(StartCollection());
+            RestoreCollectionState(previous, true, false);
             return {.saved = false,
                     .error = config::ConfigError{
                         .code = config::ConfigErrorCode::WriteFailed,
@@ -420,17 +443,40 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
                         .system_error = ERROR_FUNCTION_FAILED}};
         }
     }
+    if (leaving_service) {
+        const auto stopped =
+            ExecuteServiceAction(SettingsServiceAction::Stop, value.service.start_type);
+        if (!ServiceStopSatisfied(stopped)) {
+            RestoreCollectionState(previous, reconnect, false);
+            return {
+                .saved = false,
+                .error = config::ConfigError{
+                    .code = config::ConfigErrorCode::WriteFailed,
+                    .field_path = "collector.preferred_mode",
+                    .detail = "the service could not be stopped while switching to portable mode",
+                    .system_error = stopped.win32_error}};
+        }
+        service_stopped = stopped.ok();
+    }
+    const auto startup_changed = value.startup.ui_at_login != previous.startup.ui_at_login;
+    if (startup_changed) {
+        const auto startup_result = startup_registration_.Apply(value.startup.ui_at_login);
+        if (!startup_result.ok()) {
+            RestoreCollectionState(previous, reconnect, service_stopped);
+            return {.saved = false,
+                    .error = config::ConfigError{
+                        .code = config::ConfigErrorCode::WriteFailed,
+                        .field_path = "startup.ui_at_login",
+                        .detail = "the Windows login startup entry could not be updated",
+                        .system_error = startup_result.win32_error}};
+        }
+    }
     const auto result = settings_controller_.Save(value);
     if (!result.saved) {
-        if (reconnect) {
-            StopCollection();
-            config_ = previous;
-            static_cast<void>(StartCollection());
-        } else {
-            static_cast<void>(
-                UpdateRankingOptions(previous.ranking.top_n, previous.ranking.window));
+        if (startup_changed) {
+            static_cast<void>(startup_registration_.Apply(previous.startup.ui_at_login));
         }
-        config_ = previous;
+        RestoreCollectionState(previous, reconnect, service_stopped);
         return result;
     }
     ApplyInteractionState();

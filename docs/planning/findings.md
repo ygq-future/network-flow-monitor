@@ -116,9 +116,9 @@
 - CMake now exposes an install target and CPack ZIP generator. The portable package contains the
   Release executable and README only; the current static-runtime build did not require optional
   MSVC DLLs.
-- `tools/package.ps1` generated `NetworkFlowMonitor-0.1.0-win-x64.zip` at 311,533 bytes. The
-  executable inside the install tree measured 652,288 bytes on the current 25H2 toolchain.
-- `tools/measure-release.ps1` recorded a successful `--ui-smoke-test` exit code 0 and an 84.017 ms
+- `tools/package.ps1` generated `NetworkFlowMonitor-0.1.0-win-x64.zip` at 314,540 bytes. The
+  executable inside the install tree measured 658,944 bytes on the current 25H2 toolchain.
+- `tools/measure-release.ps1` recorded a successful `--ui-smoke-test` exit code 0 and a 91.262 ms
   wall-clock run for that short smoke path. This is a startup/teardown observation, not a UI or
   collector latency guarantee.
 - `dumpbin /DEPENDENTS` reported only Windows system components (`ADVAPI32`, `DWrite`, `d2d1`,
@@ -127,6 +127,10 @@
 - The service control adapter registers the absolute path of the stable extracted executable; it
   does not silently copy or move a portable file. A future Program Files installer or upgrade
   migration requires a separate design and test path.
+- The settings integration checkpoint now writes/removes the per-user login startup value through
+  HKCU Run, displays a fresh SCM status after opening or mutating the service, and stops the old
+  service only after a successful switch back to the portable collector. These behaviors are
+  covered by fake-backed/UI smoke tests; real UAC and SCM state changes remain manual acceptance.
 
 ## Resources
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip

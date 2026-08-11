@@ -21,6 +21,7 @@ add_library(
         ui/collector_process.cpp
         ui/settings_controller.cpp
         ui/settings_window.cpp
+        ui/startup_registration.cpp
         ui/ui_controller.cpp
 )
 

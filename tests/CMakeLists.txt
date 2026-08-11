@@ -133,6 +133,15 @@ target_link_libraries(
 
 add_test(NAME ui.settings_window COMMAND nfm_ui_settings_window_tests)
 
+add_executable(nfm_ui_startup_registration_tests ui_startup_registration_tests.cpp)
+
+nfm_configure_target(nfm_ui_startup_registration_tests)
+nfm_enable_static_analysis(nfm_ui_startup_registration_tests)
+
+target_link_libraries(nfm_ui_startup_registration_tests PRIVATE nfm_ui Advapi32 User32)
+
+add_test(NAME ui.startup_registration COMMAND nfm_ui_startup_registration_tests)
+
 add_executable(nfm_config_model_tests config_model_tests.cpp)
 
 nfm_configure_target(nfm_config_model_tests)

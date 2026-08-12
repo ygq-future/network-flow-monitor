@@ -25,7 +25,7 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 
 - 可执行文件：775,168 bytes。
 - ZIP 包：376,536 bytes；SHA-256 由每次打包脚本输出（`Compress-Archive` 包含时间元数据，因此哈希可能变化）。
-- `--ui-smoke-test` 退出码：0；本次墙钟时间约 99.517 ms（短烟测路径，重复运行会波动）。
+- `--ui-smoke-test` 退出码：0；最近一次墙钟时间约 98.754 ms（短烟测路径，重复运行会波动，不是性能阈值）。
 - 只读验收脚本的同批短 smoke 采样：峰值工作集约 12.9 MiB、CPU 时间约 46.9 ms；采样仅覆盖启动/退出路径，不代表高流量运行性能。
 - 依赖为 Windows 系统组件：`ADVAPI32.dll`、`DWrite.dll`、`d2d1.dll`、`GDI32.dll`、`KERNEL32.dll`、`SHELL32.dll`、`tdh.dll`、`USER32.dll` 及同步 API-set。
 

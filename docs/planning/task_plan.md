@@ -7,7 +7,7 @@ Design, document, implement, and verify a very small Windows 11 network-flow mon
 Run the target Windows 11 24H2 x64 acceptance matrix for the already-generated ZIP package, then close the remaining service upgrade/uninstall and visual/UAC evidence gaps.
 
 ## Current Phase
-Phase 5.2 — Settings integration closure; 24H2 and manual acceptance pending
+Phase 5.3 — Portable collector shutdown hardening; 24H2 and manual acceptance pending
 
 ## Live Execution Queue
 
@@ -89,6 +89,15 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Add display-format and reveal-strip logic coverage; complete Full gate passes with 37/37 Debug and Release tests
 - [ ] Run the Windows 11 24H2 x64, UAC/SCM, visual, and performance acceptance matrix
 - **Status:** implementation complete; target-host acceptance pending
+
+### Phase 5.3: Portable collector shutdown hardening
+- [x] Reproduce and diagnose the GUI-launched portable collector stop-path risk
+- [x] Add a per-launch `Local\\NetworkFlowMonitor.Stop.*` named event with restricted parser validation
+- [x] Keep console control and bounded process termination as explicit fallback paths
+- [x] Add fake-backed process lifecycle assertions and runtime argument coverage
+- [x] Run Fast and Full quality gates; Full passed with 37/37 Debug and Release tests and CPack
+- [ ] Run the packaged portable start/signal/ETW-cleanup probe on Windows 11 24H2 x64
+- **Status:** implementation complete; current-host direct portable probe and target-host acceptance pending
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

@@ -1,9 +1,22 @@
 #include "network_flow_monitor/ui/collector_process.h"
 
+#include <atomic>
 #include <string>
 
 namespace nfm::ui {
 namespace {
+
+std::atomic_uint64_t g_stop_event_sequence{};
+
+[[nodiscard]] std::wstring MakeStopEventName() {
+    LARGE_INTEGER counter{};
+    if (::QueryPerformanceCounter(&counter) == FALSE) {
+        counter.QuadPart = static_cast<LONGLONG>(::GetTickCount64());
+    }
+    return L"Local\\NetworkFlowMonitor.Stop." + std::to_wstring(::GetCurrentProcessId()) + L"." +
+           std::to_wstring(static_cast<std::uint64_t>(counter.QuadPart)) + L"." +
+           std::to_wstring(g_stop_event_sequence.fetch_add(1U, std::memory_order_relaxed));
+}
 
 [[nodiscard]] DWORD ToDword(std::chrono::milliseconds timeout) noexcept {
     const auto count = timeout.count();
@@ -33,8 +46,22 @@ bool WindowsShellExecuteApi::Execute(SHELLEXECUTEINFOW& info) noexcept {
     return ::ShellExecuteExW(&info) != FALSE;
 }
 
+HANDLE WindowsShellExecuteApi::CreateStopEvent(std::wstring& name) noexcept {
+    try {
+        name = MakeStopEventName();
+        return ::CreateEventW(nullptr, TRUE, FALSE, name.c_str());
+    } catch (...) {
+        name.clear();
+        return nullptr;
+    }
+}
+
 DWORD WindowsShellExecuteApi::Wait(HANDLE process, DWORD timeout_ms) noexcept {
     return ::WaitForSingleObject(process, timeout_ms);
+}
+
+bool WindowsShellExecuteApi::SignalStopEvent(HANDLE event) noexcept {
+    return event != nullptr && ::SetEvent(event) != FALSE;
 }
 
 bool WindowsShellExecuteApi::RequestStop(HANDLE process) noexcept {
@@ -49,6 +76,12 @@ bool WindowsShellExecuteApi::Terminate(HANDLE process) noexcept {
 void WindowsShellExecuteApi::Close(HANDLE process) noexcept {
     if (process != nullptr) {
         static_cast<void>(::CloseHandle(process));
+    }
+}
+
+void WindowsShellExecuteApi::CloseEvent(HANDLE event) noexcept {
+    if (event != nullptr) {
+        static_cast<void>(::CloseHandle(event));
     }
 }
 
@@ -73,15 +106,25 @@ CollectorProcessResult CollectorProcess::StartPortable(std::wstring_view executa
             return Failure(ERROR_FILE_NOT_FOUND);
         }
 
+        std::wstring event_name;
+        stop_event_ = api_->CreateStopEvent(event_name);
+        if (stop_event_ == nullptr || event_name.empty()) {
+            CloseStopEvent();
+            return Failure(api_->LastError());
+        }
+        stop_event_name_ = std::move(event_name);
+        const auto parameters = L"--collector --stop-event \"" + stop_event_name_ + L"\"";
+
         SHELLEXECUTEINFOW info{.cbSize = sizeof(info),
                                .fMask = SEE_MASK_NOCLOSEPROCESS,
                                .hwnd = nullptr,
                                .lpVerb = L"runas",
                                .lpFile = path.c_str(),
-                               .lpParameters = L"--collector",
+                               .lpParameters = parameters.c_str(),
                                .lpDirectory = nullptr,
                                .nShow = SW_HIDE};
         if (!api_->Execute(info) || info.hProcess == nullptr) {
+            CloseStopEvent();
             return Failure(api_->LastError());
         }
         process_ = info.hProcess;
@@ -99,29 +142,35 @@ CollectorProcessResult CollectorProcess::Stop() noexcept {
     const auto initial = api_->Wait(process_, 0U);
     if (initial == WAIT_OBJECT_0) {
         CloseProcess();
+        CloseStopEvent();
         return {.succeeded = true, .forced_termination = false, .win32_error = ERROR_SUCCESS};
     }
     if (initial == WAIT_FAILED) {
         const auto error = api_->LastError();
         CloseProcess();
+        CloseStopEvent();
         return Failure(error);
     }
 
+    static_cast<void>(api_->SignalStopEvent(stop_event_));
     static_cast<void>(api_->RequestStop(process_));
     if (api_->Wait(process_, ToDword(kCollectorGracefulStopTimeout)) == WAIT_OBJECT_0) {
         CloseProcess();
+        CloseStopEvent();
         return {.succeeded = true, .forced_termination = false, .win32_error = ERROR_SUCCESS};
     }
 
     if (!api_->Terminate(process_)) {
         const auto error = api_->LastError();
         CloseProcess();
+        CloseStopEvent();
         return Failure(error);
     }
     const auto terminated =
         api_->Wait(process_, ToDword(kCollectorTerminateWaitTimeout)) == WAIT_OBJECT_0;
     const auto error = terminated ? ERROR_SUCCESS : api_->LastError();
     CloseProcess();
+    CloseStopEvent();
     return {.succeeded = terminated, .forced_termination = true, .win32_error = error};
 }
 
@@ -134,6 +183,14 @@ void CollectorProcess::CloseProcess() noexcept {
         api_->Close(process_);
         process_ = nullptr;
     }
+}
+
+void CollectorProcess::CloseStopEvent() noexcept {
+    if (stop_event_ != nullptr) {
+        api_->CloseEvent(stop_event_);
+        stop_event_ = nullptr;
+    }
+    stop_event_name_.clear();
 }
 
 CollectorProcessResult CollectorProcess::Failure(std::uint32_t error) noexcept {

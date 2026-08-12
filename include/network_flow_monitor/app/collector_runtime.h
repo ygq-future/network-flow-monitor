@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <stop_token>
+#include <string_view>
 
 namespace nfm::app {
 
@@ -40,7 +41,8 @@ class CollectorRuntime final : public service::ServiceHost {
     [[nodiscard]] collector::CollectorHostResult Stop() noexcept override;
 
     // Runs until a console/session control requests the stop token or the host fails.
-    [[nodiscard]] collector::CollectorHostResult RunPortable() noexcept;
+    [[nodiscard]] collector::CollectorHostResult RunPortable(
+        std::wstring_view stop_event_name = {}) noexcept;
 
   private:
     ipc::CollectorInstanceId instance_;

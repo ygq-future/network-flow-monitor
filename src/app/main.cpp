@@ -51,14 +51,14 @@ int CurrentExecutablePath(std::wstring& path) noexcept {
     }
 }
 
-int RunPortableCollector() {
+int RunPortableCollector(std::wstring_view stop_event_name) {
     const auto principal =
         nfm::app::BuildCollectorPrincipal(nfm::ipc::CollectorEndpointMode::Portable);
     if (!principal.ok()) {
         return ResultCode(principal.source_error);
     }
     nfm::app::CollectorRuntime runtime{nfm::ipc::CollectorEndpointMode::Portable};
-    return CollectorResultCode(runtime.RunPortable());
+    return CollectorResultCode(runtime.RunPortable(stop_event_name));
 }
 
 int RunServiceCollector() {
@@ -169,7 +169,7 @@ int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
     try {
         switch (mode) {
         case nfm::app::RuntimeMode::Collector:
-            return RunPortableCollector();
+            return RunPortableCollector({});
         case nfm::app::RuntimeMode::Service:
             return RunServiceCollector();
         case nfm::app::RuntimeMode::Install:
@@ -199,19 +199,27 @@ int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
     return ResultCode(ERROR_INVALID_PARAMETER);
 }
 
-nfm::app::RuntimeMode ParseCommandLineArguments(wchar_t** arguments, int argument_count) noexcept {
+nfm::app::RuntimeArguments ParseCommandLineArguments(wchar_t** arguments,
+                                                     int argument_count) noexcept {
     if (arguments == nullptr || argument_count < 1) {
-        return nfm::app::RuntimeMode::Invalid;
+        return {};
     }
     if (argument_count == 1) {
-        return nfm::app::ParseRuntimeMode({});
+        return {.mode = nfm::app::RuntimeMode::Ui};
     }
-    if (argument_count != 2) {
-        return nfm::app::RuntimeMode::Invalid;
+    if (argument_count != 2 && argument_count != 4) {
+        return {};
     }
 
-    const std::wstring_view mode_argument{arguments[1]};
-    return nfm::app::ParseRuntimeMode(std::span<const std::wstring_view>{&mode_argument, 1});
+    std::array<std::wstring_view, 3> parsed{};
+    parsed[0] = arguments[1];
+    if (argument_count == 2) {
+        return nfm::app::ParseRuntimeArguments(
+            std::span<const std::wstring_view>{parsed.data(), 1});
+    }
+    parsed[1] = arguments[2];
+    parsed[2] = arguments[3];
+    return nfm::app::ParseRuntimeArguments(parsed);
 }
 
 bool IsUiSmokeTestArguments(wchar_t** arguments, int argument_count) noexcept {
@@ -239,7 +247,14 @@ int WINAPI wWinMain(
 
     const std::unique_ptr<wchar_t*, LocalFreeDeleter> arguments_owner{raw_arguments};
     const auto smoke_test = IsUiSmokeTestArguments(raw_arguments, argument_count);
-    const auto mode = smoke_test ? nfm::app::RuntimeMode::Ui
-                                 : ParseCommandLineArguments(raw_arguments, argument_count);
-    return RunMode(mode, hInstance, smoke_test);
+    const auto arguments = smoke_test
+                               ? nfm::app::RuntimeArguments{.mode = nfm::app::RuntimeMode::Ui}
+                               : ParseCommandLineArguments(raw_arguments, argument_count);
+    if (arguments.mode == nfm::app::RuntimeMode::Invalid) {
+        return RunMode(arguments.mode, hInstance, smoke_test);
+    }
+    if (arguments.mode == nfm::app::RuntimeMode::Collector) {
+        return RunPortableCollector(arguments.collector_stop_event);
+    }
+    return RunMode(arguments.mode, hInstance, smoke_test);
 }

@@ -27,6 +27,7 @@ enum class CollectorHostError : std::uint8_t {
     EtwStartFailed,
     IpcStartFailed,
     PublisherFailed,
+    StopSignalFailed,
     EtwStopFailed,
     IpcStopFailed,
 };

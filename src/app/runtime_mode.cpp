@@ -2,6 +2,21 @@
 
 namespace nfm::app {
 
+namespace {
+
+constexpr std::wstring_view kCollectorSwitch{L"--collector"};
+constexpr std::wstring_view kStopEventSwitch{L"--stop-event"};
+constexpr std::wstring_view kStopEventPrefix{L"Local\\NetworkFlowMonitor.Stop."};
+constexpr std::size_t kMaximumStopEventNameLength = 260U;
+
+[[nodiscard]] bool IsValidStopEventName(std::wstring_view name) noexcept {
+    return !name.empty() && name.size() <= kMaximumStopEventNameLength &&
+           name.starts_with(kStopEventPrefix) &&
+           name.find_first_of(L" \t\r\n\"") == std::wstring_view::npos;
+}
+
+} // namespace
+
 RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexcept {
     if (arguments.empty()) {
         return RuntimeMode::Ui;
@@ -60,6 +75,14 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
         return RuntimeMode::ServiceQuery;
     }
     return RuntimeMode::Invalid;
+}
+
+RuntimeArguments ParseRuntimeArguments(std::span<const std::wstring_view> arguments) noexcept {
+    if (arguments.size() == 3U && arguments[0] == kCollectorSwitch &&
+        arguments[1] == kStopEventSwitch && IsValidStopEventName(arguments[2])) {
+        return {.mode = RuntimeMode::Collector, .collector_stop_event = arguments[2]};
+    }
+    return {.mode = ParseRuntimeMode(arguments), .collector_stop_event = {}};
 }
 
 } // namespace nfm::app

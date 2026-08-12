@@ -868,3 +868,14 @@
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
 | What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, UI implementation Tasks 1-5, Settings integration, and the ZIP/measurement checkpoint; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, real-rate/Top N display, settings persistence/UI, SCM status/action bridge, login startup registration, IPC/ranking bridge, portable process lifetime, message loop, packaging target, and smoke harness pass the complete Full gate on Windows 11 25H2 x64. |
+
+## Phase 5.3: Portable collector shutdown hardening checkpoint
+- **Status:** implementation complete; direct packaged portable probe and Windows 11 24H2 acceptance pending
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Reproduced the risk that a GUI-launched elevated portable collector may not receive `GenerateConsoleCtrlEvent`, and confirmed that forced cleanup can leave the fixed ETW logger until it is explicitly stopped.
+  - Added a per-launch manual-reset `Local\\NetworkFlowMonitor.Stop.*` event. The UI passes its validated name through the internal `--stop-event` switch; the collector opens it with `SYNCHRONIZE` and requests normal shutdown when signaled.
+  - Preserved console/session control handling and bounded termination fallback. Added runtime parser tests and fake-backed assertions for event creation, signaling, close, graceful stop, and launch cleanup.
+  - Fast gate passed: format, strict Debug, non-admin CTest, clang-tidy and Clang Static Analyzer.
+  - Full gate passed: strict Debug/Release, 37/37 Debug and Release CTest tests, MSVC `/analyze`, clang-tidy/Clang analysis builds, Release x64, and CPack ZIP.
+- **Remaining acceptance:** run the packaged portable start/signal/ETW-cleanup probe on the current host and Windows 11 24H2 x64; then complete UAC, mixed-DPI visual, upgrade/uninstall, and performance measurements.

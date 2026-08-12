@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstring>
 #include <span>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace nfm::app {
@@ -55,6 +57,22 @@ class KernelHandle final {
   private:
     HANDLE handle_{};
 };
+
+[[nodiscard]] KernelHandle OpenStopEvent(std::wstring_view name, std::uint32_t& error) noexcept {
+    try {
+        const std::wstring owned_name{name};
+        const auto event = ::OpenEventW(SYNCHRONIZE, FALSE, owned_name.c_str());
+        if (event == nullptr) {
+            error = ::GetLastError();
+        } else {
+            error = ERROR_SUCCESS;
+        }
+        return KernelHandle{event};
+    } catch (...) {
+        error = ERROR_NOT_ENOUGH_MEMORY;
+        return KernelHandle{nullptr};
+    }
+}
 
 std::vector<std::byte> CopySid(PSID sid) {
     if (sid == nullptr || ::IsValidSid(sid) == FALSE) {
@@ -208,7 +226,15 @@ collector::CollectorHostResult CollectorRuntime::Stop() noexcept {
     return host_.Stop();
 }
 
-collector::CollectorHostResult CollectorRuntime::RunPortable() noexcept {
+collector::CollectorHostResult CollectorRuntime::RunPortable(
+    std::wstring_view stop_event_name) noexcept {
+    std::uint32_t event_error{};
+    auto stop_event = OpenStopEvent(stop_event_name, event_error);
+    if (!stop_event_name.empty() && stop_event.get() == nullptr) {
+        return {.error = collector::CollectorHostError::StopSignalFailed,
+                .source_error = event_error};
+    }
+
     const auto started = Start();
     if (!started.ok()) {
         return started;
@@ -217,13 +243,42 @@ collector::CollectorHostResult CollectorRuntime::RunPortable() noexcept {
     std::stop_source stop_source; // NOLINT(misc-const-correctness): Win32 handler requests stop.
     PortableStopSource().store(&stop_source, std::memory_order_release);
     const bool handler_registered = ::SetConsoleCtrlHandler(&PortableControlHandler, TRUE) != FALSE;
-    const auto run_result = Run(stop_source.get_token());
-    if (handler_registered) {
-        static_cast<void>(::SetConsoleCtrlHandler(&PortableControlHandler, FALSE));
+    try {
+        std::jthread event_waiter;
+        if (stop_event.get() != nullptr) {
+            event_waiter = std::jthread([event = stop_event.get(), &stop_source](
+                                            const std::stop_token& waiter_stop) noexcept {
+                while (!waiter_stop.stop_requested()) {
+                    const auto result = ::WaitForSingleObject(event, 50U);
+                    if (result == WAIT_OBJECT_0) {
+                        stop_source.request_stop();
+                        break;
+                    }
+                    if (result == WAIT_FAILED) {
+                        break;
+                    }
+                }
+            });
+        }
+        const auto run_result = Run(stop_source.get_token());
+        event_waiter.request_stop();
+        return [&]() noexcept {
+            if (handler_registered) {
+                static_cast<void>(::SetConsoleCtrlHandler(&PortableControlHandler, FALSE));
+            }
+            PortableStopSource().store(nullptr, std::memory_order_release);
+            const auto stop_result = Stop();
+            return run_result.ok() ? stop_result : run_result;
+        }();
+    } catch (...) {
+        if (handler_registered) {
+            static_cast<void>(::SetConsoleCtrlHandler(&PortableControlHandler, FALSE));
+        }
+        PortableStopSource().store(nullptr, std::memory_order_release);
+        static_cast<void>(Stop());
+        return {.error = collector::CollectorHostError::StopSignalFailed,
+                .source_error = ERROR_NOT_ENOUGH_MEMORY};
     }
-    PortableStopSource().store(nullptr, std::memory_order_release);
-    const auto stop_result = Stop();
-    return run_result.ok() ? stop_result : run_result;
 }
 
 } // namespace nfm::app

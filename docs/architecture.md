@@ -23,7 +23,7 @@ ETW 网络/进程事件
 | 模式 | 权限 | 用途 |
 |---|---|---|
 | 默认 | 普通用户 | 托盘、悬浮窗、排行、设置和服务管理界面 |
-| `--collector` | UAC 提权 | 绿色模式的临时采集器；运行时只启动 CollectorHost，响应控制台/会话停止事件 |
+| `--collector` | UAC 提权 | 绿色模式的临时采集器；运行时只启动 CollectorHost，响应 UI 命名停止事件和控制台/会话停止事件 |
 | `--service` | 服务账户 | SCM 启动的长期采集服务 |
 | `--install` | UAC 提权 | 使用当前稳定副本的绝对路径和固定 `--service` 入口注册服务 |
 | `--uninstall` | UAC 提权 | 停止、注销并移除安装副本和机器级配置 |
@@ -32,7 +32,10 @@ ETW 网络/进程事件
 命令行入口不得替代设置界面。安装路径必须稳定，不能把服务注册到可能被移动或删除的绿色版路径。
 
 运行时装配位于 `app/collector_runtime`，不在 `wWinMain` 中直接拼接 ETW、IPC 或 SCM 对象：
-`--collector` 使用当前登录会话的 logon SID 建立 owner-scoped 管道，`--service` 使用
+`--collector` 使用当前登录会话的 logon SID 建立 owner-scoped 管道。UI 启动绿色采集器时同时创建
+一个随机、一次性的 `Local\\NetworkFlowMonitor.Stop.*` 手动复位事件，并通过内部
+`--stop-event` 参数传递名称；采集器只接受该受限前缀并以 `SYNCHRONIZE` 打开事件。UI
+关闭采集器时先置位该事件，再保留控制台控制信号和有界强制终止作为兜底。`--service` 使用
 LocalSystem 服务端和本机 Users 客户端 SID 建立服务端点；默认 UI 分支不会构造
 `WindowsEtwSession`。服务入口只把同一个 `CollectorRuntime` 交给 `ServiceEntry`，因此
 SCM 回调不创建窗口。安装、卸载和查询分别调用固定服务名的 `ServiceControl` 类型化操作，

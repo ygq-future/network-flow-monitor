@@ -888,4 +888,5 @@
   - The probe validates the package file set, creates a per-run `Local\\NetworkFlowMonitor.Stop.*` event, starts `--collector --stop-event`, signals it, waits for exit code 0, checks process/logger/service cleanup, and emits a JSON report.
   - It refuses to take over a project ETW logger that existed before the probe; a logger observed only after this probe may be explicitly cleaned and is reported separately.
   - Current-host run passed on Windows 11 25H2 build 26200: final package executable SHA-256 `0245F64999F41D5D0A1098D66A5C364A0A1580FB8F5F8701136E20D6A226BF25`, event signaled, collector exited with code 0 in 2,225.405 ms, no forced cleanup, no logger/process/service residue, and no unexpected package files.
+  - Repeated the guarded SCM probe against the same final package: install, query, start, stop, restart, stop, uninstall and final absent query all passed; final service state was `not-installed`.
 - **Remaining acceptance:** run the same script on Windows 11 24H2 x64; complete visual/UAC/upgrade/performance evidence.

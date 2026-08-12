@@ -23,9 +23,9 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 
 以下数据来自 Windows 11 25H2 x64（build 26200）的 Release 构建，只是开发测量，不是宣传阈值：
 
-- 可执行文件：775,168 bytes。
-- ZIP 包：最近一次为 376,508 bytes；大小和 SHA-256 由每次打包脚本输出（`Compress-Archive` 包含时间元数据，因此可能变化）。
-- `--ui-smoke-test` 退出码：0；最近一次墙钟时间约 98.754 ms（短烟测路径，重复运行会波动，不是性能阈值）。
+- 可执行文件：785,408 bytes；最终包 SHA-256 为 `0245F64999F41D5D0A1098D66A5C364A0A1580FB8F5F8701136E20D6A226BF25`。
+- ZIP 包：最近一次为 369,646 bytes；大小和 SHA-256 由每次打包脚本输出（`Compress-Archive` 包含时间元数据，因此可能变化）。
+- `--ui-smoke-test` 退出码：0；最近一次墙钟时间约 1,042.948 ms（短烟测路径，重复运行会波动，不是性能阈值）。
 - 最终包只读验收脚本的短 smoke 采样：峰值工作集约 15.5 MiB、CPU 时间约 171.875 ms；采样仅覆盖启动/退出路径，不代表高流量运行性能。
 - 依赖为 Windows 系统组件：`ADVAPI32.dll`、`DWrite.dll`、`d2d1.dll`、`GDI32.dll`、`KERNEL32.dll`、`SHELL32.dll`、`tdh.dll`、`USER32.dll` 及同步 API-set。
 

@@ -24,8 +24,8 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 以下数据来自 Windows 11 25H2 x64（build 26200）的 Release 构建，只是开发测量，不是宣传阈值：
 
 - 可执行文件：775,168 bytes。
-- ZIP 包：314,540 bytes（ZIP 压缩结果哈希见发布脚本输出）。
-- `--ui-smoke-test` 退出码：0；本次墙钟时间约 93.713 ms（短烟测路径，重复运行会波动）。
+- ZIP 包：376,536 bytes；本次 SHA-256：`A02900ACE6FEA57779DB368E806ED50B8F321B6A8E8F386144676984BACB5141`。
+- `--ui-smoke-test` 退出码：0；本次墙钟时间约 99.517 ms（短烟测路径，重复运行会波动）。
 - 依赖为 Windows 系统组件：`ADVAPI32.dll`、`DWrite.dll`、`d2d1.dll`、`GDI32.dll`、`KERNEL32.dll`、`SHELL32.dll`、`tdh.dll`、`USER32.dll` 及同步 API-set。
 
 重新测量并写入被忽略的 `dist/measurements-release.json`：
@@ -33,6 +33,14 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 ```powershell
 pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
 ```
+
+目标机验收建议从解压后的稳定目录运行以下只读检查；它不会安装、启动、停止或删除服务：
+
+```powershell
+pwsh -NoProfile -File tools/acceptance.ps1 -PackageRoot 'C:\Tools\NetworkFlowMonitor-0.1.0-win-x64'
+```
+
+该脚本记录系统版本、包哈希、依赖、UI smoke、SCM 当前状态和退出码；真实 UAC/SCM 变更仍必须由设置界面逐项确认并记录。
 
 内存、CPU、ETW 丢失率和排行延迟必须在目标 Windows 11 24H2 x64 机器上按相同场景测量后才能形成验收结论；当前 25H2 数据不能替代该结果。
 

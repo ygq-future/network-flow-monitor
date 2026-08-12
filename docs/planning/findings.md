@@ -116,9 +116,12 @@
 - CMake now exposes an install target and CPack ZIP generator. The portable package contains the
   Release executable and README only; the current static-runtime build did not require optional
   MSVC DLLs.
-- `tools/package.ps1` generated `NetworkFlowMonitor-0.1.0-win-x64.zip` at 314,540 bytes. The
-  executable inside the install tree measured 658,944 bytes on the current 25H2 toolchain.
-- `tools/measure-release.ps1` recorded a successful `--ui-smoke-test` exit code 0 and a 91.262 ms
+- The pre-display checkpoint package was 314,540 bytes with a 658,944-byte executable. The
+  current post-display checkpoint package is 376,536 bytes with a 775,168-byte executable;
+  these are separate historical measurements, not a single invariant. `Compress-Archive` emits
+  metadata-bearing ZIPs, so the byte count is useful for this run but the archive hash is not
+  expected to be stable across repeated packaging runs.
+- `tools/measure-release.ps1` recorded a successful `--ui-smoke-test` exit code 0 and a 93.713 ms
   wall-clock run for that short smoke path. This is a startup/teardown observation, not a UI or
   collector latency guarantee.
 - `dumpbin /DEPENDENTS` reported only Windows system components (`ADVAPI32`, `DWrite`, `d2d1`,
@@ -131,6 +134,13 @@
   HKCU Run, displays a fresh SCM status after opening or mutating the service, and stops the old
   service only after a successful switch back to the portable collector. These behaviors are
   covered by fake-backed/UI smoke tests; real UAC and SCM state changes remain manual acceptance.
+- The first Full run after adding the read-only acceptance script observed one transient Release
+  `ipc.integration` failure while waiting for an oversized hostile session to be removed. The
+  unchanged executable passed three consecutive direct reruns, and the next complete Full run
+  passed; the incident remains recorded rather than hidden behind a retry in the quality runner.
+- The read-only acceptance probe on Windows 11 25H2 build 26200 reported UI smoke exit 0, no
+  installed service, and `--service-query` exit 1060. It does not install, start, stop, or remove
+  a service; actual UAC/SCM lifecycle evidence remains target-host manual work.
 
 ## Resources
 - https://learn.microsoft.com/en-us/windows/win32/etw/tcpip

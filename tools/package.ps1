@@ -104,6 +104,8 @@ if ($unexpectedDlls.Count -ne 0) {
 Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
 $size = (Get-Item -LiteralPath $executable).Length
+$zipSize = (Get-Item -LiteralPath $zipPath).Length
 Write-Host "Package: $zipPath"
 Write-Host "Executable bytes: $size"
+Write-Host "ZIP bytes: $zipSize"
 Write-Host "SHA256: $hash"

@@ -45,6 +45,10 @@ pwsh -NoProfile -File tools/acceptance.ps1 -PackageRoot 'C:\Tools\NetworkFlowMon
 
 需要自动记录并清理 SCM 生命周期时，可在确认同名服务尚未安装后使用 `tools/service-acceptance.ps1 -MutateScm`；该脚本默认拒绝修改，且不会替代设置界面的 UAC 和视觉验收。
 
+便携采集器的启动、命名停止事件和 ETW 清理可用管理员 PowerShell 运行
+`tools/portable-acceptance.ps1 -PackageRoot <稳定解压目录>` 验证。该探针不安装服务；它会拒绝
+接管启动前已经存在的项目 ETW logger，并把退出码、进程残留、logger 残留和包内额外文件写入 JSON。
+
 完整目标机步骤见 [`docs/target-host-acceptance.md`](target-host-acceptance.md)。
 
 内存、CPU、ETW 丢失率和排行延迟必须在目标 Windows 11 24H2 x64 机器上按相同场景测量后才能形成验收结论；当前 25H2 数据不能替代该结果。

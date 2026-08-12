@@ -96,8 +96,9 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Keep console control and bounded process termination as explicit fallback paths
 - [x] Add fake-backed process lifecycle assertions and runtime argument coverage
 - [x] Run Fast and Full quality gates; Full passed with 37/37 Debug and Release tests and CPack
-- [ ] Run the packaged portable start/signal/ETW-cleanup probe on Windows 11 24H2 x64
-- **Status:** implementation complete; current-host direct portable probe and target-host acceptance pending
+- [x] Add a reusable packaged portable start/signal/ETW-cleanup probe
+- [ ] Run that probe on Windows 11 24H2 x64
+- **Status:** script implemented and current-host direct probe passed; target-host acceptance pending
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

@@ -863,8 +863,8 @@
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 5.2; tray/floating/settings implementations and the real-rate display checkpoint pass the complete Full gate with 37/37 tests on Windows 11 25H2 x64; target-host acceptance remains pending. |
-| Where am I going? | Run the packaged artifact and lifecycle/visual/performance matrix on Windows 11 24H2 x64, then close upgrade/uninstall evidence. |
+| Where am I? | Phase 5.3; tray/floating/settings implementations, portable shutdown hardening, and the real-rate display checkpoint pass the complete Full gate with 37/37 tests on Windows 11 25H2 x64; target-host acceptance remains pending. |
+| Where am I going? | Run the packaged artifact and the reusable lifecycle/visual/performance matrix on Windows 11 24H2 x64, then close upgrade/uninstall evidence. |
 | What's the goal? | Build a tiny Win11 tray/floating network monitor with real-time per-app ranking. |
 | What have I learned? | See `findings.md`. |
 | What have I done? | Completed Milestones 1-3, Secure IPC Tasks 1-10, Dual Modes Tasks 1-4, UI implementation Tasks 1-5, Settings integration, and the ZIP/measurement checkpoint; the service lifecycle adapter, service-neutral host, runtime principal wiring, tray/floating windows, real-rate/Top N display, settings persistence/UI, SCM status/action bridge, login startup registration, IPC/ranking bridge, portable process lifetime, message loop, packaging target, and smoke harness pass the complete Full gate on Windows 11 25H2 x64. |
@@ -879,3 +879,13 @@
   - Fast gate passed: format, strict Debug, non-admin CTest, clang-tidy and Clang Static Analyzer.
   - Full gate passed: strict Debug/Release, 37/37 Debug and Release CTest tests, MSVC `/analyze`, clang-tidy/Clang analysis builds, Release x64, and CPack ZIP.
 - **Remaining acceptance:** run the packaged portable start/signal/ETW-cleanup probe on the current host and Windows 11 24H2 x64; then complete UAC, mixed-DPI visual, upgrade/uninstall, and performance measurements.
+
+## Phase 5.4: Reusable portable acceptance probe checkpoint
+  - **Status:** script implemented; current-host run passed and Windows 11 24H2 run pending
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Added `tools/portable-acceptance.ps1`, an administrator-only, non-SCM-mutating probe for the packaged executable.
+  - The probe validates the package file set, creates a per-run `Local\\NetworkFlowMonitor.Stop.*` event, starts `--collector --stop-event`, signals it, waits for exit code 0, checks process/logger/service cleanup, and emits a JSON report.
+  - It refuses to take over a project ETW logger that existed before the probe; a logger observed only after this probe may be explicitly cleaned and is reported separately.
+  - Current-host run passed on Windows 11 25H2 build 26200: final package executable SHA-256 `0245F64999F41D5D0A1098D66A5C364A0A1580FB8F5F8701136E20D6A226BF25`, event signaled, collector exited with code 0 in 2,225.405 ms, no forced cleanup, no logger/process/service residue, and no unexpected package files.
+- **Remaining acceptance:** run the same script on Windows 11 24H2 x64; complete visual/UAC/upgrade/performance evidence.

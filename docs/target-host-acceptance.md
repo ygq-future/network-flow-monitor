@@ -15,6 +15,17 @@
 3. 保存输出到 `docs/evidence/win11-24h2-<date>-acceptance.json`。确认 `os_build` 为 26100 系列、`ui_smoke_exit_code` 为 0，并记录 `service_query_exit_code` 的初始值。
 4. 确认解压目录只有 `NetworkFlowMonitor.exe` 和 `README.md`，没有可选运行库 DLL。
 
+管理员 PowerShell 还应运行便携采集器生命周期探针：
+
+```powershell
+pwsh -NoProfile -File tools/portable-acceptance.ps1 `
+  -PackageRoot 'C:\Tools\NetworkFlowMonitor-0.1.0-win-x64'
+```
+
+该探针只启动包内临时采集器，不安装或修改 SCM；它创建一次性停止事件，验证置位后采集器
+以退出码 0 正常结束，并检查项目 ETW logger、采集器进程和服务状态没有残留。若项目 logger
+只在本次探针期间出现，脚本会记录并清理它；若启动前已存在则拒绝接管。
+
 ## 2. ETW 和协议矩阵
 
 如果目标机具备仓库和 Visual Studio 开发环境，在管理员 PowerShell 中运行：

@@ -2,7 +2,7 @@
 
 ## 当前交付形态
 
-首版提供一个 x64 ZIP 绿色包。包内只有 `NetworkFlowMonitor.exe` 和 `README.md`；Release 使用静态 MSVC 运行库，不随包携带可选开发 DLL。解压目录必须保持稳定，若用户在设置界面安装 Windows 服务，SCM 会把当前可执行文件的绝对路径注册为服务路径，移动或删除该目录会使服务无法启动。
+首版提供一个 x64 ZIP 绿色包。包内只有 `NetworkFlowMonitor.exe` 和 `README.md`；Release 使用静态 MSVC 运行库，不随包携带可选开发 DLL。解压目录必须保持稳定，若用户在设置界面安装 Windows 服务，SCM 会把当前可执行文件的绝对路径和固定 `--service` 入口注册为服务命令行，移动或删除该目录会使服务无法启动。
 
 生成包：
 

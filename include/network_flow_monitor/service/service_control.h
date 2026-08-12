@@ -162,7 +162,7 @@ class ServiceControl final {
     [[nodiscard]] static ServiceState ToState(DWORD native_state) noexcept;
     [[nodiscard]] static DWORD ToNativeStartType(ServiceStartType start_type) noexcept;
     [[nodiscard]] static bool IsDelayed(ServiceStartType start_type) noexcept;
-    [[nodiscard]] static std::wstring QuoteBinaryPath(const std::wstring& path);
+    [[nodiscard]] static std::wstring BuildServiceCommandLine(const std::wstring& path);
 
     ServiceApi* api_;
     std::wstring binary_path_;

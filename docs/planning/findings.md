@@ -189,3 +189,7 @@
 ## Visual/Browser Findings
 - The visual companion presented three taskbar placement choices, but the mockups did not add enough information beyond the text options.
 - The user chose to remove taskbar integration entirely and retain only tray and floating-window modes.
+
+## Service Runtime Finding
+- A real SCM start on the current Windows 11 25H2 administrator host initially returned 1053 and generated SCM events 7009/7000. Inspection showed the registered `ImagePath` omitted the fixed `--service` runtime switch, so the executable entered its default UI branch and never registered with `StartServiceCtrlDispatcherW`.
+- `ServiceControl` now constructs a quoted absolute path followed by `--service`, with a unit assertion for the exact command line. After the fix, install/start/stop/restart/uninstall all returned success in a real SCM run; final query returned 1060 after uninstall. This is current-host evidence only; UAC and Windows 11 24H2 acceptance remain open.

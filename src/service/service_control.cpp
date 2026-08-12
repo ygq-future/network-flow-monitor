@@ -139,14 +139,15 @@ void WindowsServiceApi::CloseService(SC_HANDLE service) noexcept {
 
 ServiceControl::ServiceControl(ServiceApi& api, std::wstring binary_path)
     : api_{&api}, binary_path_{std::move(binary_path)},
-      quoted_binary_path_{QuoteBinaryPath(binary_path_)} {}
+      quoted_binary_path_{BuildServiceCommandLine(binary_path_)} {}
 
-std::wstring ServiceControl::QuoteBinaryPath(const std::wstring& path) {
+std::wstring ServiceControl::BuildServiceCommandLine(const std::wstring& path) {
     if (path.empty() || path.size() > kMaximumBinaryPathCharacters ||
         path.find(L'"') != std::wstring::npos) {
         return {};
     }
-    return L"\"" + path + L"\"";
+    // The fixed internal switch is required for SCM to enter the service dispatcher.
+    return L"\"" + path + L"\" --service";
 }
 
 DWORD ServiceControl::ToNativeStartType(ServiceStartType start_type) noexcept {

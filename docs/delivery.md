@@ -24,8 +24,9 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 以下数据来自 Windows 11 25H2 x64（build 26200）的 Release 构建，只是开发测量，不是宣传阈值：
 
 - 可执行文件：775,168 bytes。
-- ZIP 包：376,536 bytes；本次 SHA-256：`A02900ACE6FEA57779DB368E806ED50B8F321B6A8E8F386144676984BACB5141`。
+- ZIP 包：376,536 bytes；SHA-256 由每次打包脚本输出（`Compress-Archive` 包含时间元数据，因此哈希可能变化）。
 - `--ui-smoke-test` 退出码：0；本次墙钟时间约 99.517 ms（短烟测路径，重复运行会波动）。
+- 只读验收脚本的同批短 smoke 采样：峰值工作集约 12.9 MiB、CPU 时间约 46.9 ms；采样仅覆盖启动/退出路径，不代表高流量运行性能。
 - 依赖为 Windows 系统组件：`ADVAPI32.dll`、`DWrite.dll`、`d2d1.dll`、`GDI32.dll`、`KERNEL32.dll`、`SHELL32.dll`、`tdh.dll`、`USER32.dll` 及同步 API-set。
 
 重新测量并写入被忽略的 `dist/measurements-release.json`：
@@ -40,7 +41,7 @@ pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
 pwsh -NoProfile -File tools/acceptance.ps1 -PackageRoot 'C:\Tools\NetworkFlowMonitor-0.1.0-win-x64'
 ```
 
-该脚本记录系统版本、包哈希、依赖、UI smoke、SCM 当前状态和退出码；真实 UAC/SCM 变更仍必须由设置界面逐项确认并记录。
+该脚本记录系统版本、包哈希、UI smoke 墙钟时间/峰值工作集/CPU 时间、SCM 当前状态和退出码；这些资源值只描述短 smoke 路径，不是高流量运行阈值。真实 UAC/SCM 变更仍必须由设置界面逐项确认并记录。
 
 内存、CPU、ETW 丢失率和排行延迟必须在目标 Windows 11 24H2 x64 机器上按相同场景测量后才能形成验收结论；当前 25H2 数据不能替代该结果。
 

@@ -21,7 +21,30 @@ $serviceStatus = if ($null -eq $service) {
     [ordered]@{ installed = $true; state = $service.Status.ToString(); start_type = $service.StartType.ToString() }
 }
 
-$smoke = Start-Process -FilePath $executable -ArgumentList '--ui-smoke-test' -Wait -PassThru
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$smoke = Start-Process -FilePath $executable -ArgumentList '--ui-smoke-test' -PassThru
+$peakWorkingSet = [int64]0
+$peakCpuMilliseconds = [double]0
+$sampleCount = 0
+while (-not $smoke.HasExited) {
+    try {
+        $smoke.Refresh()
+        $peakWorkingSet = [math]::Max($peakWorkingSet, [int64]$smoke.WorkingSet64)
+        $peakCpuMilliseconds = [math]::Max(
+            $peakCpuMilliseconds,
+            [double]$smoke.TotalProcessorTime.TotalMilliseconds)
+        $sampleCount++
+    } catch [System.InvalidOperationException] {
+        break
+    }
+    Start-Sleep -Milliseconds 25
+}
+$stopwatch.Stop()
+$smoke.Refresh()
+$peakWorkingSet = [math]::Max($peakWorkingSet, [int64]$smoke.WorkingSet64)
+$peakCpuMilliseconds = [math]::Max(
+    $peakCpuMilliseconds,
+    [double]$smoke.TotalProcessorTime.TotalMilliseconds)
 $query = Start-Process -FilePath $executable -ArgumentList '--service-query' -Wait -PassThru
 $report = [ordered]@{
     package_root = $root
@@ -32,6 +55,10 @@ $report = [ordered]@{
     os_build = $os.BuildNumber
     service = $serviceStatus
     ui_smoke_exit_code = $smoke.ExitCode
+    ui_smoke_wall_clock_ms = [math]::Round($stopwatch.Elapsed.TotalMilliseconds, 3)
+    ui_smoke_peak_working_set_bytes = $peakWorkingSet
+    ui_smoke_peak_cpu_ms = [math]::Round($peakCpuMilliseconds, 3)
+    ui_smoke_sample_count = $sampleCount
     service_query_exit_code = $query.ExitCode
     measured_at_utc = [DateTime]::UtcNow.ToString('o')
 }

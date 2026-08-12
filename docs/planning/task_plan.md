@@ -71,7 +71,7 @@ Each implementation milestone follows the same observable sequence: detailed pla
 ### Phase 5: Verification and delivery
 - [x] Add Release install target and ZIP packaging validation
 - [x] Add reproducible Release size/dependency/UI-smoke measurement script
-- [x] Add a read-only target-host acceptance script for package, OS, smoke and SCM evidence
+- [x] Add a read-only target-host acceptance script for package, OS, smoke resource and SCM evidence
 - [ ] Run functional, performance, packaging, and compatibility checks on Windows 11 24H2 x64
 - [x] Update progress and decision records with current-host evidence
 - [ ] Deliver the verified artifacts after target-host acceptance

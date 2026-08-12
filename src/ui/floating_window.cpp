@@ -1,5 +1,7 @@
 #include "network_flow_monitor/ui/floating_window.h"
 
+#include "network_flow_monitor/ui/tray_controller.h"
+
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -28,18 +30,24 @@ FloatingWindow::~FloatingWindow() {
 }
 
 bool FloatingWindow::RegisterWindowClass(HINSTANCE instance) noexcept {
+    WNDCLASSEXW existing{};
+    existing.cbSize = sizeof(existing);
+    if (::GetClassInfoExW(instance, kFloatingWindowClass.data(), &existing) != FALSE) {
+        return true;
+    }
+    const auto icon = CreateNetworkFlowMonitorIcon(instance);
     const WNDCLASSEXW window_class{.cbSize = sizeof(WNDCLASSEXW),
                                    .style = CS_HREDRAW | CS_VREDRAW,
                                    .lpfnWndProc = &FloatingWindow::WindowProc,
                                    .cbClsExtra = 0,
                                    .cbWndExtra = 0,
                                    .hInstance = instance,
-                                   .hIcon = nullptr,
+                                   .hIcon = icon,
                                    .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
                                    .hbrBackground = nullptr,
                                    .lpszMenuName = nullptr,
                                    .lpszClassName = kFloatingWindowClass.data(),
-                                   .hIconSm = nullptr};
+                                   .hIconSm = icon};
     if (::RegisterClassExW(&window_class) != 0) {
         return true;
     }
@@ -239,7 +247,7 @@ void FloatingWindow::Paint() noexcept {
         try {
             if (snapshot_ == nullptr ||
                 interaction_state_ == InteractionState::DisconnectedOverlay) {
-                status = L"Disconnected";
+                status = L"Collector offline - right-click to retry";
             } else if (snapshot_->status == ranking::RankingStatus::WarmingUp) {
                 status = L"Synchronizing...";
             } else {
@@ -390,6 +398,9 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         return 0;
     case WM_LBUTTONUP:
         self->FinishDrag();
+        return 0;
+    case WM_RBUTTONUP:
+        self->observer_->OnWindowContextMenu(WindowKind::Floating);
         return 0;
     case WM_CAPTURECHANGED:
         self->dragging_ = false;

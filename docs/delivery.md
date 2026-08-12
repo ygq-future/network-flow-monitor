@@ -6,6 +6,8 @@
 
 生成包：
 
+用户双击后的操作流程和 service/便携模式选择见根目录 `README.md`；默认便携模式不要求预先安装 service。
+
 ```powershell
 pwsh -NoProfile -File tools/package.ps1 -Configuration Release
 ```

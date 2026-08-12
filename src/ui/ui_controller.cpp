@@ -53,9 +53,22 @@ UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
                            service_action_api_},
       startup_registration_{startup_store_}, settings_window_{instance_, *this},
       collector_process_{shell_api_}, floating_window_{instance_, render_resources_, *this},
-      ranking_popup_{instance_, render_resources_, *this},
-      tray_controller_{nullptr, TrayIconOptions{}, tray_api_, *this}, snapshot_generation_{0U},
-      memory_error_{false} {
+      ranking_popup_{instance_, render_resources_, *this}, tray_icon_{},
+      tray_controller_{nullptr,
+                       TrayIconOptions{.callback_message = kTrayCallbackMessage,
+                                       .icon_id = 1U,
+                                       .icon = nullptr,
+                                       .tooltip = L"Network Flow Monitor"},
+                       tray_api_, *this},
+      snapshot_generation_{0U}, memory_error_{false} {
+    tray_icon_ = CreateNetworkFlowMonitorIcon(instance_);
+    if (tray_icon_ == nullptr) {
+        tray_icon_ = ::LoadIconW(nullptr, IDI_APPLICATION);
+        tray_icon_owned_ = false;
+    } else {
+        tray_icon_owned_ = true;
+    }
+    tray_controller_.SetIcon(tray_icon_);
     static_cast<void>(RecreateRankingEngine());
     floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
     floating_window_.SetSnapDistance(config_.floating.snap_distance_dip);
@@ -64,6 +77,11 @@ UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
 
 UiController::~UiController() {
     Shutdown();
+    if (tray_icon_ != nullptr && tray_icon_owned_) {
+        static_cast<void>(::DestroyIcon(tray_icon_));
+    }
+    tray_icon_ = nullptr;
+    tray_icon_owned_ = false;
 }
 
 bool UiController::Start() noexcept {
@@ -74,13 +92,16 @@ bool UiController::Start() noexcept {
         return false;
     }
 
-    if (!StartCollection()) {
+    const auto collection_started = StartCollection();
+    static_cast<void>(tray_controller_.Initialize());
+    if (!floating_window_.Create() || !ranking_popup_.Create()) {
+        tray_controller_.Shutdown();
+        StopCollection();
         return false;
     }
-
-    static_cast<void>(tray_controller_.Initialize());
-    static_cast<void>(floating_window_.Create());
-    static_cast<void>(ranking_popup_.Create());
+    if (!collection_started) {
+        MarkCollectionDisconnected();
+    }
     started_ = true;
     return true;
 }
@@ -368,8 +389,35 @@ void UiController::OnTraySettings() noexcept {
     }
 }
 
+void UiController::OnTrayRetryCollector() noexcept {
+    if (config_.collector.preferred_mode != config::CollectorMode::Portable) {
+        const auto result =
+            ExecuteServiceAction(SettingsServiceAction::Start, config_.service.start_type);
+        if (!result.ok()) {
+            static_cast<void>(::MessageBoxW(message_window_,
+                                            L"The Windows service could not be started. Open "
+                                            L"Settings to see its status and error code.",
+                                            L"Network Flow Monitor", MB_OK | MB_ICONWARNING));
+        }
+        return;
+    }
+    StopCollection();
+    if (!StartCollection()) {
+        MarkCollectionDisconnected();
+        static_cast<void>(::MessageBoxW(
+            message_window_,
+            L"The collector could not be started. Check UAC and the ETW session, then try again.",
+            L"Network Flow Monitor", MB_OK | MB_ICONWARNING));
+    }
+}
+
 void UiController::OnTrayExit() noexcept {
     ::PostQuitMessage(0);
+}
+
+void UiController::OnWindowContextMenu(WindowKind kind) noexcept {
+    static_cast<void>(kind);
+    static_cast<void>(tray_controller_.ShowContextMenu());
 }
 
 void UiController::OnWindowInvalidated(WindowKind kind) noexcept {
@@ -393,6 +441,7 @@ bool UiController::StartCollection() noexcept {
     if (endpoint == ipc::CollectorEndpointMode::Portable) {
         const auto collector = collector_process_.StartPortable({});
         if (!collector.succeeded) {
+            ipc_state_.store(ipc::IpcClientState::Failed, std::memory_order_release);
             return false;
         }
     }
@@ -411,6 +460,12 @@ bool UiController::StartCollection() noexcept {
         return false;
     }
     return true;
+}
+
+void UiController::MarkCollectionDisconnected() noexcept {
+    ipc_state_.store(ipc::IpcClientState::Failed, std::memory_order_release);
+    overlay_state_.store(InteractionState::DisconnectedOverlay, std::memory_order_release);
+    HandleInteraction(InteractionEvent::Disconnected);
 }
 
 void UiController::StopCollection() noexcept {

@@ -8,6 +8,7 @@
 
 namespace {
 
+using nfm::ui::CreateNetworkFlowMonitorIcon;
 using nfm::ui::DrawResult;
 using nfm::ui::RenderResources;
 using nfm::ui::TrayApi;
@@ -75,6 +76,7 @@ struct FakeCallbacks final : TrayCallbacks {
     int hover_events{};
     int settings_commands{};
     int exit_commands{};
+    int retry_commands{};
 
     void OnTrayLeftClick() noexcept override {
         ++left_clicks;
@@ -87,6 +89,9 @@ struct FakeCallbacks final : TrayCallbacks {
     }
     void OnTraySettings() noexcept override {
         ++settings_commands;
+    }
+    void OnTrayRetryCollector() noexcept override {
+        ++retry_commands;
     }
     void OnTrayExit() noexcept override {
         ++exit_commands;
@@ -150,6 +155,14 @@ void CheckTrayMenu(TestContext& context) {
     context.Check(api.menu_create_calls == 1 && api.track_menu_calls == 1 &&
                       api.menu_destroy_calls == 1,
                   "menu lifecycle completed");
+
+    api.menu_command = TrayController::kRetryCollectorCommand;
+    context.Check(controller.ShowContextMenu(), "retry context menu shown");
+    context.Check(callbacks.retry_commands == 1, "retry command routed");
+
+    api.menu_command = TrayController::kOpenCommand;
+    context.Check(controller.ShowContextMenu(), "open context menu shown");
+    context.Check(callbacks.left_clicks == 1, "open command routes to left click");
 }
 
 void CheckFailuresAndDrawClassification(TestContext& context) {
@@ -167,6 +180,14 @@ void CheckFailuresAndDrawClassification(TestContext& context) {
                   "failed draw classified");
 }
 
+void CheckApplicationIcon(TestContext& context) {
+    const auto icon = CreateNetworkFlowMonitorIcon(nullptr);
+    context.Check(icon != nullptr, "network monitor icon is created");
+    if (icon != nullptr) {
+        static_cast<void>(DestroyIcon(icon));
+    }
+}
+
 } // namespace
 
 int main() noexcept {
@@ -175,5 +196,6 @@ int main() noexcept {
     CheckTrayCallbacks(context);
     CheckTrayMenu(context);
     CheckFailuresAndDrawClassification(context);
+    CheckApplicationIcon(context);
     return context.failures == 0 ? 0 : 1;
 }

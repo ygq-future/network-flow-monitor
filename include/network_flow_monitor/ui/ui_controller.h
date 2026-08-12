@@ -70,10 +70,12 @@ class UiController final : public ipc::IpcClientObserver,
     void OnTrayRightClick() noexcept override;
     void OnTrayHover() noexcept override;
     void OnTraySettings() noexcept override;
+    void OnTrayRetryCollector() noexcept override;
     void OnTrayExit() noexcept override;
     void OnWindowInvalidated(WindowKind kind) noexcept override;
     void OnWindowPointer(WindowKind kind, InteractionEvent event,
                          MouseTarget target) noexcept override;
+    void OnWindowContextMenu(WindowKind kind) noexcept override;
     [[nodiscard]] SettingsSaveResult SaveSettings(const config::AppConfig& value) noexcept override;
     [[nodiscard]] SettingsActionResult ExecuteServiceAction(
         SettingsServiceAction action, config::ServiceStartType start_type) noexcept override;
@@ -82,6 +84,7 @@ class UiController final : public ipc::IpcClientObserver,
     [[nodiscard]] InteractionOptions InteractionOptionsFromConfig() const noexcept;
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
     [[nodiscard]] bool StartCollection() noexcept;
+    void MarkCollectionDisconnected() noexcept;
     void StopCollection() noexcept;
     void RestoreCollectionState(const config::AppConfig& previous, bool reconnect,
                                 bool service_stopped) noexcept;
@@ -112,6 +115,8 @@ class UiController final : public ipc::IpcClientObserver,
     InteractionStateMachine interaction_;
     FloatingWindow floating_window_;
     RankingPopup ranking_popup_;
+    HICON tray_icon_{};
+    bool tray_icon_owned_{};
     TrayController tray_controller_;
     std::unique_ptr<ipc::IpcClient> ipc_client_;
     std::unique_ptr<ranking::RankingEngine> ranking_engine_;

@@ -890,3 +890,16 @@
   - Current-host run passed on Windows 11 25H2 build 26200: final package executable SHA-256 `0245F64999F41D5D0A1098D66A5C364A0A1580FB8F5F8701136E20D6A226BF25`, event signaled, collector exited with code 0 in 2,225.405 ms, no forced cleanup, no logger/process/service residue, and no unexpected package files.
   - Repeated the guarded SCM probe against the same final package: install, query, start, stop, restart, stop, uninstall and final absent query all passed; final service state was `not-installed`.
 - **Remaining acceptance:** run the same script on Windows 11 24H2 x64; complete visual/UAC/upgrade/performance evidence.
+
+## Phase 5.5: First-run usability repair checkpoint
+- **Status:** implementation complete; current-host verification passed, Windows 11 24H2 visual acceptance remains pending
+- **Started:** 2026-08-12
+- **Actions taken:**
+  - Changed UI startup so a failed portable collector or unavailable service endpoint leaves the tray, floating meter, ranking popup, settings, and recovery actions usable.
+  - Added a generated blue network-monitor icon and installed it in the tray plus native window classes instead of passing a null icon.
+  - Added “Show/hide monitor”, “Retry collector”, “Settings”, and “Exit” to the tray menu; the floating meter and ranking popup now expose the same context menu on right-click.
+  - Added a disconnected-state message that tells the user how to recover, and made a click from that state reveal the monitor again.
+  - Added a first-run usage flow to the README: portable mode is the default and does not require service installation; service mode is optional and managed from Settings.
+  - Replaced the package hash dependency on the unavailable `Get-FileHash` cmdlet with the .NET SHA-256 API so the package script works in the supported PowerShell host.
+  - Added a tray icon creation regression test.
+- **Verification:** final Full gate passed with 37/37 Debug and Release tests, strict warnings, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack. Final `tools/package.ps1 -Configuration Release` passed; the ZIP is 371,494 bytes and its SHA-256 is `E2AAE5C775E5864BE58DC94F94B957BD117F21C1D8D5578556647737D019D5D7`.

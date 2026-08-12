@@ -176,6 +176,7 @@ target_link_libraries(
         nfm_config
         D2D1
         Dwrite
+        Gdi32
         Shell32
         User32
 )

@@ -30,8 +30,13 @@ class TrayCallbacks {
     virtual void OnTrayRightClick() noexcept = 0;
     virtual void OnTrayHover() noexcept = 0;
     virtual void OnTraySettings() noexcept = 0;
+    virtual void OnTrayRetryCollector() noexcept {}
     virtual void OnTrayExit() noexcept = 0;
 };
+
+// Creates the small application-owned icon used by the notification-area entry.
+// The caller owns the returned handle and must release it with DestroyIcon.
+[[nodiscard]] HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept;
 
 class TrayApi {
   public:
@@ -70,6 +75,8 @@ class TrayController final {
   public:
     static constexpr UINT kSettingsCommand = 1U;
     static constexpr UINT kExitCommand = 2U;
+    static constexpr UINT kRetryCollectorCommand = 3U;
+    static constexpr UINT kOpenCommand = 4U;
 
     TrayController(HWND owner, TrayIconOptions options, TrayApi& api, TrayCallbacks& callbacks)
         : owner_{owner}, options_{std::move(options)}, api_{&api}, callbacks_{&callbacks} {}
@@ -83,6 +90,16 @@ class TrayController final {
     void Shutdown() noexcept;
     [[nodiscard]] bool initialized() const noexcept {
         return installed_;
+    }
+    void SetIcon(HICON icon) noexcept {
+        const auto was_installed = installed_;
+        if (was_installed) {
+            Shutdown();
+        }
+        options_.icon = icon;
+        if (was_installed) {
+            static_cast<void>(Initialize());
+        }
     }
     void SetOwner(HWND owner) noexcept;
     [[nodiscard]] bool HandleCallback(TrayNotification notification) noexcept;

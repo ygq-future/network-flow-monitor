@@ -1,5 +1,7 @@
 #include "network_flow_monitor/ui/ranking_popup.h"
 
+#include "network_flow_monitor/ui/tray_controller.h"
+
 #include <algorithm>
 #include <array>
 #include <vector>
@@ -22,18 +24,24 @@ RankingPopup::~RankingPopup() {
 }
 
 bool RankingPopup::RegisterWindowClass(HINSTANCE instance) noexcept {
+    WNDCLASSEXW existing{};
+    existing.cbSize = sizeof(existing);
+    if (::GetClassInfoExW(instance, kRankingPopupClass.data(), &existing) != FALSE) {
+        return true;
+    }
+    const auto icon = CreateNetworkFlowMonitorIcon(instance);
     const WNDCLASSEXW window_class{.cbSize = sizeof(WNDCLASSEXW),
                                    .style = CS_HREDRAW | CS_VREDRAW,
                                    .lpfnWndProc = &RankingPopup::WindowProc,
                                    .cbClsExtra = 0,
                                    .cbWndExtra = 0,
                                    .hInstance = instance,
-                                   .hIcon = nullptr,
+                                   .hIcon = icon,
                                    .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
                                    .hbrBackground = nullptr,
                                    .lpszMenuName = nullptr,
                                    .lpszClassName = kRankingPopupClass.data(),
-                                   .hIconSm = nullptr};
+                                   .hIconSm = icon};
     if (::RegisterClassExW(&window_class) != 0) {
         return true;
     }
@@ -165,7 +173,7 @@ void RankingPopup::Paint() noexcept {
     }
     if (target_ != nullptr && resources_->text_format() != nullptr) {
         std::wstring title = L"Top applications";
-        std::wstring total = L"Disconnected";
+        std::wstring total = L"Collector offline - right-click to retry";
         std::vector<std::wstring> rows;
         try {
             if (snapshot_ != nullptr) {
@@ -260,6 +268,9 @@ LRESULT CALLBACK RankingPopup::WindowProc(HWND window, UINT message, WPARAM wpar
         self->tracking_mouse_ = false;
         self->observer_->OnWindowPointer(WindowKind::RankingPopup, InteractionEvent::PointerLeave,
                                          MouseTarget::Popup);
+        return 0;
+    case WM_RBUTTONUP:
+        self->observer_->OnWindowContextMenu(WindowKind::RankingPopup);
         return 0;
     case WM_DPICHANGED:
         self->HandleDpiChanged(lparam);

@@ -100,6 +100,14 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [ ] Run that probe on Windows 11 24H2 x64
 - **Status:** script implemented and current-host direct probe passed; target-host acceptance pending
 
+## Phase 5.5: First-run usability repair
+- [x] Keep tray/floating UI alive when the portable collector or service endpoint is unavailable
+- [x] Add a generated network-monitor icon for the tray and native windows
+- [x] Add retry/open actions to the tray and floating-window context menus
+- [x] Document the double-click, UAC, portable-mode, service-mode, and recovery flow
+- [x] Run the full quality gate and regenerate the final ZIP after the repair
+- **Status:** implementation complete; current-host verification passed, Windows 11 24H2 visual acceptance remains pending
+
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?
 2. Is x64-only acceptable for the first release, with ARM64 deferred?

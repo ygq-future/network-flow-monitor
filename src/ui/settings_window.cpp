@@ -1,5 +1,7 @@
 #include "network_flow_monitor/ui/settings_window.h"
 
+#include "network_flow_monitor/ui/tray_controller.h"
+
 #include <windows.h>
 
 #include <array>
@@ -148,20 +150,26 @@ void SettingsWindow::Close() noexcept {
 }
 
 bool SettingsWindow::CreateSettingsWindow(HWND owner) noexcept {
-    WNDCLASSEXW window_class{.cbSize = sizeof(window_class),
-                             .style = CS_HREDRAW | CS_VREDRAW,
-                             .lpfnWndProc = &SettingsWindow::WindowProc,
-                             .cbClsExtra = 0,
-                             .cbWndExtra = 0,
-                             .hInstance = instance_,
-                             .hIcon = nullptr,
-                             .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
-                             .hbrBackground = ::GetSysColorBrush(COLOR_WINDOW),
-                             .lpszMenuName = nullptr,
-                             .lpszClassName = kSettingsClassName,
-                             .hIconSm = nullptr};
-    if (::RegisterClassExW(&window_class) == 0 && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        return false;
+    WNDCLASSEXW existing{};
+    existing.cbSize = sizeof(existing);
+    if (::GetClassInfoExW(instance_, kSettingsClassName, &existing) == FALSE) {
+        const auto icon = CreateNetworkFlowMonitorIcon(instance_);
+        const WNDCLASSEXW window_class{.cbSize = sizeof(window_class),
+                                       .style = CS_HREDRAW | CS_VREDRAW,
+                                       .lpfnWndProc = &SettingsWindow::WindowProc,
+                                       .cbClsExtra = 0,
+                                       .cbWndExtra = 0,
+                                       .hInstance = instance_,
+                                       .hIcon = icon,
+                                       .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
+                                       .hbrBackground = ::GetSysColorBrush(COLOR_WINDOW),
+                                       .lpszMenuName = nullptr,
+                                       .lpszClassName = kSettingsClassName,
+                                       .hIconSm = icon};
+        if (::RegisterClassExW(&window_class) == 0 &&
+            ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
     }
 
     window_ = ::CreateWindowExW(

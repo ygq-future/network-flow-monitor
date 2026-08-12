@@ -31,10 +31,11 @@ void InteractionStateMachine::Handle(InteractionEvent event, TimePoint now,
     dirty_flags_ = kDirtyNone;
     switch (event) {
     case InteractionEvent::Toggle:
-        if (state_ == InteractionState::Hidden || state_ == InteractionState::EdgeHidden) {
+        if (state_ == InteractionState::Hidden || state_ == InteractionState::EdgeHidden ||
+            state_ == InteractionState::DisconnectedOverlay) {
             SetState(InteractionState::Visible);
             target_ = MouseTarget::None;
-        } else if (state_ != InteractionState::DisconnectedOverlay) {
+        } else {
             SetState(InteractionState::Hidden);
             target_ = MouseTarget::None;
         }

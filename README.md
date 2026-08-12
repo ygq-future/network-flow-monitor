@@ -14,6 +14,16 @@
 - 同一可执行文件支持绿色提权采集器和可选 Windows 服务两种模式。
 - 服务安装、启停、重启、卸载和模式切换均通过设置界面完成。
 
+## 双击后的使用流程
+
+1. 从稳定解压目录双击 `NetworkFlowMonitor.exe`。首次启动默认使用“便携采集器”，会弹出一次 UAC；不需要先安装 Windows service。
+2. 启动后会在通知区域显示蓝色网络图标，并显示桌面悬浮速率条。左键托盘图标或悬浮条可显示/隐藏；悬停悬浮条会打开 Top N 应用排行。
+3. 右键托盘图标或悬浮条可以选择“Show/hide monitor”“Retry collector”“Settings”“Exit”。如果显示 `Collector offline - right-click to retry`，先按“Retry collector”；仍失败时打开“Settings”查看采集模式和服务状态。
+4. “Settings”可以修改 Top N、排行窗口、数据显示刷新间隔、悬停/消失/贴边/自动隐藏等选项。要使用服务模式，在设置中选择 `Windows service`，先安装并启动服务，再保存配置；普通用户界面本身不需要管理员权限。
+5. 退出 UI 会同时请求便携采集器停止并清理其 ETW 会话。若选择服务模式，服务可独立运行，UI 退出不会停止服务。
+
+如果通知区域没有立即看到图标，请展开 Windows 11 的隐藏图标区域；应用不会创建任务栏按钮。首次运行建议保持解压目录稳定，只有安装服务后才必须绝对不能移动该目录。
+
 当前可验证的内部入口：`--collector` 组装临时提权采集器并响应控制台/会话停止事件，`--service`
 进入 SCM dispatcher，`--install`/`--uninstall`/`--service-control` 只调用固定服务名的类型化
 SCM 操作。它们不是普通用户工作流；设置 UI 完成 UAC 调用和真实状态展示。Release 绿色包可用 `tools/package.ps1` 生成，服务模式应从解压到稳定目录的副本安装，不能在安装服务后移动可执行文件。

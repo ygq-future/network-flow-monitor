@@ -35,6 +35,9 @@ class UiWindowObserver {
         static_cast<void>(event);
         static_cast<void>(target);
     }
+    virtual void OnWindowContextMenu(WindowKind kind) noexcept {
+        static_cast<void>(kind);
+    }
 };
 
 using RankingSnapshotPtr = std::shared_ptr<const ranking::RankingSnapshot>;

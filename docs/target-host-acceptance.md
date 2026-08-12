@@ -42,6 +42,16 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 6. 执行卸载，确认服务消失、用户配置文件仍按文档保留，且稳定目录中的程序未被隐式移动或删除。
 7. 将新版本解压到另一个稳定目录，安装/升级服务，确认 SCM 二进制路径指向新目录；完成后按产品决定保留旧目录或卸载旧服务并记录结果。
 
+如果目标机需要自动记录 SCM 后端生命周期，可在确认同名服务未安装后，在管理员 PowerShell 中运行：
+
+```powershell
+pwsh -NoProfile -File tools/service-acceptance.ps1 `
+  -PackageRoot 'C:\Tools\NetworkFlowMonitor-0.1.0-win-x64' `
+  -MutateScm
+```
+
+该脚本只接管自己创建的服务，结束时自动停止并卸载；它不替代设置界面的 UAC、模式切换或视觉验收。非管理员 PowerShell 可改用 `-UseUac`，每个修改动作都会请求明确的 UAC 提升。
+
 ## 4. 托盘、悬浮窗和设置视觉检查
 
 在单显示器和多显示器各执行一次，至少覆盖 100%、125% 和 150% DPI；记录截图或短视频：

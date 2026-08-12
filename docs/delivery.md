@@ -43,6 +43,8 @@ pwsh -NoProfile -File tools/acceptance.ps1 -PackageRoot 'C:\Tools\NetworkFlowMon
 
 该脚本记录系统版本、包哈希、UI smoke 墙钟时间/峰值工作集/CPU 时间、SCM 当前状态和退出码；这些资源值只描述短 smoke 路径，不是高流量运行阈值。真实 UAC/SCM 变更仍必须由设置界面逐项确认并记录。
 
+需要自动记录并清理 SCM 生命周期时，可在确认同名服务尚未安装后使用 `tools/service-acceptance.ps1 -MutateScm`；该脚本默认拒绝修改，且不会替代设置界面的 UAC 和视觉验收。
+
 完整目标机步骤见 [`docs/target-host-acceptance.md`](target-host-acceptance.md)。
 
 内存、CPU、ETW 丢失率和排行延迟必须在目标 Windows 11 24H2 x64 机器上按相同场景测量后才能形成验收结论；当前 25H2 数据不能替代该结果。

@@ -134,6 +134,7 @@ int RunServiceAction(nfm::app::RuntimeMode mode) {
 }
 
 int RunUi(HINSTANCE instance, bool smoke_test) {
+    static_cast<void>(::SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
     auto config = nfm::config::DefaultAppConfig();
     if (!smoke_test) {
         std::wstring executable_path;

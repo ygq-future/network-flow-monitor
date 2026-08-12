@@ -56,6 +56,15 @@ target_link_libraries(nfm_ui_window_logic_tests PRIVATE nfm_ui D2D1 Dwrite Shell
 
 add_test(NAME ui.window_logic COMMAND nfm_ui_window_logic_tests)
 
+add_executable(nfm_ui_display_format_tests ui_display_format_tests.cpp)
+
+nfm_configure_target(nfm_ui_display_format_tests)
+nfm_enable_static_analysis(nfm_ui_display_format_tests)
+
+target_link_libraries(nfm_ui_display_format_tests PRIVATE nfm_ui nfm_config nfm_ranking)
+
+add_test(NAME ui.display_format COMMAND nfm_ui_display_format_tests)
+
 add_executable(nfm_ui_controller_tests ui_controller_tests.cpp)
 
 nfm_configure_target(nfm_ui_controller_tests)

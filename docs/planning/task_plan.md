@@ -81,7 +81,9 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Display current SCM service state when opening settings and after service actions
 - [x] Stop the old service after a successful switch back to portable mode, with rollback on failure
 - [x] Add startup-registration and settings-window status smoke coverage
-- [x] Run the complete 36-test Full quality gate and regenerate the CPack package
+- [x] Run the previous complete 36-test Full quality gate and regenerate the CPack package
+- [x] Replace placeholder UI rows with real total-rate/Top-N/units rendering and edge reveal-strip behavior
+- [x] Add display-format and reveal-strip logic coverage; complete Full gate passes with 37/37 Debug and Release tests
 - [ ] Run the Windows 11 24H2 x64, UAC/SCM, visual, and performance acceptance matrix
 - **Status:** implementation complete; target-host acceptance pending
 

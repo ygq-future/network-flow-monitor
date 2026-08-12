@@ -49,6 +49,18 @@ void CheckDpiAndWorkArea(TestContext& context) {
                       floating.top >= work_area.top && floating.bottom <= work_area.bottom,
                   "floating DPI suggestion is clamped");
     context.Check(popup == floating, "popup and floating DPI policy agree");
+
+    const auto hidden_left = FloatingWindow::ComputeEdgeHiddenRect(
+        PixelRect{.left = 12, .top = 20, .right = 332, .bottom = 84},
+        PixelRect{.left = 0, .top = 0, .right = 1920, .bottom = 1080}, 4);
+    context.Check(hidden_left.left == 0 && hidden_left.right == 4,
+                  "edge hiding leaves a left reveal strip");
+
+    const auto hidden_right = FloatingWindow::ComputeEdgeHiddenRect(
+        PixelRect{.left = 1588, .top = 20, .right = 1908, .bottom = 84},
+        PixelRect{.left = 0, .top = 0, .right = 1920, .bottom = 1080}, 4);
+    context.Check(hidden_right.left == 1916 && hidden_right.right == 1920,
+                  "edge hiding leaves a right reveal strip");
 }
 
 void CheckWindowStyles(TestContext& context) {

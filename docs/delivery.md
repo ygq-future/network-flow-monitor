@@ -23,9 +23,9 @@ CPack ZIP 目标也由 `tools/quality.ps1 -Mode Full` 验证；质量门不把�
 
 以下数据来自 Windows 11 25H2 x64（build 26200）的 Release 构建，只是开发测量，不是宣传阈值：
 
-- 可执行文件：658,944 bytes。
-- ZIP 包：314,540 bytes。
-- `--ui-smoke-test` 退出码：0；本次墙钟时间约 91.262 ms（短烟测路径，重复运行会波动）。
+- 可执行文件：775,168 bytes。
+- ZIP 包：314,540 bytes（ZIP 压缩结果哈希见发布脚本输出）。
+- `--ui-smoke-test` 退出码：0；本次墙钟时间约 93.713 ms（短烟测路径，重复运行会波动）。
 - 依赖为 Windows 系统组件：`ADVAPI32.dll`、`DWrite.dll`、`d2d1.dll`、`GDI32.dll`、`KERNEL32.dll`、`SHELL32.dll`、`tdh.dll`、`USER32.dll` 及同步 API-set。
 
 重新测量并写入被忽略的 `dist/measurements-release.json`：
@@ -46,3 +46,5 @@ pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
 | 绿色采集器 | 普通 UI 启动 UAC 采集器，退出 UI 后采集器句柄清理 | 自动化逻辑通过；人工交互待验收 |
 | Windows 11 24H2 x64 | ETW schema、权限、IPv4/IPv6/TCP/UDP 和高流量矩阵 | 当前仅有 25H2 证据 |
 | 升级/卸载 | 保留或清理用户配置的行为、旧服务路径和旧进程 | 服务控制升级分支已有单元覆盖；实际 SCM 路径待目标机验收 |
+
+当前 UI 绘制检查点已完成：悬浮窗显示真实总上传/下载速率，排行面板显示经过单位和方向配置处理的 Top N 应用；拖动释放会按当前显示器工作区贴边，自动隐藏会留下可恢复的露出条。该行为已由 `ui.display_format` 和 `ui.window_logic` 自动化覆盖；截图、多显示器和混合 DPI 仍需目标机人工验收。

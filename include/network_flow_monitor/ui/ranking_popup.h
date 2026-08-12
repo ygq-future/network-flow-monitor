@@ -29,6 +29,7 @@ class RankingPopup final {
     void Hide() noexcept;
     void Destroy() noexcept;
     void SetSnapshot(RankingSnapshotPtr snapshot, std::uint64_t generation) noexcept;
+    void SetDisplayOptions(WindowDisplayOptions options) noexcept;
     void Reposition(PopupPlacementContext context) noexcept;
 
     [[nodiscard]] HWND hwnd() const noexcept {
@@ -62,6 +63,7 @@ class RankingPopup final {
     PixelRect anchor_{};
     PixelRect rect_{};
     PixelSize popup_size_{.width = 320, .height = 220};
+    WindowDisplayOptions display_options_{};
     bool tracking_mouse_{};
 };
 

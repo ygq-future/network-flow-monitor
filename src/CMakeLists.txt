@@ -13,6 +13,7 @@ add_library(
     nfm_ui
     STATIC
         ui/dpi_layout.cpp
+        ui/display_format.cpp
         ui/interaction_state.cpp
         ui/render_resources.cpp
         ui/tray_controller.cpp

@@ -1,12 +1,14 @@
 #include "network_flow_monitor/ui/ranking_popup.h"
 
+#include <algorithm>
 #include <array>
+#include <vector>
 
 namespace nfm::ui {
 namespace {
 
-constexpr wchar_t kRankingPopupClass[] = L"NetworkFlowMonitor.RankingPopup";
-constexpr wchar_t kRankingPopupTitle[] = L"Network Flow Monitor ranking";
+constexpr auto kRankingPopupClass = std::to_array(L"NetworkFlowMonitor.RankingPopup");
+constexpr auto kRankingPopupTitle = std::to_array(L"Network Flow Monitor ranking");
 
 [[nodiscard]] PixelRect FromNativeRect(const RECT& rect) noexcept {
     return PixelRect{
@@ -30,7 +32,7 @@ bool RankingPopup::RegisterWindowClass(HINSTANCE instance) noexcept {
                                    .hCursor = ::LoadCursorW(nullptr, IDC_ARROW),
                                    .hbrBackground = nullptr,
                                    .lpszMenuName = nullptr,
-                                   .lpszClassName = kRankingPopupClass,
+                                   .lpszClassName = kRankingPopupClass.data(),
                                    .hIconSm = nullptr};
     if (::RegisterClassExW(&window_class) != 0) {
         return true;
@@ -48,9 +50,9 @@ bool RankingPopup::Create() noexcept {
     if (!RegisterWindowClass(instance_)) {
         return false;
     }
-    window_ = ::CreateWindowExW(kExtendedStyle, kRankingPopupClass, kRankingPopupTitle, WS_POPUP,
-                                rect_.left, rect_.top, rect_.Width(), rect_.Height(), nullptr,
-                                nullptr, instance_, this);
+    window_ = ::CreateWindowExW(kExtendedStyle, kRankingPopupClass.data(),
+                                kRankingPopupTitle.data(), WS_POPUP, rect_.left, rect_.top,
+                                rect_.Width(), rect_.Height(), nullptr, nullptr, instance_, this);
     return window_ != nullptr;
 }
 
@@ -75,7 +77,7 @@ void RankingPopup::Hide() noexcept {
 void RankingPopup::Destroy() noexcept {
     target_.Reset();
     if (window_ != nullptr) {
-        const auto window = window_;
+        auto* const window = window_;
         window_ = nullptr;
         ::DestroyWindow(window);
     }
@@ -87,6 +89,17 @@ void RankingPopup::SetSnapshot(RankingSnapshotPtr snapshot, std::uint64_t genera
     }
     snapshot_ = std::move(snapshot);
     generation_ = generation;
+    Invalidate();
+}
+
+void RankingPopup::SetDisplayOptions(WindowDisplayOptions options) noexcept {
+    if (display_options_ == options) {
+        return;
+    }
+    display_options_ = options;
+    popup_size_ = PixelSize{
+        .width = 460,
+        .height = std::max<std::int32_t>(180, 76 + static_cast<std::int32_t>(options.top_n) * 24)};
     Invalidate();
 }
 
@@ -135,9 +148,10 @@ void RankingPopup::HandleDpiChanged(LPARAM lparam) noexcept {
     Invalidate();
 }
 
+// NOLINTNEXTLINE(bugprone-exception-escape): formatting allocations are caught before drawing.
 void RankingPopup::Paint() noexcept {
     PAINTSTRUCT paint{};
-    const auto device_context = ::BeginPaint(window_, &paint);
+    auto* const device_context = ::BeginPaint(window_, &paint);
     if (device_context == nullptr) {
         return;
     }
@@ -150,22 +164,56 @@ void RankingPopup::Paint() noexcept {
         target_ = resources_->CreateHwndRenderTarget(window_, size);
     }
     if (target_ != nullptr && resources_->text_format() != nullptr) {
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black, 0.94F),
-                                                     brush.GetAddressOf()))) {
-            target_->BeginDraw();
-            target_->Clear(D2D1::ColorF(D2D1::ColorF::Black, 0.94F));
-            const D2D1_RECT_F title_rect{10.0F, 8.0F, 300.0F, 30.0F};
-            target_->DrawTextW(L"Top applications", 16U, resources_->text_format(), title_rect,
-                               brush.Get());
+        std::wstring title = L"Top applications";
+        std::wstring total = L"Disconnected";
+        std::vector<std::wstring> rows;
+        try {
             if (snapshot_ != nullptr) {
-                const auto count = std::min<std::size_t>(snapshot_->applications.size(), 20U);
+                total = snapshot_->status == ranking::RankingStatus::WarmingUp
+                            ? L"Synchronizing..."
+                            : FormatTotalRate(snapshot_->total_rate, display_options_);
+                const auto count =
+                    std::min<std::size_t>(snapshot_->applications.size(), display_options_.top_n);
+                rows.reserve(count);
                 for (std::size_t index = 0; index < count; ++index) {
-                    const auto y = 34.0F + static_cast<float>(index) * 22.0F;
-                    const D2D1_RECT_F row_rect{10.0F, y, 310.0F, y + 20.0F};
-                    target_->DrawTextW(L"Application", 11U, resources_->text_format(), row_rect,
-                                       brush.Get());
+                    rows.push_back(
+                        FormatApplicationRate(snapshot_->applications.at(index), display_options_));
                 }
+            }
+        } catch (...) {
+            rows.clear();
+            total = L"Data unavailable";
+        }
+
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background_brush;
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> text_brush;
+        const auto opacity = static_cast<float>(display_options_.opacity_percent) / 100.0F;
+        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.03F, 0.04F, 0.07F, opacity),
+                                                     background_brush.GetAddressOf())) &&
+            SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.95F, 0.97F, 1.0F, 1.0F),
+                                                     text_brush.GetAddressOf()))) {
+            target_->BeginDraw();
+            target_->Clear(D2D1::ColorF(0.01F, 0.01F, 0.02F, 1.0F));
+            const D2D1_RECT_F background{.left = 0.0F,
+                                         .top = 0.0F,
+                                         .right = static_cast<float>(size.width),
+                                         .bottom = static_cast<float>(size.height)};
+            target_->FillRectangle(background, background_brush.Get());
+            const D2D1_RECT_F title_rect{
+                .left = 12.0F, .top = 8.0F, .right = 440.0F, .bottom = 30.0F};
+            target_->DrawTextW(title.data(), static_cast<UINT32>(title.size()),
+                               resources_->text_format(), title_rect, text_brush.Get());
+            const D2D1_RECT_F total_rect{
+                .left = 12.0F, .top = 32.0F, .right = 440.0F, .bottom = 54.0F};
+            target_->DrawTextW(total.data(), static_cast<UINT32>(total.size()),
+                               resources_->text_format(), total_rect, text_brush.Get());
+            for (std::size_t index = 0; index < rows.size(); ++index) {
+                const auto y = 60.0F + (static_cast<float>(index) * 24.0F);
+                const D2D1_RECT_F row_rect{
+                    .left = 12.0F, .top = y, .right = 448.0F, .bottom = y + 22.0F};
+                target_->DrawTextW(rows.at(index).data(),
+                                   static_cast<UINT32>(rows.at(index).size()),
+                                   resources_->text_format(), row_rect, text_brush.Get());
             }
             if (RenderResources::EndDraw(*target_.Get()) == DrawResult::RecreateTarget) {
                 target_.Reset();

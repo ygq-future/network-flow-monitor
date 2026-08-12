@@ -35,6 +35,15 @@ constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMess
            result.win32_error == ERROR_SERVICE_NOT_ACTIVE;
 }
 
+[[nodiscard]] WindowDisplayOptions WindowOptionsFromConfig(
+    const config::AppConfig& config) noexcept {
+    return {.speed_unit = config.display.speed_unit,
+            .show_upload = config.display.show_upload,
+            .show_download = config.display.show_download,
+            .opacity_percent = config.floating.opacity_percent,
+            .top_n = config.ranking.top_n};
+}
+
 } // namespace
 
 UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
@@ -48,6 +57,9 @@ UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
       tray_controller_{nullptr, TrayIconOptions{}, tray_api_, *this}, snapshot_generation_{0U},
       memory_error_{false} {
     static_cast<void>(RecreateRankingEngine());
+    floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
+    floating_window_.SetSnapDistance(config_.floating.snap_distance_dip);
+    ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
 }
 
 UiController::~UiController() {
@@ -129,16 +141,23 @@ void UiController::ApplyInteractionState() noexcept {
     floating_window_.SetInteractionState(state);
     switch (state) {
     case InteractionState::Hidden:
-    case InteractionState::EdgeHidden:
+        floating_window_.SetEdgeHidden(false, config_.floating.reveal_strip_dip, CurrentWorkArea());
         ranking_popup_.Hide();
         floating_window_.Hide();
         break;
     case InteractionState::Visible:
     case InteractionState::DisconnectedOverlay:
+        floating_window_.SetEdgeHidden(false, config_.floating.reveal_strip_dip, CurrentWorkArea());
+        ranking_popup_.Hide();
+        floating_window_.Show();
+        break;
+    case InteractionState::EdgeHidden:
+        floating_window_.SetEdgeHidden(true, config_.floating.reveal_strip_dip, CurrentWorkArea());
         ranking_popup_.Hide();
         floating_window_.Show();
         break;
     case InteractionState::RankingVisible:
+        floating_window_.SetEdgeHidden(false, config_.floating.reveal_strip_dip, CurrentWorkArea());
         floating_window_.Show();
         ranking_popup_.ShowAt(PopupPlacementContext{.anchor = floating_window_.rect(),
                                                     .work_area = CurrentWorkArea()});
@@ -178,7 +197,7 @@ void UiController::HandleStateOnUiThread(ipc::IpcClientState state) noexcept {
 }
 
 PixelRect UiController::CurrentWorkArea() const noexcept {
-    const auto monitor = ::MonitorFromWindow(floating_window_.hwnd(), MONITOR_DEFAULTTONEAREST);
+    auto* const monitor = ::MonitorFromWindow(floating_window_.hwnd(), MONITOR_DEFAULTTONEAREST);
     MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
     if (monitor != nullptr && ::GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
         return PixelRect{.left = monitor_info.rcWork.left,
@@ -333,6 +352,9 @@ void UiController::OnTraySettings() noexcept {
             return;
         }
         config_ = loaded.config;
+        floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
+        floating_window_.SetSnapDistance(config_.floating.snap_distance_dip);
+        ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
     } else if (loaded.error.has_value()) {
         static_cast<void>(::MessageBoxW(
             message_window_,
@@ -350,10 +372,13 @@ void UiController::OnTrayExit() noexcept {
     ::PostQuitMessage(0);
 }
 
-void UiController::OnWindowInvalidated(WindowKind /*kind*/) noexcept {}
+void UiController::OnWindowInvalidated(WindowKind kind) noexcept {
+    static_cast<void>(kind);
+}
 
-void UiController::OnWindowPointer(WindowKind, InteractionEvent event,
+void UiController::OnWindowPointer(WindowKind kind, InteractionEvent event,
                                    MouseTarget target) noexcept {
+    static_cast<void>(kind);
     HandleInteraction(event, target);
 }
 
@@ -431,6 +456,9 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
         value.collector.preferred_mode == config::CollectorMode::Portable;
     bool service_stopped{};
     config_ = value;
+    floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
+    floating_window_.SetSnapDistance(config_.floating.snap_distance_dip);
+    ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
     if (reconnect) {
         StopCollection();
         if (!StartCollection()) {

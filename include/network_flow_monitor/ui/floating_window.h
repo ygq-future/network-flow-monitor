@@ -2,6 +2,7 @@
 #define NETWORK_FLOW_MONITOR_UI_FLOATING_WINDOW_H
 
 #include "network_flow_monitor/ranking/ranking_engine.h"
+#include "network_flow_monitor/ui/display_format.h"
 #include "network_flow_monitor/ui/dpi_layout.h"
 #include "network_flow_monitor/ui/interaction_state.h"
 #include "network_flow_monitor/ui/render_resources.h"
@@ -28,7 +29,12 @@ class UiWindowObserver {
     UiWindowObserver& operator=(UiWindowObserver&&) = delete;
 
     virtual void OnWindowInvalidated(WindowKind kind) noexcept = 0;
-    virtual void OnWindowPointer(WindowKind, InteractionEvent, MouseTarget) noexcept {}
+    virtual void OnWindowPointer(WindowKind kind, InteractionEvent event,
+                                 MouseTarget target) noexcept {
+        static_cast<void>(kind);
+        static_cast<void>(event);
+        static_cast<void>(target);
+    }
 };
 
 using RankingSnapshotPtr = std::shared_ptr<const ranking::RankingSnapshot>;
@@ -51,6 +57,9 @@ class FloatingWindow final {
     void Destroy() noexcept;
     void SetSnapshot(RankingSnapshotPtr snapshot, std::uint64_t generation) noexcept;
     void SetInteractionState(InteractionState state) noexcept;
+    void SetDisplayOptions(WindowDisplayOptions options) noexcept;
+    void SetEdgeHidden(bool hidden, std::int32_t reveal_strip_dip, PixelRect work_area) noexcept;
+    void SetSnapDistance(std::int32_t snap_distance_dip) noexcept;
     void Reposition(PixelRect rect) noexcept;
 
     [[nodiscard]] HWND hwnd() const noexcept {
@@ -65,6 +74,8 @@ class FloatingWindow final {
                                                InteractionState new_state) noexcept;
     [[nodiscard]] static PixelRect ApplyDpiSuggestion(PixelRect suggested,
                                                       PixelRect work_area) noexcept;
+    [[nodiscard]] static PixelRect ComputeEdgeHiddenRect(PixelRect normal_rect, PixelRect work_area,
+                                                         std::int32_t reveal_strip_pixels) noexcept;
 
   private:
     static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
@@ -72,6 +83,10 @@ class FloatingWindow final {
     void Invalidate() noexcept;
     void Paint() noexcept;
     void HandleDpiChanged(LPARAM lparam) noexcept;
+    void HandleMouseMove(LPARAM lparam) noexcept;
+    void FinishDrag() noexcept;
+    void SnapToWorkArea() noexcept;
+    void ApplyWindowRect(PixelRect rect) noexcept;
 
     HINSTANCE instance_{};
     RenderResources* resources_;
@@ -81,7 +96,14 @@ class FloatingWindow final {
     RankingSnapshotPtr snapshot_;
     std::uint64_t generation_{};
     InteractionState interaction_state_{InteractionState::Hidden};
+    WindowDisplayOptions display_options_{};
     PixelRect rect_{.left = 20, .top = 20, .right = 340, .bottom = 84};
+    PixelRect normal_rect_{rect_};
+    std::int32_t snap_distance_dip_{12};
+    bool edge_hidden_{};
+    bool dragging_{};
+    POINT drag_anchor_{};
+    PixelRect drag_origin_{};
     bool tracking_mouse_{};
 };
 

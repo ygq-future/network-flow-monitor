@@ -66,7 +66,11 @@ void InteractionStateMachine::Handle(InteractionEvent event, TimePoint now,
         break;
     case InteractionEvent::Reconnected:
         if (state_ == InteractionState::DisconnectedOverlay) {
-            SetState(state_before_disconnect_);
+            SetState(state_before_disconnect_ == InteractionState::Hidden
+                         ? InteractionState::Visible
+                         : state_before_disconnect_);
+        } else if (state_ == InteractionState::Hidden) {
+            SetState(InteractionState::Visible);
         }
         break;
     }

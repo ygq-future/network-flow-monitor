@@ -96,6 +96,7 @@ add_library(
     STATIC
         collector/collector_core.cpp
         collector/collector_host.cpp
+        collector/etw_authorization.cpp
         collector/etw_snapshot_provider.cpp
         collector/network_event_decoder.cpp
         collector/windows_etw_record_decoder.cpp

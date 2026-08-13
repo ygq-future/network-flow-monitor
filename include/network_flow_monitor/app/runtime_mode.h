@@ -25,6 +25,7 @@ enum class RuntimeMode : std::uint8_t {
     ServiceConfigureAutomatic,
     ServiceConfigureAutomaticDelayed,
     ServiceQuery,
+    AuthorizeCollector,
     Invalid,
 };
 

@@ -18,6 +18,7 @@ enum class SettingsServiceAction : std::uint8_t {
     Restart,
     Query,
     ConfigureStartType,
+    AuthorizeCollector,
 };
 
 struct SettingsActionResult {

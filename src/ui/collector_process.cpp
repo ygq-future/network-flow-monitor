@@ -115,23 +115,43 @@ CollectorProcessResult CollectorProcess::StartPortable(std::wstring_view executa
         stop_event_name_ = std::move(event_name);
         const auto parameters = L"--collector --stop-event \"" + stop_event_name_ + L"\"";
 
-        SHELLEXECUTEINFOW info{.cbSize = sizeof(info),
-                               .fMask = SEE_MASK_NOCLOSEPROCESS,
-                               .hwnd = nullptr,
-                               .lpVerb = L"runas",
-                               .lpFile = path.c_str(),
-                               .lpParameters = parameters.c_str(),
-                               .lpDirectory = nullptr,
-                               .nShow = SW_HIDE};
-        if (!api_->Execute(info) || info.hProcess == nullptr) {
+        // Prefer a non-elevated collector once the one-time authorization (ADR-0015) is in place.
+        auto result = SpawnPortable(path, parameters, /*elevated=*/false);
+        if (!result.succeeded) {
             CloseStopEvent();
-            return Failure(api_->LastError());
+            return result;
         }
-        process_ = info.hProcess;
-        return {.succeeded = true, .forced_termination = false, .win32_error = ERROR_SUCCESS};
+        // An unauthorized collector cannot open the system logger session and exits almost
+        // immediately; fall back to an elevated launch in that case.
+        if (api_->Wait(process_, ToDword(kAuthorizationProbeTimeout)) == WAIT_OBJECT_0) {
+            CloseProcess();
+            result = SpawnPortable(path, parameters, /*elevated=*/true);
+            if (!result.succeeded) {
+                CloseStopEvent();
+            }
+        }
+        return result;
     } catch (...) {
         return Failure(ERROR_NOT_ENOUGH_MEMORY);
     }
+}
+
+CollectorProcessResult CollectorProcess::SpawnPortable(const std::wstring& path,
+                                                       const std::wstring& parameters,
+                                                       bool elevated) noexcept {
+    SHELLEXECUTEINFOW info{.cbSize = sizeof(info),
+                           .fMask = SEE_MASK_NOCLOSEPROCESS,
+                           .hwnd = nullptr,
+                           .lpVerb = elevated ? L"runas" : nullptr,
+                           .lpFile = path.c_str(),
+                           .lpParameters = parameters.c_str(),
+                           .lpDirectory = nullptr,
+                           .nShow = SW_HIDE};
+    if (!api_->Execute(info) || info.hProcess == nullptr) {
+        return Failure(api_->LastError());
+    }
+    process_ = info.hProcess;
+    return {.succeeded = true, .forced_termination = false, .win32_error = ERROR_SUCCESS};
 }
 
 CollectorProcessResult CollectorProcess::Stop() noexcept {

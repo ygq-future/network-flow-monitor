@@ -173,7 +173,7 @@ void RankingPopup::Paint() noexcept {
     }
     if (target_ != nullptr && resources_->text_format() != nullptr) {
         std::wstring title = L"Top applications";
-        std::wstring total = L"Collector offline - right-click to retry";
+        std::wstring total = L"Starting...";
         std::vector<std::wstring> rows;
         try {
             if (snapshot_ != nullptr) {

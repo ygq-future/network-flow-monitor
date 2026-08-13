@@ -1,5 +1,6 @@
 #include "network_flow_monitor/app/collector_runtime.h"
 #include "network_flow_monitor/app/runtime_mode.h"
+#include "network_flow_monitor/collector/etw_authorization.h"
 #include "network_flow_monitor/config/app_config.h"
 #include "network_flow_monitor/config/config_paths.h"
 #include "network_flow_monitor/config/config_store.h"
@@ -76,6 +77,10 @@ int RunServiceCollector() {
     }
     return ResultCode(result.win32_error == ERROR_SUCCESS ? ERROR_SERVICE_SPECIFIC_ERROR
                                                           : result.win32_error);
+}
+
+int RunAuthorizeCollector() {
+    return ResultCode(nfm::collector::AuthorizeCollectorForCurrentUser());
 }
 
 int RunServiceAction(nfm::app::RuntimeMode mode) {
@@ -172,6 +177,8 @@ int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
             return RunPortableCollector({});
         case nfm::app::RuntimeMode::Service:
             return RunServiceCollector();
+        case nfm::app::RuntimeMode::AuthorizeCollector:
+            return RunAuthorizeCollector();
         case nfm::app::RuntimeMode::Install:
         case nfm::app::RuntimeMode::Uninstall:
         case nfm::app::RuntimeMode::ServiceControl:

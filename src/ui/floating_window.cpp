@@ -64,6 +64,10 @@ bool FloatingWindow::Create() noexcept {
     if (!RegisterWindowClass(instance_)) {
         return false;
     }
+    if (!positioned_) {
+        PositionOnFirstShow();
+        positioned_ = true;
+    }
 
     window_ = ::CreateWindowExW(kExtendedStyle, kFloatingWindowClass.data(),
                                 kFloatingWindowTitle.data(), WS_POPUP, rect_.left, rect_.top,
@@ -127,6 +131,7 @@ void FloatingWindow::ApplyWindowRect(PixelRect rect) noexcept {
         ::SetWindowPos(window_, HWND_TOPMOST, rect.left, rect.top, rect.Width(), rect.Height(),
                        SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
+    observer_->OnWindowMoved(WindowKind::Floating);
     Invalidate();
 }
 
@@ -245,9 +250,10 @@ void FloatingWindow::Paint() noexcept {
         std::wstring title = L"Network Flow Monitor";
         std::wstring status;
         try {
-            if (snapshot_ == nullptr ||
-                interaction_state_ == InteractionState::DisconnectedOverlay) {
+            if (interaction_state_ == InteractionState::DisconnectedOverlay) {
                 status = L"Collector offline - right-click to retry";
+            } else if (snapshot_ == nullptr) {
+                status = L"Starting...";
             } else if (snapshot_->status == ranking::RankingStatus::WarmingUp) {
                 status = L"Synchronizing...";
             } else {
@@ -305,6 +311,22 @@ void FloatingWindow::HandleMouseMove(LPARAM /*lparam*/) noexcept {
     normal_rect_ = rect_;
 }
 
+void FloatingWindow::PositionOnFirstShow() noexcept {
+    RECT work{};
+    if (::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0) == FALSE) {
+        return;
+    }
+    constexpr auto kEdgeMargin = 24;
+    constexpr auto kTopMargin = 64;
+    const auto width = rect_.Width();
+    const auto height = rect_.Height();
+    rect_.right = static_cast<std::int32_t>(work.right) - kEdgeMargin;
+    rect_.left = rect_.right - width;
+    rect_.top = static_cast<std::int32_t>(work.top) + kTopMargin;
+    rect_.bottom = rect_.top + height;
+    normal_rect_ = rect_;
+}
+
 void FloatingWindow::SnapToWorkArea() noexcept {
     auto* const monitor = ::MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
     MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
@@ -320,19 +342,19 @@ void FloatingWindow::SnapToWorkArea() noexcept {
         0,
         static_cast<std::int32_t>(((static_cast<long long>(snap_distance_dip_) * dpi) + 95) / 96));
     auto snapped = rect_;
-    if (std::abs(snapped.left - work_area.left) <= snap) {
+    if (snapped.left <= work_area.left + snap) {
         snapped.left = work_area.left;
         snapped.right = snapped.left + rect_.Width();
     }
-    if (std::abs(work_area.right - snapped.right) <= snap) {
+    if (snapped.right >= work_area.right - snap) {
         snapped.right = work_area.right;
         snapped.left = snapped.right - rect_.Width();
     }
-    if (std::abs(snapped.top - work_area.top) <= snap) {
+    if (snapped.top <= work_area.top + snap) {
         snapped.top = work_area.top;
         snapped.bottom = snapped.top + rect_.Height();
     }
-    if (std::abs(work_area.bottom - snapped.bottom) <= snap) {
+    if (snapped.bottom >= work_area.bottom - snap) {
         snapped.bottom = work_area.bottom;
         snapped.top = snapped.bottom - rect_.Height();
     }

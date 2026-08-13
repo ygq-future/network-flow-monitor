@@ -13,6 +13,7 @@ namespace nfm::ui {
 
 inline constexpr auto kCollectorGracefulStopTimeout = std::chrono::milliseconds{1500};
 inline constexpr auto kCollectorTerminateWaitTimeout = std::chrono::milliseconds{500};
+inline constexpr auto kAuthorizationProbeTimeout = std::chrono::milliseconds{400};
 
 struct CollectorProcessResult {
     bool succeeded{};
@@ -75,6 +76,9 @@ class CollectorProcess final {
   private:
     void CloseProcess() noexcept;
     void CloseStopEvent() noexcept;
+    [[nodiscard]] CollectorProcessResult SpawnPortable(const std::wstring& path,
+                                                       const std::wstring& parameters,
+                                                       bool elevated) noexcept;
     [[nodiscard]] static CollectorProcessResult Failure(std::uint32_t error) noexcept;
 
     ShellExecuteApi* api_;

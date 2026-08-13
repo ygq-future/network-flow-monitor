@@ -69,6 +69,7 @@ class SettingsWindow final {
         kRestartService,
         kUninstallService,
         kQueryService,
+        kAuthorizeCollector,
     };
 
     [[nodiscard]] bool CreateSettingsWindow(HWND owner) noexcept;
@@ -78,6 +79,7 @@ class SettingsWindow final {
     [[nodiscard]] bool ReadControls(config::AppConfig& value) const noexcept;
     void HandleCommand(int control_id) noexcept;
     void HandleServiceCommand(int control_id) noexcept;
+    void HandleAuthorizeCollector() noexcept;
     void ShowError(const wchar_t* title, const wchar_t* message) const noexcept;
     void ShowSaveError(const SettingsSaveResult& result) const noexcept;
     void ShowServiceResult(const SettingsActionResult& result) const noexcept;

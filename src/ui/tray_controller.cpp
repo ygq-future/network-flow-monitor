@@ -113,7 +113,7 @@ NOTIFYICONDATAW TrayController::BuildIconData() const noexcept {
     data.uID = options_.icon_id;
     data.uCallbackMessage = options_.callback_message;
     data.hIcon = options_.icon;
-    data.uFlags = NIF_MESSAGE | NIF_TIP;
+    data.uFlags = NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
     if (options_.icon != nullptr) {
         data.uFlags |= NIF_ICON;
     }
@@ -171,6 +171,7 @@ bool TrayController::HandleCallback(TrayNotification notification) noexcept {
         callbacks_->OnTrayLeftClick();
         return true;
     case WM_RBUTTONUP:
+    case WM_CONTEXTMENU:
         callbacks_->OnTrayRightClick();
         return true;
     case WM_MOUSEMOVE:

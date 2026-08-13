@@ -417,7 +417,20 @@ void UiController::OnTrayExit() noexcept {
 
 void UiController::OnWindowContextMenu(WindowKind kind) noexcept {
     static_cast<void>(kind);
+    // Opening the context menu moves the pointer off the floating window, which would otherwise
+    // start the auto-hide timer. Suspend auto-hide while the menu is open, then re-arm the leave
+    // so an idle window still hides after the menu closes.
+    menu_open_ = true;
     static_cast<void>(tray_controller_.ShowContextMenu());
+    menu_open_ = false;
+    HandleInteraction(InteractionEvent::PointerLeave, MouseTarget::Anchor);
+}
+
+void UiController::OnWindowMoved(WindowKind kind) noexcept {
+    if (kind == WindowKind::Floating && interaction_.state() == InteractionState::RankingVisible) {
+        ranking_popup_.Reposition(PopupPlacementContext{.anchor = floating_window_.rect(),
+                                                        .work_area = CurrentWorkArea()});
+    }
 }
 
 void UiController::OnWindowInvalidated(WindowKind kind) noexcept {
@@ -576,7 +589,7 @@ InteractionOptions UiController::InteractionOptionsFromConfig() const noexcept {
     return {.hover_delay = config_.interaction.hover_delay,
             .dismiss_delay = config_.interaction.dismiss_delay,
             .auto_hide_delay = config_.floating.auto_hide_delay,
-            .auto_hide_enabled = config_.floating.auto_hide_enabled};
+            .auto_hide_enabled = config_.floating.auto_hide_enabled && !menu_open_};
 }
 
 bool UiController::RecreateRankingEngine() noexcept {
@@ -646,8 +659,10 @@ LRESULT CALLBACK UiController::MessageWindowProc(HWND window, UINT message, WPAR
         return 0;
     }
     if (message == kTrayCallbackMessage) {
-        static_cast<void>(controller->tray_controller_.HandleCallback(TrayNotification{
-            .icon_id = static_cast<UINT>(wparam), .message = static_cast<UINT>(lparam)}));
+        // NOTIFYICON_VERSION_4: the icon id is in HIWORD(lParam) and the event in LOWORD(lParam).
+        static_cast<void>(controller->tray_controller_.HandleCallback(
+            TrayNotification{.icon_id = HIWORD(static_cast<UINT>(lparam)),
+                             .message = LOWORD(static_cast<UINT>(lparam))}));
         return 0;
     }
     return ::DefWindowProcW(window, message, wparam, lparam);

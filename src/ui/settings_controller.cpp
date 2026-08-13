@@ -64,6 +64,8 @@ namespace {
         break;
     case SettingsServiceAction::Query:
         return L"--service-query";
+    case SettingsServiceAction::AuthorizeCollector:
+        return L"--authorize-collector";
     }
     return {};
 }

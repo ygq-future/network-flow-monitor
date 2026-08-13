@@ -53,10 +53,10 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.display.show_download, "default show download");
     context.Check(config.interaction.hover_delay == 350ms, "default hover delay");
     context.Check(config.interaction.dismiss_delay == 250ms, "default dismiss delay");
-    context.Check(config.floating.snap_distance_dip == 12, "default snap distance");
+    context.Check(config.floating.snap_distance_dip == 20, "default snap distance");
     context.Check(config.floating.auto_hide_enabled, "default auto hide");
     context.Check(config.floating.auto_hide_delay == 500ms, "default auto hide delay");
-    context.Check(config.floating.reveal_strip_dip == 3, "default reveal strip");
+    context.Check(config.floating.reveal_strip_dip == 6, "default reveal strip");
     context.Check(config.floating.opacity_percent == 92U, "default opacity");
     context.Check(!config.startup.ui_at_login, "default UI startup");
     context.Check(config.collector.preferred_mode == nfm::config::CollectorMode::Portable,

@@ -4,7 +4,7 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Run the target Windows 11 24H2 x64 acceptance matrix for the already-generated ZIP package, then close the remaining service upgrade/uninstall and visual/UAC evidence gaps.
+Runtime-verify the no-UAC one-time authorization on the target machine; then pick up the two deferred items (portable/service ETW session coexistence, native Win11 Fluent UI modernization) recorded in the "Deferred work" section below.
 
 ## Current Phase
 Phase 5.3 — Portable collector shutdown hardening; 24H2 and manual acceptance pending
@@ -107,6 +107,23 @@ Each implementation milestone follows the same observable sequence: detailed pla
 - [x] Document the double-click, UAC, portable-mode, service-mode, and recovery flow
 - [x] Run the full quality gate and regenerate the final ZIP after the repair
 - **Status:** implementation complete; current-host verification passed, Windows 11 24H2 visual acceptance remains pending
+
+## Phase 5.6: First-run / portable usability repair
+- [x] Floating window auto-shows on first successful collector connect (was stuck in `Hidden`)
+- [x] Portable collector recovers a leftover `NetworkFlowMonitor.SystemTrace` session (`StopAndRetry`) instead of failing with `ERROR_ALREADY_EXISTS`
+- [x] Edge docking: snap default 12→20 DIP, reveal strip 3→6 DIP, off-screen windows now snap back (not only within snap distance)
+- [x] Offline overlay distinguishes `Starting...` from `Collector offline`
+- [x] One-time no-UAC authorization (`SeSystemProfilePrivilege` + `EventAccessControl`), settings button "Authorize no-UAC", non-elevated collector spawn with runas fallback
+- [x] Debug build clean; 37/37 tests pass; clang-format applied
+- [ ] Runtime-verify the no-UAC authorization on the target machine (needs a real elevated run)
+
+## Deferred work (pick up in a fresh session)
+
+Two items were deliberately deferred by scope order (functionality first, portable first). Decisions for the repair are in `CONTEXT.md` and `docs/decisions/0015-portable-collector-one-time-authorization.md`.
+
+1. **Portable/service ETW session coexistence.** Portable and service share one fixed session name `NetworkFlowMonitor.SystemTrace`, so they cannot run simultaneously. The portable repair only reclaims *stale* sessions; active coexistence still needs a decision (mutual exclusion vs. distinct session names vs. portable-detects-service-and-connects). This shared name, plus the settings code hard-coding `Unknown` for non-query service actions, is the root cause of the "service installs but won't start / status always unknown" symptom.
+
+2. **Native Win11 (Fluent) UI modernization.** Direction fixed: stay on native Win32 + Direct2D/DirectWrite (no WinUI 3). Work list: DWM rounded corners, Mica/Acrylic backdrop, dark mode, Segoe UI Variable, real Fluent color/typography tokens, ComCtl32 v6 manifest, replace the runtime-drawn 32×32 tray DIB with a proper `.ico`. Current rendering is flat rectangles plus one 12pt Segoe UI Regular font.
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

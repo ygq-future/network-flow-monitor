@@ -38,6 +38,9 @@ class UiWindowObserver {
     virtual void OnWindowContextMenu(WindowKind kind) noexcept {
         static_cast<void>(kind);
     }
+    virtual void OnWindowMoved(WindowKind kind) noexcept {
+        static_cast<void>(kind);
+    }
 };
 
 using RankingSnapshotPtr = std::shared_ptr<const ranking::RankingSnapshot>;
@@ -89,6 +92,7 @@ class FloatingWindow final {
     void HandleMouseMove(LPARAM lparam) noexcept;
     void FinishDrag() noexcept;
     void SnapToWorkArea() noexcept;
+    void PositionOnFirstShow() noexcept;
     void ApplyWindowRect(PixelRect rect) noexcept;
 
     HINSTANCE instance_{};
@@ -108,6 +112,7 @@ class FloatingWindow final {
     POINT drag_anchor_{};
     PixelRect drag_origin_{};
     bool tracking_mouse_{};
+    bool positioned_{};
 };
 
 } // namespace nfm::ui

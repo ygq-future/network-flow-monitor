@@ -17,10 +17,10 @@ bool ThreadHostWait::Until(const std::stop_token& stop_token,
                            std::optional<std::chrono::steady_clock::time_point> deadline) noexcept {
     constexpr auto poll = std::chrono::milliseconds{25};
     if (!deadline.has_value()) {
-        while (!stop_token.stop_requested()) {
-            std::this_thread::sleep_for(poll);
-        }
-        return false;
+        // No subscription yet. Sleep briefly, then return so the host loop re-evaluates
+        // next_deadline(); a subscription that arrives in the meantime is then picked up.
+        std::this_thread::sleep_for(poll);
+        return !stop_token.stop_requested();
     }
     while (!stop_token.stop_requested()) {
         const auto now = std::chrono::steady_clock::now();

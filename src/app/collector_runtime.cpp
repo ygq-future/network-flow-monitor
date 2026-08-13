@@ -177,6 +177,14 @@ CollectorPrincipalResult BuildServicePrincipal() noexcept {
     }
 }
 
+collector::WindowsEtwSessionOptions SessionOptionsFor(ipc::CollectorEndpointMode mode) noexcept {
+    // A portable collector recovers a session left behind by a prior forced kill (see ADR-0014).
+    // The service keeps the strict policy until portable/service coexistence is decided.
+    return {.existing_session_policy = mode == ipc::CollectorEndpointMode::Portable
+                                           ? collector::ExistingSessionPolicy::StopAndRetry
+                                           : collector::ExistingSessionPolicy::Fail};
+}
+
 } // namespace
 
 CollectorPrincipalResult BuildCollectorPrincipal(ipc::CollectorEndpointMode mode) noexcept {
@@ -209,7 +217,7 @@ ipc::CollectorInstanceId CreateCollectorInstanceId() noexcept {
 
 CollectorRuntime::CollectorRuntime(ipc::CollectorEndpointMode mode)
     : instance_{CreateCollectorInstanceId()}, principal_{BuildCollectorPrincipal(mode).principal},
-      etw_api_{}, session_{etw_api_}, provider_{session_},
+      etw_api_{}, session_{etw_api_, SessionOptionsFor(mode)}, provider_{session_},
       started_at_{std::chrono::steady_clock::now()}, server_{instance_, principal_, transport_},
       publisher_{instance_, started_at_, provider_, server_}, wait_{},
       host_{session_, server_, publisher_, wait_} {}

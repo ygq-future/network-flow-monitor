@@ -100,11 +100,13 @@ ClientSnapshot MakeSnapshot(std::uint8_t instance_byte) {
 
 void CheckCollectorProcess(TestContext& context) {
     FakeShellExecuteApi api;
+    // Probe reports "still running", and the collector then exits gracefully on stop.
+    api.wait_results = {WAIT_TIMEOUT, WAIT_TIMEOUT, WAIT_TIMEOUT, WAIT_OBJECT_0};
     CollectorProcess process{api};
     const auto started = process.StartPortable(L"C:\\Tools\\NetworkFlowMonitor.exe");
     context.Check(started.succeeded && process.running(), "portable collector starts");
-    context.Check(api.last_info.lpVerb != nullptr && std::wstring{api.last_info.lpVerb} == L"runas",
-                  "portable collector requests UAC elevation");
+    context.Check(api.last_info.lpVerb == nullptr,
+                  "portable collector prefers non-elevated launch");
     context.Check(api.last_parameters ==
                       L"--collector --stop-event \"Local\\NetworkFlowMonitor.Stop.test\"",
                   "portable collector uses internal mode and stop event");
@@ -118,9 +120,21 @@ void CheckCollectorProcess(TestContext& context) {
                   "portable process and stop event handles are closed");
 }
 
+void CheckCollectorElevationFallback(TestContext& context) {
+    FakeShellExecuteApi api;
+    // An unauthorized collector exits immediately; the non-elevated probe then triggers runas.
+    api.wait_results = {WAIT_OBJECT_0, WAIT_TIMEOUT};
+    CollectorProcess process{api};
+    const auto started = process.StartPortable(L"C:\\Tools\\NetworkFlowMonitor.exe");
+    context.Check(started.succeeded, "portable collector retries after non-elevated failure");
+    context.Check(api.last_info.lpVerb != nullptr && std::wstring{api.last_info.lpVerb} == L"runas",
+                  "portable collector falls back to UAC elevation");
+    context.Check(api.close_calls == 1U, "failed non-elevated process handle is closed");
+}
+
 void CheckCollectorFallback(TestContext& context) {
     FakeShellExecuteApi api;
-    api.wait_results = {WAIT_TIMEOUT, WAIT_TIMEOUT, WAIT_OBJECT_0};
+    api.wait_results = {WAIT_TIMEOUT, WAIT_TIMEOUT, WAIT_TIMEOUT, WAIT_OBJECT_0};
     CollectorProcess process{api};
     static_cast<void>(process.StartPortable(L"C:\\Tools\\NetworkFlowMonitor.exe"));
     const auto stopped = process.Stop();
@@ -172,6 +186,7 @@ void CheckControllerBridge(TestContext& context) {
 int main() {
     TestContext context;
     CheckCollectorProcess(context);
+    CheckCollectorElevationFallback(context);
     CheckCollectorFallback(context);
     CheckCollectorLaunchFailure(context);
     CheckControllerBridge(context);

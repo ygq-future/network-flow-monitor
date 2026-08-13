@@ -76,6 +76,7 @@ class UiController final : public ipc::IpcClientObserver,
     void OnWindowPointer(WindowKind kind, InteractionEvent event,
                          MouseTarget target) noexcept override;
     void OnWindowContextMenu(WindowKind kind) noexcept override;
+    void OnWindowMoved(WindowKind kind) noexcept override;
     [[nodiscard]] SettingsSaveResult SaveSettings(const config::AppConfig& value) noexcept override;
     [[nodiscard]] SettingsActionResult ExecuteServiceAction(
         SettingsServiceAction action, config::ServiceStartType start_type) noexcept override;
@@ -131,6 +132,7 @@ class UiController final : public ipc::IpcClientObserver,
     bool pending_message_posted_{};
     HWND message_window_{};
     bool started_{};
+    bool menu_open_{};
 };
 
 } // namespace nfm::ui

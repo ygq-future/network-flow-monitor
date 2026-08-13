@@ -256,6 +256,8 @@ bool SettingsWindow::CreateControls() noexcept {
     CreateButton(window_, instance_, kRestartService, L"Restart", 350, y, 100);
     CreateButton(window_, instance_, kUninstallService, L"Uninstall", 460, y, 100);
     y += 35;
+    CreateButton(window_, instance_, kAuthorizeCollector, L"Authorize no-UAC", 20, y, 180);
+    y += 35;
     CreateButton(window_, instance_, kQueryService, L"Query service status", 20, y, 180);
     y += 35;
     service_status_ = CreateLabel(window_, instance_, L"Service status: unknown", y);
@@ -406,6 +408,10 @@ void SettingsWindow::HandleCommand(int control_id) noexcept {
         }
         return;
     }
+    if (control_id == kAuthorizeCollector) {
+        HandleAuthorizeCollector();
+        return;
+    }
     HandleServiceCommand(control_id);
 }
 
@@ -441,6 +447,21 @@ void SettingsWindow::HandleServiceCommand(int control_id) noexcept {
     const auto result = host_->ExecuteServiceAction(action, value.service.start_type);
     ShowServiceResult(result);
     UpdateServiceStatus(value);
+}
+
+void SettingsWindow::HandleAuthorizeCollector() noexcept {
+    const auto result = host_->ExecuteServiceAction(SettingsServiceAction::AuthorizeCollector,
+                                                    config::ServiceStartType::AutomaticDelayed);
+    if (result.ok()) {
+        static_cast<void>(::MessageBoxW(
+            window_, L"Authorization succeeded. The collector will now start without a UAC prompt.",
+            L"Network Flow Monitor", MB_OK | MB_ICONINFORMATION));
+        return;
+    }
+    const auto message =
+        L"Authorization failed. Win32 error: " + std::to_wstring(result.win32_error);
+    static_cast<void>(
+        ::MessageBoxW(window_, message.c_str(), L"Network Flow Monitor", MB_OK | MB_ICONERROR));
 }
 
 void SettingsWindow::ShowError(const wchar_t* title, const wchar_t* message) const noexcept {

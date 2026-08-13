@@ -74,6 +74,9 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
     if (argument == L"--service-query") {
         return RuntimeMode::ServiceQuery;
     }
+    if (argument == L"--authorize-collector") {
+        return RuntimeMode::AuthorizeCollector;
+    }
     return RuntimeMode::Invalid;
 }
 

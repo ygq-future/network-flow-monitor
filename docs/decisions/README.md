@@ -16,5 +16,6 @@
 | [0012](0012-zip-portable-delivery.md) | 使用静态运行库 ZIP 作为首版交付物 | 已接受 |
 | [0013](0013-user-login-startup.md) | 使用当前用户 Run 项管理 UI 登录自启 | 已接受 |
 | [0014](0014-portable-collector-stop-signal.md) | 使用 UI 创建的命名事件停止绿色采集器 | 已接受 |
+| [0015](0015-portable-collector-one-time-authorization.md) | 便携采集器用一次性授权免 UAC | 已接受 |
 
 改变已接受 ADR 的结论时，应新增取代它的 ADR 或明确更新状态及理由，不应静默修改历史。

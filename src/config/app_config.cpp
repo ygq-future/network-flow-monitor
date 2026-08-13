@@ -20,10 +20,10 @@ AppConfig DefaultAppConfig() noexcept {
             },
         .floating =
             {
-                .snap_distance_dip = 12,
+                .snap_distance_dip = 20,
                 .auto_hide_enabled = true,
                 .auto_hide_delay = std::chrono::milliseconds{500},
-                .reveal_strip_dip = 3,
+                .reveal_strip_dip = 6,
                 .opacity_percent = 92U,
             },
         .startup = {.ui_at_login = false},

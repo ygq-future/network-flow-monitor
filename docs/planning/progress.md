@@ -903,3 +903,11 @@
   - Replaced the package hash dependency on the unavailable `Get-FileHash` cmdlet with the .NET SHA-256 API so the package script works in the supported PowerShell host.
   - Added a tray icon creation regression test.
 - **Verification:** final Full gate passed with 37/37 Debug and Release tests, strict warnings, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack. Final `tools/package.ps1 -Configuration Release` passed; the ZIP is 371,494 bytes and its SHA-256 is `E2AAE5C775E5864BE58DC94F94B957BD117F21C1D8D5578556647737D019D5D7`.
+# Native Win11 UI specification checkpoint (2026-08-13)
+
+- **Status:** product behavior agreed and implementation tickets prepared; implementation has not started.
+- Defined the NFM panel, TopA panel, monitor panel, dock capsule, and pin vocabulary in `CONTEXT.md`.
+- Recorded the approved left/right-only docking, capsule, TopA hierarchy, pin/manual-persistence, context-menu, language/theme/material, animation, Settings, and single executable-adjacent configuration decisions.
+- Recorded Microsoft platform facts and the required Acrylic/Mica fallback distinction in `findings.md`.
+- Published one authoritative `ready-for-agent` specification and five linearly blocked tracer-bullet tickets under `.scratch/native-win11-ui-modernization/`; the repository now tracks this local issue tracker as the successor to the earlier superpowers planning flow, and only ticket 01 is currently unblocked.
+- Verification for this documentation-only checkpoint: `git diff --check` and Markdown structure/reference review passed. Per explicit user direction, the C++ Full quality gate was not run because no code, build-system, or runtime-resource files changed; no build/test result is claimed for this checkpoint.

@@ -4,7 +4,7 @@
 Design, document, implement, and verify a very small Windows 11 network-flow monitor with a tray UI, edge-hiding floating window, and real-time per-application ranking.
 
 ## Next Step
-Runtime-verify the no-UAC one-time authorization on the target machine; then pick up the two deferred items (portable/service ETW session coexistence, native Win11 Fluent UI modernization) recorded in the "Deferred work" section below.
+Complete the native Win11 Fluent UI and interaction redesign recorded below, then address portable/service ETW session coexistence last. Runtime verification of the no-UAC one-time authorization on a target machine remains an independent acceptance item.
 
 ## Current Phase
 Phase 5.3 — Portable collector shutdown hardening; 24H2 and manual acceptance pending
@@ -121,9 +121,34 @@ Each implementation milestone follows the same observable sequence: detailed pla
 
 Two items were deliberately deferred by scope order (functionality first, portable first). Decisions for the repair are in `CONTEXT.md` and `docs/decisions/0015-portable-collector-one-time-authorization.md`.
 
-1. **Portable/service ETW session coexistence.** Portable and service share one fixed session name `NetworkFlowMonitor.SystemTrace`, so they cannot run simultaneously. The portable repair only reclaims *stale* sessions; active coexistence still needs a decision (mutual exclusion vs. distinct session names vs. portable-detects-service-and-connects). This shared name, plus the settings code hard-coding `Unknown` for non-query service actions, is the root cause of the "service installs but won't start / status always unknown" symptom.
+1. **Native Win11 (Fluent) UI modernization.** Direction fixed: stay on native Win32 + Direct2D/DirectWrite (no WinUI 3). Work list: DWM rounded corners, Mica/Acrylic backdrop, dark mode, Segoe UI Variable, real Fluent color/typography tokens, ComCtl32 v6 manifest, replace the runtime-drawn 32×32 tray DIB with a proper `.ico`. Current rendering is flat rectangles plus one 12pt Segoe UI Regular font. The interaction decisions being refined for this item are recorded in "Native UI redesign decisions" below.
 
-2. **Native Win11 (Fluent) UI modernization.** Direction fixed: stay on native Win32 + Direct2D/DirectWrite (no WinUI 3). Work list: DWM rounded corners, Mica/Acrylic backdrop, dark mode, Segoe UI Variable, real Fluent color/typography tokens, ComCtl32 v6 manifest, replace the runtime-drawn 32×32 tray DIB with a proper `.ico`. Current rendering is flat rectangles plus one 12pt Segoe UI Regular font.
+2. **Portable/service ETW session coexistence.** Portable and service share one fixed session name `NetworkFlowMonitor.SystemTrace`, so they cannot run simultaneously. The portable repair only reclaims *stale* sessions; active coexistence still needs a decision (mutual exclusion vs. distinct session names vs. portable-detects-service-and-connects). This shared name, plus the settings code hard-coding `Unknown` for non-query service actions, is the root cause of the "service installs but won't start / status always unknown" symptom.
+
+## Native UI redesign decisions
+
+The authoritative implementation specification is published at `.scratch/native-win11-ui-modernization/spec.md`, with five linearly blocked tracer-bullet tickets beside it under `issues/`. The bullets below are a planning summary; the spec governs the complete user stories, deterministic behavior seam, testing decisions, and scope exclusions.
+
+- Use the domain terms `NFM panel`, `TopA panel`, `monitor panel`, and `dock capsule` defined in `CONTEXT.md`.
+- The monitor panel always docks to the nearest left or right edge of the work area selected by the pointer's release monitor. Top and bottom are never docking edges. Remove the obsolete snap-distance setting.
+- The TopA panel is a separate rounded card fixed below the NFM panel. When bottom space is insufficient, move the whole expanded monitor panel upward by the minimum amount needed to stay in the work area; only an intrinsically over-tall TopA list scrolls.
+- During an application context menu, pause TopA dismissal and dock auto-hide. On menu close, resume normal hover state; the tray menu does not alter the monitor panel's existing visibility.
+- The dock capsule can be dragged without expanding when pointer movement crosses the Windows drag threshold before the hover delay. Capsule and expanded-panel dragging are constrained to the current monitor work area. Persist the capsule monitor, side, and DIP vertical offset; temporary expansion correction never overwrites that anchor.
+- Default capsule size is 10×64 DIP, publicly configurable from 8–24 DIP wide and 40–160 DIP high. The pointer hit target extends inward to at least 16 DIP even when the visible capsule is narrower.
+- The capsule has two independent half-height rate tracks: upload grows from the bottom toward the center; download grows from the top toward the center. Both use continuous Byte/KiB/MiB color bands, with GiB rates saturated at the MiB endpoint. Upload uses yellow/orange/red and download uses cyan/blue/purple.
+- Expanding the capsule first shows the NFM panel. Continued hover over the NFM panel opens TopA below it. TopA visible implies NFM visible. Leaving the entire monitor panel dismisses TopA and returns NFM to the capsule in one bounded, reversible animation.
+- NFM shows the product icon/name and total upload/download rates. TopA shows `Top {N} Applications`; each row shows application icon/name on the left and upload/download rates on the right, without repeating totals.
+- Language modes are system, Simplified Chinese, and English; default is English, and an unsupported system language falls back to English. Theme modes are system, light, and dark; system changes apply live and high contrast overrides custom material styling.
+- Use Acrylic plus the configured opacity for NFM and TopA in active and inactive states, with a same-tint opaque fallback when the system disables Acrylic. Use Mica for Settings. Opacity controls only the monitor panel background; content remains opaque.
+- Use native Windows menus, rounded application-owned panels, bounded state-transition animations with reduced-motion fallback, and styled native-control semantics in Settings rather than reimplementing text input and selection behavior.
+- Centralize initial animation tokens: 100 ms control feedback, 180 ms NFM/capsule and work-area movement, 200 ms TopA transitions, 150 ms theme transitions, and at most 200 ms capsule-rate interpolation. Interrupted transitions reverse from their current visual state; reduced-motion and degraded environments complete immediately. These are design starting points subject to target-host visual acceptance, not performance thresholds.
+- TopA scrolls internally only when intrinsically too tall, supports wheel/touchpad and standard keyboard navigation, and reveals its scrollbar on interaction. Ranking changes animate in place without queueing stale snapshots; text columns remain stable through truncation, right alignment, and tabular numerals.
+- Settings navigation groups General, Monitor, Ranking, Collector, and Diagnostics. A narrow window collapses navigation to a top selector without introducing a separate mobile layout.
+- The UI and all collector backends share one program configuration at `NetworkFlowMonitor.json` beside the executable. Portable versus service mode changes only the collector backend, never the UI configuration path or scope. Development schemas are replaced rather than migrated before release; malformed files remain diagnosable and are not silently overwritten.
+- Clicking the explicit TopA toggle on NFM opens or closes TopA immediately, while hover still opens it after the configured delay; dragging and right-clicking do not toggle it. Add a pin control to NFM so the NFM panel can remain visible instead of auto-hiding.
+- When NFM is not pinned, TopA always retains normal auto-dismiss behavior, including after a manual toggle. When NFM is pinned, hover-opened TopA still auto-dismisses, while manually opened TopA remains visible until manually closed. Unpinning clears manual TopA persistence and restores the normal dismiss state. Pinning never disables dragging.
+- Distinguish TopA warm-up (`Collecting data…`), connected-idle (`No network activity`), and disconnected states; TopA does not open while the collector is disconnected.
+- Collector loss is a fallback state rather than a separate interaction mode: preserve NFM visibility and pin state, show default/no-data rates with a clear status, discard stale TopA rows, and rebuild the ranking window after reconnection.
 
 ## Key Questions
 1. Does the written specification faithfully capture the approved architecture?

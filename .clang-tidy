@@ -30,5 +30,6 @@ WarningsAsErrors: >
 HeaderFilterRegex: '^(.*[\\/])?(src|include|tests)[\\/]'
 FormatStyle: file
 CheckOptions:
+  misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: 'true'
   readability-function-cognitive-complexity.Threshold: '25'
 ...

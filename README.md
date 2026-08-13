@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-项目已完成原生 C++20/CMake 初始化和单一二进制运行模式骨架。ETW、IPC、服务和最终 UI 仍按独立实现计划推进。已确认的首版方向：
+项目已完成原生 C++20/CMake 初始化、schema-1 配置与实时排行核心、进程生命周期与身份解析、实时 ETW Collector、带显式 ACL 的本地 IPC、双采集运行模式、托盘/悬浮 UI、设置窗口和 UI 持有的便携采集器进程管理。设置窗口现在会显示真实 SCM 状态，登录自启选项会维护当前用户的 Run 注册项；悬浮窗和排行弹层会显示真实总速率、Top N 应用、方向和单位。Release 安装目标和 ZIP 绿色包也已接入 CPack/脚本；当前完整质量门包含 37 个测试。完整自动化证据来自 Windows 11 25H2 x64 管理员环境；首发目标 Windows 11 24H2 x64 仍须在对应系统完成最终兼容性验收，真实 UAC/SCM 和多显示器视觉检查仍需人工执行。已确认的首版方向：
 
 - Windows 11 24H2 或更高版本，首发仅支持 x64。
 - C++20、CMake、原生 Win32、Direct2D 和 DirectWrite。
@@ -14,13 +14,30 @@
 - 同一可执行文件支持绿色提权采集器和可选 Windows 服务两种模式。
 - 服务安装、启停、重启、卸载和模式切换均通过设置界面完成。
 
+## 双击后的使用流程
+
+1. 从稳定解压目录双击 `NetworkFlowMonitor.exe`。首次启动默认使用“便携采集器”，会弹出一次 UAC；不需要先安装 Windows service。
+2. 启动后会在通知区域显示蓝色网络图标，并显示桌面悬浮速率条。左键托盘图标或悬浮条可显示/隐藏；悬停悬浮条会打开 Top N 应用排行。
+3. 右键托盘图标或悬浮条可以选择“Show/hide monitor”“Retry collector”“Settings”“Exit”。如果显示 `Collector offline - right-click to retry`，先按“Retry collector”；仍失败时打开“Settings”查看采集模式和服务状态。
+4. “Settings”可以修改 Top N、排行窗口、数据显示刷新间隔、悬停/消失/贴边/自动隐藏等选项。要使用服务模式，在设置中选择 `Windows service`，先安装并启动服务，再保存配置；普通用户界面本身不需要管理员权限。
+5. 退出 UI 会同时请求便携采集器停止并清理其 ETW 会话。若选择服务模式，服务可独立运行，UI 退出不会停止服务。
+
+如果通知区域没有立即看到图标，请展开 Windows 11 的隐藏图标区域；应用不会创建任务栏按钮。首次运行建议保持解压目录稳定，只有安装服务后才必须绝对不能移动该目录。
+
+当前可验证的内部入口：`--collector` 组装临时提权采集器并响应控制台/会话停止事件，`--service`
+进入 SCM dispatcher，`--install`/`--uninstall`/`--service-control` 只调用固定服务名的类型化
+SCM 操作。它们不是普通用户工作流；设置 UI 完成 UAC 调用和真实状态展示。Release 绿色包可用 `tools/package.ps1` 生成，服务模式应从解压到稳定目录的副本安装，不能在安装服务后移动可执行文件。
+
 ## 文档导航
 
 - [设计规格](docs/superpowers/specs/2026-08-10-network-flow-monitor-design.md)
 - [架构说明](docs/architecture.md)
 - [配置模型](docs/configuration.md)
+- [进程身份设计](docs/superpowers/specs/2026-08-11-process-identity-design.md)
+- [ETW Collector 设计](docs/superpowers/specs/2026-08-11-etw-collector-design.md)
 - [开发环境](docs/development-setup.md)
 - [代码质量与提交门](docs/code-quality.md)
+- [打包与交付验收](docs/delivery.md)
 - [架构决策记录](docs/decisions/README.md)
 - [代理约束](AGENTS.md)
 - [任务计划](docs/planning/task_plan.md)
@@ -37,6 +54,10 @@ ctest --preset windows-x64-debug
 pwsh -NoProfile -File tools/quality.ps1 -Mode Format
 pwsh -NoProfile -File tools/quality.ps1 -Mode Fast
 pwsh -NoProfile -File tools/quality.ps1 -Mode Full
+
+# Release ZIP 包和测量报告
+pwsh -NoProfile -File tools/package.ps1 -Configuration Release
+pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
 ```
 
 提交前必须通过 `Full`。详细规则见 [代码质量与提交门](docs/code-quality.md)。
@@ -51,4 +72,4 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
 ## 开发前提
 
-参见 [开发环境](docs/development-setup.md)。当前骨架可直接使用 CMake 预设构建；后续子系统仍须先有审阅通过的实现计划。
+参见 [开发环境](docs/development-setup.md)。当前实现可直接使用 CMake 预设构建；后续子系统仍须先有审阅通过的实现计划。

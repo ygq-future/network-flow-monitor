@@ -38,10 +38,11 @@ Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArgumen
 
 $cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
 $ninja = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' | Select-Object -First 1)
+$cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cpack.exe' | Select-Object -First 1)
 $clangFormat = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-format.exe' | Select-Object -First 1)
 $clangTidy = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-tidy.exe' | Select-Object -First 1)
 
-foreach ($tool in @($cmake, $ninja, $clangFormat, $clangTidy)) {
+foreach ($tool in @($cmake, $ninja, $cpack, $clangFormat, $clangTidy)) {
     if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool)) {
         throw "A required build tool could not be located: $tool"
     }
@@ -71,8 +72,20 @@ foreach ($file in $sourceFiles) {
 }
 
 Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-debug')
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', '--preset', 'windows-x64-debug')
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', 'build/windows-x64-debug', '--target', 'test')
+Invoke-Native -FilePath $cmake -ArgumentList @(
+    '--build', '--preset', 'windows-x64-debug', '--clean-first'
+)
+if ($Mode -eq 'Fast') {
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-debug',
+        'ctest', '--output-on-failure', '-LE', 'requires-admin'
+    )
+} else {
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-debug',
+        'ctest', '--output-on-failure'
+    )
+}
 
 $tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
 Invoke-Native -FilePath $cmake -ArgumentList @(
@@ -85,7 +98,7 @@ Invoke-Native -FilePath $cmake -ArgumentList @(
     "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy",
     "-DCMAKE_MAKE_PROGRAM=$ninja"
 )
-Invoke-Native -FilePath $cmake -ArgumentList @('--build', $tidyBuild)
+Invoke-Native -FilePath $cmake -ArgumentList @('--build', $tidyBuild, '--clean-first')
 
 if ($Mode -eq 'Full') {
     $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
@@ -98,11 +111,20 @@ if ($Mode -eq 'Full') {
         '-DNFM_ENABLE_MSVC_ANALYZE=ON',
         "-DCMAKE_MAKE_PROGRAM=$ninja"
     )
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', $analyzeBuild)
+    Invoke-Native -FilePath $cmake -ArgumentList @('--build', $analyzeBuild, '--clean-first')
 
     Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-release')
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', '--preset', 'windows-x64-release')
-    Invoke-Native -FilePath $cmake -ArgumentList @('--build', 'build/windows-x64-release', '--target', 'test')
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '--build', '--preset', 'windows-x64-release', '--clean-first'
+    )
+    Invoke-Native -FilePath $cmake -ArgumentList @(
+        '-E', 'chdir', 'build/windows-x64-release',
+        'ctest', '--output-on-failure'
+    )
+    Invoke-Native -FilePath $cpack -ArgumentList @(
+        '--config', (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake'),
+        '-B', (Join-Path $projectRoot 'build\windows-x64-release')
+    )
 }
 
 Write-Host "Quality gate '$Mode' passed."

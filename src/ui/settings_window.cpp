@@ -450,18 +450,23 @@ void SettingsWindow::HandleServiceCommand(int control_id) noexcept {
 }
 
 void SettingsWindow::HandleAuthorizeCollector() noexcept {
-    const auto result = host_->ExecuteServiceAction(SettingsServiceAction::AuthorizeCollector,
-                                                    config::ServiceStartType::AutomaticDelayed);
-    if (result.ok()) {
-        static_cast<void>(::MessageBoxW(
-            window_, L"Authorization succeeded. The collector will now start without a UAC prompt.",
-            L"Network Flow Monitor", MB_OK | MB_ICONINFORMATION));
-        return;
+    try {
+        const auto result = host_->ExecuteServiceAction(SettingsServiceAction::AuthorizeCollector,
+                                                        config::ServiceStartType::AutomaticDelayed);
+        if (result.ok()) {
+            static_cast<void>(::MessageBoxW(
+                window_,
+                L"Authorization succeeded. The collector will now start without a UAC prompt.",
+                L"Network Flow Monitor", MB_OK | MB_ICONINFORMATION));
+            return;
+        }
+        const auto message =
+            L"Authorization failed. Win32 error: " + std::to_wstring(result.win32_error);
+        static_cast<void>(
+            ::MessageBoxW(window_, message.c_str(), L"Network Flow Monitor", MB_OK | MB_ICONERROR));
+    } catch (...) {
+        ShowError(L"Network Flow Monitor", L"The authorization action failed.");
     }
-    const auto message =
-        L"Authorization failed. Win32 error: " + std::to_wstring(result.win32_error);
-    static_cast<void>(
-        ::MessageBoxW(window_, message.c_str(), L"Network Flow Monitor", MB_OK | MB_ICONERROR));
 }
 
 void SettingsWindow::ShowError(const wchar_t* title, const wchar_t* message) const noexcept {

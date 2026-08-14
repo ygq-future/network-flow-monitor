@@ -9,6 +9,14 @@
 namespace nfm::ui {
 namespace {
 
+constexpr auto kMonitorMotionDuration = std::chrono::milliseconds{180};
+constexpr auto kThemeTransitionDuration = std::chrono::milliseconds{150};
+
+[[nodiscard]] std::chrono::milliseconds EffectiveDuration(std::chrono::milliseconds token,
+                                                          bool reduced_motion) noexcept {
+    return reduced_motion ? std::chrono::milliseconds{0} : token;
+}
+
 [[nodiscard]] const MonitorWorkArea* Primary(const MonitorPanelEnvironment& environment) {
     for (const auto& monitor : environment.monitors) {
         if (monitor.primary) {
@@ -373,6 +381,7 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
                                                         const MonitorPanelConfig& config) {
     MonitorPanelTransition result{
         .state = state, .target_bounds = state.bounds, .hit_bounds = state.bounds};
+    const auto previous_surface = state.surface;
     if (event.kind == MonitorPanelEventKind::Start) {
         ApplyStart(result, event, environment, config);
     } else if (event.kind == MonitorPanelEventKind::ConfigurationChanged) {
@@ -396,6 +405,11 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
                                   .anchor = result.state.anchor});
     } else if (event.kind == MonitorPanelEventKind::PersistSucceeded) {
         result.state.persistence_failed = false;
+    } else if (event.kind == MonitorPanelEventKind::ThemeChanged) {
+        result.animation = {.kind = MonitorPanelAnimationKind::Theme,
+                            .easing = Easing::Linear,
+                            .duration =
+                                EffectiveDuration(kThemeTransitionDuration, config.reduced_motion)};
     } else {
         ApplyPointerEvent(result, event, environment, config);
     }
@@ -439,6 +453,20 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
         } else {
             result.hit_bounds.left =
                 std::min(result.hit_bounds.left, result.hit_bounds.right - hit_width);
+        }
+    }
+    const auto next_surface = result.state.surface;
+    if (next_surface != previous_surface) {
+        if (next_surface == MonitorPanelSurface::Panel) {
+            result.animation = {
+                .kind = MonitorPanelAnimationKind::Reveal,
+                .easing = Easing::EaseOut,
+                .duration = EffectiveDuration(kMonitorMotionDuration, config.reduced_motion)};
+        } else {
+            result.animation = {
+                .kind = MonitorPanelAnimationKind::Dismiss,
+                .easing = Easing::EaseIn,
+                .duration = EffectiveDuration(kMonitorMotionDuration, config.reduced_motion)};
         }
     }
     return result;

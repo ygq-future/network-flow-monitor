@@ -1,5 +1,7 @@
 #include "network_flow_monitor/ui/tray_controller.h"
 
+#include "network_flow_monitor/ui/resources.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
@@ -225,11 +227,17 @@ bool TrayController::ShowContextMenu(HWND owner_override) noexcept {
         return false;
     }
 
-    const auto open_added = api_->AppendMenu(menu, MF_STRING, kOpenCommand, L"Show/hide monitor");
+    const auto open_added =
+        api_->AppendMenu(menu, MF_STRING, kOpenCommand,
+                         ResourceCString(ResourceKey::MenuShowHideMonitor, options_.language));
     const auto retry_added =
-        api_->AppendMenu(menu, MF_STRING, kRetryCollectorCommand, L"Retry collector");
-    const auto settings_added = api_->AppendMenu(menu, MF_STRING, kSettingsCommand, L"Settings");
-    const auto exit_added = api_->AppendMenu(menu, MF_STRING, kExitCommand, L"Exit");
+        api_->AppendMenu(menu, MF_STRING, kRetryCollectorCommand,
+                         ResourceCString(ResourceKey::MenuRetryCollector, options_.language));
+    const auto settings_added =
+        api_->AppendMenu(menu, MF_STRING, kSettingsCommand,
+                         ResourceCString(ResourceKey::MenuSettings, options_.language));
+    const auto exit_added = api_->AppendMenu(
+        menu, MF_STRING, kExitCommand, ResourceCString(ResourceKey::MenuExit, options_.language));
     if (!open_added || !retry_added || !settings_added || !exit_added) {
         static_cast<void>(api_->DestroyMenu(menu));
         return false;

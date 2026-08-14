@@ -13,6 +13,9 @@ add_library(
     nfm_ui
     STATIC
         ui/dpi_layout.cpp
+        ui/appearance.cpp
+        ui/visual_tokens.cpp
+        ui/resources.cpp
         ui/application_icon_cache.cpp
         ui/display_format.cpp
         ui/interaction_state.cpp
@@ -37,7 +40,7 @@ target_include_directories(
 
 nfm_configure_target(nfm_ui)
 nfm_enable_static_analysis(nfm_ui ENABLE_EXCEPTIONS)
-target_link_libraries(nfm_ui PUBLIC Shcore Shell32)
+target_link_libraries(nfm_ui PUBLIC Shcore Shell32 Dwmapi Winmm)
 
 add_library(
     nfm_config

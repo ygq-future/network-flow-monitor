@@ -1,6 +1,8 @@
 #ifndef NETWORK_FLOW_MONITOR_UI_TRAY_CONTROLLER_H
 #define NETWORK_FLOW_MONITOR_UI_TRAY_CONTROLLER_H
 
+#include "network_flow_monitor/ui/appearance.h"
+
 #include <windows.h>
 
 #include <shellapi.h>
@@ -16,6 +18,7 @@ struct TrayIconOptions {
     UINT icon_id{1U};
     HICON icon{};
     std::wstring tooltip{L"Network Flow Monitor"};
+    ResolvedLanguage language{ResolvedLanguage::English};
 };
 
 class TrayCallbacks {
@@ -106,6 +109,9 @@ class TrayController final {
         if (was_installed) {
             static_cast<void>(Initialize());
         }
+    }
+    void SetLanguage(ResolvedLanguage language) noexcept {
+        options_.language = language;
     }
     void SetOwner(HWND owner) noexcept;
     [[nodiscard]] bool HandleCallback(TrayNotification notification) noexcept;

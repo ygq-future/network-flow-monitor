@@ -1,14 +1,17 @@
 #include "network_flow_monitor/ui/floating_window.h"
 
 #include "network_flow_monitor/ui/monitor_panel_layout.h"
+#include "network_flow_monitor/ui/resources.h"
 #include "network_flow_monitor/ui/tray_controller.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <dwmapi.h>
 #include <limits>
 #include <string>
+#include <timeapi.h>
 #include <windowsx.h>
 
 namespace nfm::ui {
@@ -35,6 +38,12 @@ constexpr float kColumnGapDip = 8.0F;
 [[nodiscard]] int WindowDpi(HWND window) noexcept {
     const auto dpi = window == nullptr ? 0U : ::GetDpiForWindow(window);
     return dpi == 0U ? 96 : static_cast<int>(dpi);
+}
+
+[[nodiscard]] D2D1::ColorF Rgb(std::uint32_t rgb, float alpha) noexcept {
+    return D2D1::ColorF(static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0F,
+                        static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0F,
+                        static_cast<float>(rgb & 0xFFU) / 255.0F, alpha);
 }
 
 } // namespace
@@ -87,7 +96,7 @@ bool FloatingWindow::Create() noexcept {
                                 kFloatingWindowTitle.data(), WS_POPUP, rect_.left, rect_.top,
                                 rect_.Width(), rect_.Height(), nullptr, nullptr, instance_, this);
     if (window_ != nullptr) {
-        static_cast<void>(::SetLayeredWindowAttributes(window_, RGB(0, 0, 0), 0U, LWA_COLORKEY));
+        ApplyDwmAttributes();
         icon_cache_.SetNotifyWindow(window_);
         ApplyHitWindowRect();
     }
@@ -113,6 +122,7 @@ void FloatingWindow::Hide() noexcept {
         ::ShowWindow(hit_window_, SW_HIDE);
     }
     row_animation_active_ = false;
+    SetAnimationFramePeriod(false);
     for (auto& row : row_visuals_) {
         row.from_position = row.target_position;
         row.from_opacity = row.target_opacity;
@@ -130,6 +140,7 @@ void FloatingWindow::Destroy() noexcept {
     }
     if (window_ != nullptr) {
         static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
+        SetAnimationFramePeriod(false);
         auto* const window = window_;
         window_ = nullptr;
         ::DestroyWindow(window);
@@ -178,6 +189,28 @@ void FloatingWindow::SetDisplayOptions(WindowDisplayOptions options) noexcept {
     }
     display_options_ = options;
     Invalidate();
+}
+
+void FloatingWindow::SetAppearance(VisualTokens tokens, ResolvedLanguage language) noexcept {
+    tokens_ = tokens;
+    language_ = language;
+    ApplyDwmAttributes();
+    Invalidate();
+}
+
+void FloatingWindow::ApplyDwmAttributes() noexcept {
+    if (window_ == nullptr) {
+        return;
+    }
+    const BOOL dark = tokens_.dark ? TRUE : FALSE;
+    static_cast<void>(
+        ::DwmSetWindowAttribute(window_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark)));
+    const DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_TRANSIENTWINDOW;
+    static_cast<void>(
+        ::DwmSetWindowAttribute(window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
+    const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    static_cast<void>(
+        ::DwmSetWindowAttribute(window_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner)));
 }
 
 void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
@@ -246,8 +279,8 @@ void FloatingWindow::ApplyHitWindowRect() noexcept {
         return;
     }
     if (hit_window_ == nullptr) {
-        hit_window_ = ::CreateWindowExW(kExtendedStyle, kFloatingWindowClass.data(), L"", WS_POPUP,
-                                        extension.left, extension.top, extension.Width(),
+        hit_window_ = ::CreateWindowExW(kHitExtendedStyle, kFloatingWindowClass.data(), L"",
+                                        WS_POPUP, extension.left, extension.top, extension.Width(),
                                         extension.Height(), nullptr, nullptr, instance_, this);
         if (hit_window_ != nullptr) {
             // A separate almost-transparent layered HWND provides a real hit-test surface without
@@ -447,6 +480,9 @@ void FloatingWindow::RetargetRows(const ranking::RankingSnapshot* snapshot) {
         row_animation_started_ = std::chrono::steady_clock::now();
         row_animation_active_ = ::SetTimer(window_, kRowAnimationTimerId,
                                            kRowAnimationFrameMilliseconds, nullptr) != 0U;
+        if (row_animation_active_) {
+            SetAnimationFramePeriod(true);
+        }
     }
     if (!row_animation_active_) {
         std::erase_if(row_visuals_, [](const RowVisual& row) { return row.exiting; });
@@ -471,8 +507,19 @@ void FloatingWindow::TickRowAnimation() noexcept {
         if (window_ != nullptr) {
             static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
         }
+        SetAnimationFramePeriod(false);
     }
     Invalidate();
+}
+
+void FloatingWindow::SetAnimationFramePeriod(bool active) noexcept {
+    if (active && !animation_timer_period_) {
+        static_cast<void>(::timeBeginPeriod(1U));
+        animation_timer_period_ = true;
+    } else if (!active && animation_timer_period_) {
+        static_cast<void>(::timeEndPeriod(1U));
+        animation_timer_period_ = false;
+    }
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape): formatting allocations are caught before drawing.
@@ -498,54 +545,41 @@ void FloatingWindow::Paint() noexcept {
             return static_cast<float>(PixelsToDip(pixels, window_dpi));
         };
 
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background_brush;
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> text_brush;
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush;
         const auto opacity = static_cast<float>(display_options_.opacity_percent) / 100.0F;
-        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.05F, 0.10F, 0.18F, opacity),
-                                                     background_brush.GetAddressOf())) &&
-            SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.94F, 0.97F, 1.0F, 1.0F),
+        if (SUCCEEDED(target_->CreateSolidColorBrush(Rgb(tokens_.text, 1.0F),
                                                      text_brush.GetAddressOf())) &&
-            SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.15F, 0.39F, 0.92F, 1.0F),
+            SUCCEEDED(target_->CreateSolidColorBrush(Rgb(tokens_.accent, 1.0F),
                                                      accent_brush.GetAddressOf()))) {
             target_->BeginDraw();
-            target_->Clear(D2D1::ColorF(0.0F, 0.0F, 0.0F, 1.0F));
-            const D2D1_RECT_F background{.left = to_dip(visual_bounds_.left - rect_.left),
-                                         .top = to_dip(visual_bounds_.top - rect_.top),
-                                         .right = to_dip(visual_bounds_.right - rect_.left),
-                                         .bottom = to_dip(visual_bounds_.bottom - rect_.top)};
-            const auto radius = panel_surface_ == MonitorPanelSurface::Capsule
-                                    ? static_cast<float>(visual_bounds_.Width()) / 2.0F
-                                    : 12.0F;
-            target_->FillRoundedRectangle(D2D1::RoundedRect(background, radius, radius),
-                                          background_brush.Get());
+            // Clear with the resolved background tint at the configured opacity. The
+            // premultiplied-alpha target lets the DWM Acrylic backdrop show through,
+            // while text and icons drawn later stay fully opaque. Corner rounding is
+            // applied by DWM (DWMWA_WINDOW_CORNER_PREFERENCE), not by color-key alpha.
+            target_->Clear(Rgb(tokens_.background, opacity));
             if (panel_surface_ == MonitorPanelSurface::Capsule) {
-                const auto color = [](std::uint32_t rgb) {
-                    return D2D1::ColorF(static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0F,
-                                        static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0F,
-                                        static_cast<float>(rgb & 0xFFU) / 255.0F, 1.0F);
-                };
+                const D2D1_RECT_F background{.left = to_dip(visual_bounds_.left - rect_.left),
+                                             .top = to_dip(visual_bounds_.top - rect_.top),
+                                             .right = to_dip(visual_bounds_.right - rect_.left),
+                                             .bottom = to_dip(visual_bounds_.bottom - rect_.top)};
                 Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> download_brush;
                 Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> upload_brush;
-                if (SUCCEEDED(target_->CreateSolidColorBrush(color(capsule_.download.color),
+                if (SUCCEEDED(target_->CreateSolidColorBrush(Rgb(capsule_.download.color, 1.0F),
                                                              download_brush.GetAddressOf())) &&
-                    SUCCEEDED(target_->CreateSolidColorBrush(color(capsule_.upload.color),
+                    SUCCEEDED(target_->CreateSolidColorBrush(Rgb(capsule_.upload.color, 1.0F),
                                                              upload_brush.GetAddressOf()))) {
                     const auto half_height = (background.bottom - background.top) / 2.0F;
                     const auto download_height = half_height * capsule_.download.fill;
                     const auto upload_height = half_height * capsule_.upload.fill;
-                    target_->FillRoundedRectangle(
-                        D2D1::RoundedRect(D2D1::RectF(background.left, background.top,
-                                                      background.right,
-                                                      background.top + download_height),
-                                          radius, radius),
-                        download_brush.Get());
-                    target_->FillRoundedRectangle(
-                        D2D1::RoundedRect(D2D1::RectF(background.left,
-                                                      background.bottom - upload_height,
-                                                      background.right, background.bottom),
-                                          radius, radius),
-                        upload_brush.Get());
+                    target_->FillRectangle(D2D1::RectF(background.left, background.top,
+                                                       background.right,
+                                                       background.top + download_height),
+                                           download_brush.Get());
+                    target_->FillRectangle(D2D1::RectF(background.left,
+                                                       background.bottom - upload_height,
+                                                       background.right, background.bottom),
+                                           upload_brush.Get());
                 }
             } else {
                 DrawPanel(*target_.Get(), *text_brush.Get(), window_dpi, *accent_brush.Get());
@@ -608,13 +642,13 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
         download_text = L"↓ —";
         upload_text = L"↑ —";
         if (interaction_state_ == InteractionState::DisconnectedOverlay) {
-            status = L"Collector offline";
+            status = ResourceText(ResourceKey::StatusCollectorOffline, language_);
             show_status = true;
         } else if (snapshot_ == nullptr || snapshot_->status == ranking::RankingStatus::WarmingUp) {
-            status = L"Collecting data…";
+            status = ResourceText(ResourceKey::StatusCollectingData, language_);
             show_status = true;
         } else if (snapshot_->applications.empty()) {
-            status = L"No network activity";
+            status = ResourceText(ResourceKey::StatusNoNetworkActivity, language_);
             show_status = true;
         } else {
             download_text = L"↓ " + FormatRate(snapshot_->total_rate.download_bytes_per_second,
@@ -625,23 +659,31 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
     } catch (...) {
         download_text = L"↓ —";
         upload_text = L"↑ —";
-        status = L"Data unavailable";
+        status = ResourceText(ResourceKey::StatusDataUnavailable, language_);
         show_status = true;
     }
 
-    target.DrawTextW(
-        download_text.data(), static_cast<UINT32>(download_text.size()), resources_->rate_format(),
-        D2D1::RectF(download_left, header_top, download_right, header_bottom), &text_brush);
-    target.DrawTextW(
-        upload_text.data(), static_cast<UINT32>(upload_text.size()), resources_->rate_format(),
-        D2D1::RectF(upload_left, header_top, upload_right, header_bottom), &text_brush);
+    auto download_layout = resources_->CreateRateLayout(
+        download_text, download_right - download_left, header_bottom - header_top);
+    if (download_layout != nullptr) {
+        target.DrawTextLayout(D2D1::Point2F(download_left, header_top), download_layout.Get(),
+                              &text_brush);
+    }
+    auto upload_layout = resources_->CreateRateLayout(upload_text, upload_right - upload_left,
+                                                      header_bottom - header_top);
+    if (upload_layout != nullptr) {
+        target.DrawTextLayout(D2D1::Point2F(upload_left, header_top), upload_layout.Get(),
+                              &text_brush);
+    }
 
-    const auto pin_label = !pin_enabled_ ? std::wstring_view{L"Pin off"}
-                           : pinned_     ? std::wstring_view{L"Pinned"}
-                                         : std::wstring_view{L"Pin"};
-    target.DrawTextW(pin_label.data(), static_cast<UINT32>(pin_label.size()),
-                     resources_->row_name_format(),
-                     D2D1::RectF(pin_left, header_top, right, header_bottom), &text_brush);
+    // Pin is an icon button. The Segoe Fluent Icons glyph renders centered in the Pin
+    // column, colored by the accent when pinned and by the neutral text color otherwise.
+    const auto pin_glyph =
+        pinned_ && pin_enabled_ ? std::wstring_view{L""} : std::wstring_view{L""};
+    target.DrawTextW(pin_glyph.data(), static_cast<UINT32>(pin_glyph.size()),
+                     resources_->icon_format(),
+                     D2D1::RectF(pin_left, header_top, right, header_bottom),
+                     pinned_ && pin_enabled_ ? &accent_brush : &text_brush);
 
     if (show_status) {
         const auto status_top = header_bottom;
@@ -710,13 +752,18 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
         target.DrawTextW(row.name.data(), static_cast<UINT32>(row.name.size()),
                          resources_->row_name_format(),
                          D2D1::RectF(name_left, y, name_right, y + row_height), &text_brush);
-        target.DrawTextW(row.download.data(), static_cast<UINT32>(row.download.size()),
-                         resources_->rate_format(),
-                         D2D1::RectF(download_left, y, download_right, y + row_height),
-                         &text_brush);
-        target.DrawTextW(row.upload.data(), static_cast<UINT32>(row.upload.size()),
-                         resources_->rate_format(),
-                         D2D1::RectF(upload_left, y, upload_right, y + row_height), &text_brush);
+        auto row_download_layout =
+            resources_->CreateRateLayout(row.download, download_right - download_left, row_height);
+        if (row_download_layout != nullptr) {
+            target.DrawTextLayout(D2D1::Point2F(download_left, y), row_download_layout.Get(),
+                                  &text_brush);
+        }
+        auto row_upload_layout =
+            resources_->CreateRateLayout(row.upload, upload_right - upload_left, row_height);
+        if (row_upload_layout != nullptr) {
+            target.DrawTextLayout(D2D1::Point2F(upload_left, y), row_upload_layout.Get(),
+                                  &text_brush);
+        }
     }
     text_brush.SetOpacity(1.0F);
 
@@ -917,8 +964,12 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         return 0;
     case WM_DPICHANGED:
     case WM_DISPLAYCHANGE:
-    case WM_SETTINGCHANGE:
         self->HandleEnvironmentChanged();
+        return 0;
+    case WM_SETTINGCHANGE:
+    case WM_THEMECHANGED:
+        self->HandleEnvironmentChanged();
+        self->observer_->OnSystemAppearanceChanged();
         return 0;
     case WM_ERASEBKGND:
         return 1;

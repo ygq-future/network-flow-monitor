@@ -70,6 +70,8 @@ class SettingsWindow final {
         kUninstallService,
         kQueryService,
         kAuthorizeCollector,
+        kLanguage,
+        kTheme,
     };
 
     [[nodiscard]] bool CreateSettingsWindow(HWND owner) noexcept;
@@ -107,6 +109,8 @@ class SettingsWindow final {
     HWND show_download_{};
     HWND auto_hide_{};
     HWND ui_at_login_{};
+    HWND language_{};
+    HWND theme_{};
     HWND service_status_{};
     config::AppConfig current_value_{};
 };

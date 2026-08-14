@@ -81,7 +81,9 @@ void CheckDpiAndWorkArea(TestContext& context) {
 void CheckWindowStyles(TestContext& context) {
     static_assert((FloatingWindow::kExtendedStyle & WS_EX_TOOLWINDOW) != 0U);
     static_assert((FloatingWindow::kExtendedStyle & WS_EX_NOACTIVATE) != 0U);
-    static_assert((FloatingWindow::kExtendedStyle & WS_EX_LAYERED) != 0U);
+    static_assert((FloatingWindow::kExtendedStyle & WS_EX_TOPMOST) != 0U);
+    static_assert((FloatingWindow::kExtendedStyle & WS_EX_LAYERED) == 0U);
+    static_assert((FloatingWindow::kHitExtendedStyle & WS_EX_LAYERED) != 0U);
     static_cast<void>(context);
 }
 

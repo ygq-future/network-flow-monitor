@@ -537,6 +537,57 @@ void ConfigurationChangesUseBehaviorAuthority(Test& test) {
     test.Check(!restored.state.pin_preference && restored.next_deadline == initial.auto_hide_delay,
                "re-enabling auto-hide resumes the normal dismiss policy");
 }
+void AnimationTargets(Test& test) {
+    const auto env = Environment();
+    const MonitorPanelConfig config{};
+    auto capsule =
+        MonitorPanelBehavior::Transition({}, {.kind = MonitorPanelEventKind::Start}, env, config);
+    test.Check(capsule.animation.kind == MonitorPanelAnimationKind::None,
+               "idle stable state emits no animation target");
+    auto enter = MonitorPanelBehavior::Transition(
+        capsule.state, {.kind = MonitorPanelEventKind::CapsulePointerEnter}, env, config);
+    test.Check(enter.animation.kind == MonitorPanelAnimationKind::None,
+               "hover scheduling alone does not animate");
+    auto revealed = MonitorPanelBehavior::Transition(
+        enter.state, {.kind = MonitorPanelEventKind::HoverDeadline}, env, config);
+    test.Check(revealed.animation.kind == MonitorPanelAnimationKind::Reveal &&
+                   revealed.animation.easing == Easing::EaseOut &&
+                   revealed.animation.duration == std::chrono::milliseconds{180},
+               "reveal uses ease-out with the monitor motion token");
+
+    auto panel = MonitorPanelBehavior::Transition(
+        capsule.state, {.kind = MonitorPanelEventKind::ShowPanel}, env, config);
+    auto leave = MonitorPanelBehavior::Transition(
+        panel.state, {.kind = MonitorPanelEventKind::PanelPointerLeave}, env, config);
+    auto dismissed = MonitorPanelBehavior::Transition(
+        leave.state, {.kind = MonitorPanelEventKind::HoverDeadline}, env, config);
+    test.Check(dismissed.animation.kind == MonitorPanelAnimationKind::Dismiss &&
+                   dismissed.animation.easing == Easing::EaseIn &&
+                   dismissed.animation.duration == std::chrono::milliseconds{180},
+               "dismiss uses ease-in with the monitor motion token");
+
+    const MonitorPanelConfig reduced{.reduced_motion = true};
+    auto reduced_capsule =
+        MonitorPanelBehavior::Transition({}, {.kind = MonitorPanelEventKind::Start}, env, reduced);
+    auto reduced_enter = MonitorPanelBehavior::Transition(
+        reduced_capsule.state, {.kind = MonitorPanelEventKind::CapsulePointerEnter}, env, reduced);
+    auto reduced_reveal = MonitorPanelBehavior::Transition(
+        reduced_enter.state, {.kind = MonitorPanelEventKind::HoverDeadline}, env, reduced);
+    test.Check(reduced_reveal.animation.kind == MonitorPanelAnimationKind::Reveal &&
+                   reduced_reveal.animation.duration == std::chrono::milliseconds{0},
+               "reduced motion completes the transition immediately");
+
+    auto themed = MonitorPanelBehavior::Transition(
+        capsule.state, {.kind = MonitorPanelEventKind::ThemeChanged}, env, config);
+    test.Check(themed.animation.kind == MonitorPanelAnimationKind::Theme &&
+                   themed.animation.duration == std::chrono::milliseconds{150},
+               "theme changes emit a dedicated theme transition target");
+    auto reduced_theme = MonitorPanelBehavior::Transition(
+        capsule.state, {.kind = MonitorPanelEventKind::ThemeChanged}, env, reduced);
+    test.Check(reduced_theme.animation.kind == MonitorPanelAnimationKind::Theme &&
+                   reduced_theme.animation.duration == std::chrono::milliseconds{0},
+               "reduced motion also collapses the theme transition");
+}
 } // namespace
 int main() {
     Test test;
@@ -558,5 +609,6 @@ int main() {
     TrayVisibilityToggle(test);
     AutoHideDisabledControls(test);
     ConfigurationChangesUseBehaviorAuthority(test);
+    AnimationTargets(test);
     return test.failed == 0 ? 0 : 1;
 }

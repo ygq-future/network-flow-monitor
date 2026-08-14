@@ -29,6 +29,24 @@ target_link_libraries(nfm_runtime_collector_integration_tests PRIVATE nfm_runtim
 
 add_test(NAME app.runtime_collector_integration COMMAND nfm_runtime_collector_integration_tests)
 
+add_executable(nfm_ui_appearance_tests ui_appearance_tests.cpp)
+
+nfm_configure_target(nfm_ui_appearance_tests)
+nfm_enable_static_analysis(nfm_ui_appearance_tests)
+
+target_link_libraries(nfm_ui_appearance_tests PRIVATE nfm_ui nfm_config)
+
+add_test(NAME ui.appearance COMMAND nfm_ui_appearance_tests)
+
+add_executable(nfm_ui_resources_tests ui_resources_tests.cpp)
+
+nfm_configure_target(nfm_ui_resources_tests)
+nfm_enable_static_analysis(nfm_ui_resources_tests)
+
+target_link_libraries(nfm_ui_resources_tests PRIVATE nfm_ui nfm_config)
+
+add_test(NAME ui.resources COMMAND nfm_ui_resources_tests)
+
 add_executable(nfm_ui_layout_tests ui_layout_tests.cpp)
 
 nfm_configure_target(nfm_ui_layout_tests)

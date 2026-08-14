@@ -2,12 +2,14 @@
 #define NETWORK_FLOW_MONITOR_UI_FLOATING_WINDOW_H
 
 #include "network_flow_monitor/ranking/ranking_engine.h"
+#include "network_flow_monitor/ui/appearance.h"
 #include "network_flow_monitor/ui/application_icon_cache.h"
 #include "network_flow_monitor/ui/display_format.h"
 #include "network_flow_monitor/ui/dpi_layout.h"
 #include "network_flow_monitor/ui/interaction_state.h"
 #include "network_flow_monitor/ui/monitor_panel_behavior.h"
 #include "network_flow_monitor/ui/render_resources.h"
+#include "network_flow_monitor/ui/visual_tokens.h"
 
 #include <windows.h>
 
@@ -34,6 +36,7 @@ class UiWindowObserver {
         static_cast<void>(event);
         static_cast<void>(point);
     }
+    virtual void OnSystemAppearanceChanged() noexcept {}
 };
 
 using RankingSnapshotPtr = std::shared_ptr<const ranking::RankingSnapshot>;
@@ -48,7 +51,12 @@ enum class MonitorPanelControl : std::uint8_t {
 // single status row). There is no separate ranking HWND.
 class FloatingWindow final {
   public:
-    static constexpr DWORD kExtendedStyle =
+    // The main surface is not per-pixel-layered: DWM supplies the Acrylic system
+    // backdrop and rounds the window corners with antialiasing, so content never
+    // shows the aliased color-key edges the old LWA_COLORKEY approach produced.
+    static constexpr DWORD kExtendedStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+    // The capsule's inward hit-test extension is an invisible per-pixel-layered HWND.
+    static constexpr DWORD kHitExtendedStyle =
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_LAYERED;
 
     FloatingWindow(HINSTANCE instance, RenderResources& resources, UiWindowObserver& observer)
@@ -66,6 +74,7 @@ class FloatingWindow final {
     void SetSnapshot(RankingSnapshotPtr snapshot, std::uint64_t generation) noexcept;
     void SetInteractionState(InteractionState state) noexcept;
     void SetDisplayOptions(WindowDisplayOptions options) noexcept;
+    void SetAppearance(VisualTokens tokens, ResolvedLanguage language) noexcept;
     void SetMonitorPanelPresentation(MonitorPanelSurface surface, CapsulePresentation capsule,
                                      PixelRect visual_bounds, PixelRect hit_bounds,
                                      PixelRect viewport) noexcept;
@@ -120,6 +129,7 @@ class FloatingWindow final {
     void PositionOnFirstShow() noexcept;
     void ApplyWindowRect(PixelRect rect) noexcept;
     void ApplyHitWindowRect() noexcept;
+    void ApplyDwmAttributes() noexcept;
     void CancelPointerTracking() noexcept;
     void TransferPanelTracking() noexcept;
     void HandleEnvironmentChanged() noexcept;
@@ -127,6 +137,7 @@ class FloatingWindow final {
     [[nodiscard]] std::int32_t VisibleRowCount() const noexcept;
     void RetargetRows(const ranking::RankingSnapshot* snapshot);
     void TickRowAnimation() noexcept;
+    void SetAnimationFramePeriod(bool active) noexcept;
     [[nodiscard]] float RowAnimationProgress() const noexcept;
 
     HINSTANCE instance_{};
@@ -139,6 +150,8 @@ class FloatingWindow final {
     std::uint64_t generation_{};
     InteractionState interaction_state_{InteractionState::Hidden};
     WindowDisplayOptions display_options_{};
+    VisualTokens tokens_{ResolveVisualTokens(ResolvedTheme::Dark, false)};
+    ResolvedLanguage language_{ResolvedLanguage::English};
     MonitorPanelSurface panel_surface_{MonitorPanelSurface::Panel};
     CapsulePresentation capsule_{};
     bool pinned_{};
@@ -159,6 +172,7 @@ class FloatingWindow final {
     bool row_animation_active_{};
     bool tracking_mouse_{};
     bool scrollbar_active_{};
+    bool animation_timer_period_{};
     std::int32_t scroll_row_offset_{};
 };
 

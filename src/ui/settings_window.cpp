@@ -13,7 +13,7 @@ namespace {
 
 constexpr wchar_t kSettingsClassName[] = L"NetworkFlowMonitor.SettingsWindow";
 constexpr int kWindowWidth = 600;
-constexpr int kWindowHeight = 690;
+constexpr int kWindowHeight = 748;
 constexpr int kLabelX = 20;
 constexpr int kControlX = 270;
 constexpr int kControlWidth = 250;
@@ -238,6 +238,18 @@ bool SettingsWindow::CreateControls() noexcept {
     AddComboItem(log_level_, L"Info");
     AddComboItem(log_level_, L"Debug");
     y += kRowHeight;
+    language_ = CreateCombo(window_, instance_, kLanguage, y);
+    CreateLabel(window_, instance_, L"Language", y);
+    AddComboItem(language_, L"System");
+    AddComboItem(language_, L"English");
+    AddComboItem(language_, L"Simplified Chinese");
+    y += kRowHeight;
+    theme_ = CreateCombo(window_, instance_, kTheme, y);
+    CreateLabel(window_, instance_, L"Theme", y);
+    AddComboItem(theme_, L"System");
+    AddComboItem(theme_, L"Light");
+    AddComboItem(theme_, L"Dark");
+    y += kRowHeight;
 
     show_upload_ = CreateCheck(window_, instance_, kShowUpload, L"Show upload", y);
     y += kRowHeight;
@@ -267,11 +279,11 @@ bool SettingsWindow::CreateControls() noexcept {
                        SWP_NOACTIVATE | SWP_NOZORDER);
     }
 
-    const std::array<HWND, 18> controls{
+    const std::array<HWND, 20> controls{
         top_n_,          ranking_window_,     refresh_interval_, hover_delay_, dismiss_delay_,
         capsule_width_,  auto_hide_delay_,    capsule_height_,   opacity_,     speed_unit_,
-        collector_mode_, service_start_type_, log_level_,        show_upload_, show_download_,
-        auto_hide_,      ui_at_login_,        service_status_};
+        collector_mode_, service_start_type_, log_level_,        language_,    theme_,
+        show_upload_,    show_download_,      auto_hide_,        ui_at_login_, service_status_};
     for (const auto control : controls) {
         static_cast<void>(
             ::SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE));
@@ -316,6 +328,10 @@ void SettingsWindow::PopulateControls(const config::AppConfig& value) noexcept {
                                          static_cast<WPARAM>(value.service.start_type), 0));
         static_cast<void>(::SendMessageW(log_level_, CB_SETCURSEL,
                                          static_cast<WPARAM>(value.diagnostics.log_level), 0));
+        static_cast<void>(::SendMessageW(language_, CB_SETCURSEL,
+                                         static_cast<WPARAM>(value.appearance.language), 0));
+        static_cast<void>(
+            ::SendMessageW(theme_, CB_SETCURSEL, static_cast<WPARAM>(value.appearance.theme), 0));
         SetChecked(show_upload_, value.display.show_upload);
         SetChecked(show_download_, value.display.show_download);
         SetChecked(auto_hide_, value.floating.auto_hide_enabled);
@@ -365,8 +381,11 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     const auto collector_mode = ::SendMessageW(collector_mode_, CB_GETCURSEL, 0, 0);
     const auto start_type = ::SendMessageW(service_start_type_, CB_GETCURSEL, 0, 0);
     const auto log_level = ::SendMessageW(log_level_, CB_GETCURSEL, 0, 0);
+    const auto language = ::SendMessageW(language_, CB_GETCURSEL, 0, 0);
+    const auto theme = ::SendMessageW(theme_, CB_GETCURSEL, 0, 0);
     if (speed_unit < 0 || speed_unit > 2 || collector_mode < 0 || collector_mode > 1 ||
-        start_type < 0 || start_type > 2 || log_level < 0 || log_level > 3) {
+        start_type < 0 || start_type > 2 || log_level < 0 || log_level > 3 || language < 0 ||
+        language > 2 || theme < 0 || theme > 2) {
         return false;
     }
     value.schema_version = config::kCurrentSchemaVersion;
@@ -387,6 +406,8 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     value.collector.preferred_mode = static_cast<config::CollectorMode>(collector_mode);
     value.service.start_type = static_cast<config::ServiceStartType>(start_type);
     value.diagnostics.log_level = static_cast<config::LogLevel>(log_level);
+    value.appearance.language = static_cast<config::LanguageMode>(language);
+    value.appearance.theme = static_cast<config::ThemeMode>(theme);
     return true;
 }
 

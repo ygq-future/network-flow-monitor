@@ -84,6 +84,7 @@ class UiController final : public ipc::IpcClientObserver,
     void OnWindowContextMenu() noexcept override;
     void OnWindowMoved() noexcept override;
     void OnMonitorPanelEvent(MonitorPanelEventKind event, PixelPoint point) noexcept override;
+    void OnSystemAppearanceChanged() noexcept override;
     [[nodiscard]] SettingsSaveResult SaveSettings(const config::AppConfig& value) noexcept override;
     [[nodiscard]] SettingsActionResult ExecuteServiceAction(
         SettingsServiceAction action, config::ServiceStartType start_type) noexcept override;
@@ -96,6 +97,7 @@ class UiController final : public ipc::IpcClientObserver,
     void RestoreCollectionState(const config::AppConfig& previous, bool reconnect,
                                 bool service_stopped) noexcept;
     void ApplyInteractionState() noexcept;
+    void ApplyAppearance() noexcept;
     void HandleStateOnUiThread(ipc::IpcClientState state) noexcept;
     [[nodiscard]] PixelRect CurrentWorkArea() const noexcept;
     [[nodiscard]] MonitorPanelEnvironment BuildMonitorEnvironment() const;
@@ -144,6 +146,8 @@ class UiController final : public ipc::IpcClientObserver,
     bool pending_message_posted_{};
     HWND message_window_{};
     bool started_{};
+    bool system_high_contrast_{};
+    bool reduced_motion_{};
 };
 
 } // namespace nfm::ui

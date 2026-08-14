@@ -2,6 +2,8 @@
 
 #include "network_flow_monitor/app/collector_runtime.h"
 #include "network_flow_monitor/config/config_paths.h"
+#include "network_flow_monitor/ui/appearance.h"
+#include "network_flow_monitor/ui/visual_tokens.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +14,7 @@
 #include <shellscalingapi.h>
 #include <string>
 #include <string_view>
+#include <winreg.h>
 
 namespace nfm::ui {
 namespace {
@@ -119,6 +122,48 @@ BOOL CALLBACK AddMonitor(HMONITOR monitor, [[maybe_unused]] HDC device_context,
             .top_n = config.ranking.top_n};
 }
 
+constexpr auto kPersonalizeThemeKey =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+constexpr int kLocaleNameLength = 85;
+
+[[nodiscard]] bool SystemUsesLightTheme() noexcept {
+    HKEY key = nullptr;
+    DWORD value = 1U;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, kPersonalizeThemeKey, 0U, KEY_QUERY_VALUE, &key) ==
+        ERROR_SUCCESS) {
+        DWORD size = sizeof(value);
+        DWORD type = 0U;
+        if (::RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, &type,
+                               reinterpret_cast<LPBYTE>(&value), &size) != ERROR_SUCCESS ||
+            type != REG_DWORD) {
+            value = 1U;
+        }
+        static_cast<void>(::RegCloseKey(key));
+    }
+    return value != 0U;
+}
+
+[[nodiscard]] bool SystemHighContrast() noexcept {
+    HIGHCONTRASTW information{.cbSize = sizeof(HIGHCONTRASTW)};
+    return ::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(information), &information, 0) !=
+               FALSE &&
+           (information.dwFlags & HCF_HIGHCONTRASTON) != 0U;
+}
+
+[[nodiscard]] bool SystemReducedMotion() noexcept {
+    BOOL animations = TRUE;
+    return ::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0) == FALSE ||
+           animations == FALSE;
+}
+
+[[nodiscard]] std::string SystemLanguageTag() {
+    std::array<wchar_t, kLocaleNameLength> buffer{};
+    if (::GetUserDefaultLocaleName(buffer.data(), static_cast<int>(buffer.size())) == 0) {
+        return "en-US";
+    }
+    return Utf8(buffer.data());
+}
+
 } // namespace
 
 UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
@@ -163,6 +208,7 @@ bool UiController::Start() noexcept {
     if (ranking_engine_ == nullptr || !render_resources_.Initialize()) {
         return false;
     }
+    ApplyAppearance();
 
     const auto collection_started = StartCollection();
     static_cast<void>(tray_controller_.Initialize());
@@ -242,6 +288,26 @@ void UiController::AttachMessageWindow(HWND window) noexcept {
 
 void UiController::ApplyInteractionState() noexcept {
     floating_window_.SetInteractionState(overlay_state_.load(std::memory_order_acquire));
+}
+
+void UiController::ApplyAppearance() noexcept {
+    try {
+        const auto system_light = SystemUsesLightTheme();
+        system_high_contrast_ = SystemHighContrast();
+        reduced_motion_ = SystemReducedMotion();
+        const auto language = ResolveLanguage(config_.appearance.language, SystemLanguageTag());
+        const auto theme = ResolveTheme(config_.appearance.theme, system_light);
+        const auto tokens = ResolveVisualTokens(theme, system_high_contrast_);
+        floating_window_.SetAppearance(tokens, language);
+        tray_controller_.SetLanguage(language);
+    } catch (...) {
+        memory_error_.store(true, std::memory_order_release);
+    }
+}
+
+void UiController::OnSystemAppearanceChanged() noexcept {
+    ApplyAppearance();
+    HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ThemeChanged});
 }
 
 void UiController::HandleStateOnUiThread(ipc::IpcClientState state) noexcept {
@@ -535,7 +601,8 @@ MonitorPanelConfig UiController::MonitorPanelConfigFromAppConfig() const noexcep
             .auto_hide_delay = config_.floating.auto_hide_delay,
             .auto_hide_enabled = config_.floating.auto_hide_enabled,
             .pinned = config_.floating.nfm_pinned,
-            .top_n = config_.ranking.top_n};
+            .top_n = config_.ranking.top_n,
+            .reduced_motion = reduced_motion_};
 }
 
 void UiController::HandleMonitorPanelEvent(const MonitorPanelEvent& event) noexcept {
@@ -735,6 +802,7 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
     bool service_stopped{};
     config_ = value;
     floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
+    ApplyAppearance();
     if (reconnect) {
         StopCollection();
         if (!StartCollection()) {

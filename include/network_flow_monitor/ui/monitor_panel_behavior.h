@@ -49,6 +49,7 @@ enum class MonitorPanelEventKind : std::uint8_t {
     DragCancelled,
     ConfigurationChanged,
     EnvironmentChanged,
+    ThemeChanged,
     PersistSucceeded,
     PersistFailed,
 };
@@ -69,6 +70,25 @@ enum class RankingPresentation : std::uint8_t {
     WarmingUp,
     ReadyIdle,
     ReadyWithRows,
+};
+
+// Explicit animation targets returned by the behavior seam. The Win32 adapter only
+// schedules and realizes these; the model itself never animates.
+enum class Easing : std::uint8_t {
+    Linear,
+    EaseOut,
+    EaseIn,
+};
+enum class MonitorPanelAnimationKind : std::uint8_t {
+    None,
+    Reveal,
+    Dismiss,
+    Theme,
+};
+struct MonitorPanelAnimation {
+    MonitorPanelAnimationKind kind{MonitorPanelAnimationKind::None};
+    Easing easing{Easing::EaseOut};
+    std::chrono::milliseconds duration{0};
 };
 
 struct MonitorWorkArea {
@@ -93,6 +113,7 @@ struct MonitorPanelConfig {
     bool auto_hide_enabled{true};
     bool pinned{};
     std::uint8_t top_n{5};
+    bool reduced_motion{};
 };
 struct PersistedMonitorAnchor {
     std::string monitor_id;
@@ -152,6 +173,7 @@ struct MonitorPanelTransition {
     PixelRect hit_bounds{};
     std::optional<std::chrono::milliseconds> next_deadline;
     std::vector<MonitorPanelEffect> effects;
+    MonitorPanelAnimation animation{};
 };
 
 class MonitorPanelBehavior final {

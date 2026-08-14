@@ -55,12 +55,17 @@ pwsh -NoProfile -File tools/quality.ps1 -Mode Format
 pwsh -NoProfile -File tools/quality.ps1 -Mode Fast
 pwsh -NoProfile -File tools/quality.ps1 -Mode Full
 
+# 可选：限制构建并发；Fast 需要强制清理时显式加 -Clean
+pwsh -NoProfile -File tools/quality.ps1 -Mode Fast -Jobs 8 -Clean
+
 # Release ZIP 包和测量报告
 pwsh -NoProfile -File tools/package.ps1 -Configuration Release
 pwsh -NoProfile -File tools/measure-release.ps1 -Configuration Release
 ```
 
-提交前必须通过 `Full`。详细规则见 [代码质量与提交门](docs/code-quality.md)。
+`Fast` 默认复用构建树；`Full` 始终 clean。完整阶段日志写入忽略的
+`build/quality-logs/`，控制台只显示阶段摘要，失败时显示诊断摘录。提交前必须通过
+`Full`。详细规则见 [代码质量与提交门](docs/code-quality.md)。
 
 ## 首版非目标
 

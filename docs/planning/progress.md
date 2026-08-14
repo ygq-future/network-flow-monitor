@@ -933,3 +933,25 @@
 - Context-menu open/close is normalized into the behavior model. Menu-open state suppresses stale hover/auto-hide deadlines; close recomputes from the actual cursor point. Application topmost HWNDs are temporarily lowered for the native menu and restored afterward. Right-click command selection is disabled.
 - Focused tests and the Fast gate passed. The first Full clean build failed without an actionable diagnostic surviving the truncated output; the subsequent incremental build emitted no errors, and an unchanged Full rerun passed in 115.1 seconds: strict Debug/Release, 38/38 tests in both configurations, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack.
 - Actual menu Z order, right-click behavior, repeated capsule/NFM cycles, mixed DPI, multiple displays, and taskbar boundaries remain human-observed acceptance facts, not automated visual claims.
+
+## Quality-runner resource and log repair (2026-08-14)
+
+- **Status:** complete; final Fast and Full gates pass.
+- Confirmed the old runner clean-built Debug and clang-tidy trees on every Fast run and echoed
+  localized MSVC `/showIncludes` dependency paths. Baseline Fast passed in approximately 66.3
+  seconds with 4,906,824 bytes of output. Baseline Full passed in 137.9 seconds with 9,496,636
+  bytes of output; 51 one-second whole-system samples observed 78.1% average and 100.0% peak CPU.
+  Fast CPU sampling failed in the measurement wrapper and is deliberately not claimed.
+- Fast now reuses Debug and Clang analysis trees unless `-Clean` is supplied. A steady-state Fast
+  passed in 8.2 seconds with 4,581 bytes of retained logs; four whole-system samples observed 9.3%
+  average and 11.8% peak CPU. The first post-configuration Fast required a one-time rebuild and
+  took 105.5 seconds, so it is not presented as a cache-hit result.
+- Full remains clean and runs the same format, strict Debug, Debug/Release tests (38/38),
+  clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack checks. With the final
+  default of 12 workers it passed in 171.2 seconds with 272,446 bytes of retained logs; 85
+  one-second whole-system samples observed 43.5% average and 75.7% peak CPU. Compared with the
+  baseline, retained log volume fell 97.1% and average CPU fell 44.3%, while clean Full wall time
+  increased 24.2%; this is an explicit resource/time tradeoff rather than a universal speedup.
+- The runner writes separate phase logs under ignored `build/quality-logs/`, removes only redundant
+  English/Chinese compiler dependency-trace lines, prints compact pass/timing summaries, and on
+  failure prints at most 80 recognized diagnostics plus the last 80 log lines and the full path.

@@ -37,7 +37,20 @@ pwsh -File tools/quality.ps1 -Mode Fast
 
 # 提交前全量检查
 pwsh -File tools/quality.ps1 -Mode Full
+
+# 可选：覆盖默认并发；或强制 Fast 清理构建树
+pwsh -File tools/quality.ps1 -Mode Fast -Jobs 8 -Clean
 ```
+
+`Fast` 默认增量复用 Debug 和 Clang 分析构建树，适合开发迭代；`-Clean` 可显式要求
+清理。`Full` 无论是否传入 `-Clean` 都会 clean 所有构建树，继续作为提交前的独立
+全量证据。默认并发为逻辑处理器数与 12 的较小值，可用 `-Jobs 1..64` 在墙钟时间和
+机器负载之间取舍。
+
+每个阶段的完整输出写入忽略的 `build/quality-logs/<时间>-<模式>/`。控制台只显示
+阶段名、耗时、状态和日志大小；失败时额外显示识别出的最近诊断、最后 80 行和完整
+日志路径。MSVC `/showIncludes` 依赖路径仍供 Ninja 维护正确的头文件依赖，但其冗余
+逐行回显会从持久化日志中删除；编译诊断、构建进度和测试输出均保留。
 
 `Full` 必须顺序执行：
 
@@ -48,7 +61,7 @@ pwsh -File tools/quality.ps1 -Mode Full
 5. 执行全部 CTest 测试。
 6. MSVC Release x64 构建。
 
-脚本必须在任一步失败时返回非零退出码，不得吞掉输出或以日志中的“成功”字符串代替进程退出码。CI 调用相同脚本，避免本地与 CI 规则漂移。
+脚本必须在任一步失败时返回非零退出码，不得吞掉诊断或以日志中的“成功”字符串代替进程退出码。CI 调用相同脚本，避免本地与 CI 规则漂移。
 
 ## 每个功能的完成定义
 

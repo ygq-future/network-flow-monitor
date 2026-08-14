@@ -33,13 +33,31 @@ class FakeSettingsHost final : public nfm::ui::SettingsWindowHost {
 int main() {
     FakeSettingsHost host;
     nfm::ui::SettingsWindow window{::GetModuleHandleW(nullptr), host};
-    const auto shown = window.Show(nullptr, nfm::config::DefaultAppConfig());
+    auto original = nfm::config::DefaultAppConfig();
+    original.appearance.language = nfm::config::LanguageMode::SimplifiedChinese;
+    original.appearance.theme = nfm::config::ThemeMode::Dark;
+    original.floating.nfm_pinned = true;
+    original.floating.anchor_monitor_id[0] = 'X';
+    original.floating.anchor_side = nfm::config::DockSide::Left;
+    original.floating.anchor_vertical_offset_dip = 123;
+    const auto shown = window.Show(nullptr, original);
     if (!shown || window.hwnd() == nullptr) {
         std::cerr << "settings window creation failed\n";
         return 1;
     }
     if (host.query_calls != 1U) {
         std::cerr << "settings window did not query service status\n";
+        return 1;
+    }
+    constexpr auto kSaveControlId = 117;
+    ::SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(kSaveControlId, BN_CLICKED), 0);
+    if (host.saved.appearance != original.appearance ||
+        host.saved.floating.nfm_pinned != original.floating.nfm_pinned ||
+        host.saved.floating.anchor_monitor_id != original.floating.anchor_monitor_id ||
+        host.saved.floating.anchor_side != original.floating.anchor_side ||
+        host.saved.floating.anchor_vertical_offset_dip !=
+            original.floating.anchor_vertical_offset_dip) {
+        std::cerr << "settings save did not preserve hidden ticket 01 state\n";
         return 1;
     }
 

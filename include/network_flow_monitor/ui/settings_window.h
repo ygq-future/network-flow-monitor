@@ -49,9 +49,9 @@ class SettingsWindow final {
         kRefreshInterval,
         kHoverDelay,
         kDismissDelay,
-        kSnapDistance,
+        kCapsuleWidth,
         kAutoHideDelay,
-        kRevealStrip,
+        kCapsuleHeight,
         kOpacity,
         kSpeedUnit,
         kCollectorMode,
@@ -95,9 +95,9 @@ class SettingsWindow final {
     HWND refresh_interval_{};
     HWND hover_delay_{};
     HWND dismiss_delay_{};
-    HWND snap_distance_{};
+    HWND capsule_width_{};
     HWND auto_hide_delay_{};
-    HWND reveal_strip_{};
+    HWND capsule_height_{};
     HWND opacity_{};
     HWND speed_unit_{};
     HWND collector_mode_{};
@@ -108,6 +108,7 @@ class SettingsWindow final {
     HWND auto_hide_{};
     HWND ui_at_login_{};
     HWND service_status_{};
+    config::AppConfig current_value_{};
 };
 
 } // namespace nfm::ui

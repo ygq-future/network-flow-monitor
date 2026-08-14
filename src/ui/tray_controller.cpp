@@ -203,8 +203,8 @@ bool TrayController::ShowContextMenu() noexcept {
     }
 
     static_cast<void>(api_->SetForegroundWindow(owner_));
-    const auto command = api_->TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-                                              point.x, point.y, owner_);
+    const auto command =
+        api_->TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, point.x, point.y, owner_);
     static_cast<void>(api_->DestroyMenu(menu));
     RouteMenuCommand(command);
     return true;

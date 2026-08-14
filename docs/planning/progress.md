@@ -911,3 +911,25 @@
 - Recorded Microsoft platform facts and the required Acrylic/Mica fallback distinction in `findings.md`.
 - Published one authoritative `ready-for-agent` specification and five linearly blocked tracer-bullet tickets under `.scratch/native-win11-ui-modernization/`; the repository now tracks this local issue tracker as the successor to the earlier superpowers planning flow, and only ticket 01 is currently unblocked.
 - Verification for this documentation-only checkpoint: `git diff --check` and Markdown structure/reference review passed. Per explicit user direction, the C++ Full quality gate was not run because no code, build-system, or runtime-resource files changed; no build/test result is claimed for this checkpoint.
+
+## Native Win11 UI Ticket 01 checkpoint
+
+- **Status:** ready-for-human; implementation and automated gates complete, manual visual matrix pending.
+- **Started/completed:** 2026-08-13.
+- Implemented the single high-level monitor-panel behavior model and connected NFM/capsule startup, hover/click, thresholded drag/cancel, left/right docking, multi-monitor/DPI/work-area changes, rate snapshots, timer deadlines, and persistence effects.
+- Anchors now use a display interface identifier, side, and vertical DIP offset; missing displays fall back to primary and persist the valid fallback. Same-edge auto-hidden app bars retain a small system reveal reservation.
+- The executable-adjacent user configuration contains language, theme, pin, capsule dimensions, and anchor data. Schema 2 removes snap-distance/reveal-strip concepts; a structurally recognized schema-1 development file is atomically replaced with schema-2 defaults, while malformed files remain untouched and diagnosable.
+- Capsule rendering uses a separate one-alpha layered hit HWND for the inward 16-DIP pointer extension, independent top-down download and bottom-up upload bands, log-scaled saturation at 1 GiB/s, and continuous cyan-blue-purple/yellow-orange-red interpolation.
+- **Verification:** after the interrupted run's corrupted Debug PDB artifacts were removed by recreating the Debug build directory, the final post-review `tools/quality.ps1 -Mode Full` passed in 121.2 seconds; strict Debug/Release, 38/38 CTest tests in both configurations, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack ZIP all passed. The adapter smoke creates the main/hit HWNDs, observes normalized pointer/environment messages, and verifies clean two-window destruction.
+- **Manual limitation:** Computer Use launched a responsive Debug process but could not target the no-activate tool window. Mixed-DPI/multi-monitor drag, taskbar auto-hide reveal, hover/click visuals, restart restoration, live gradients, and save-failure dialog remain explicit human acceptance items; no claim is made that these were visually verified.
+
+## Native Win11 UI Ticket 01 manual-failure repair
+
+- **Status:** automated repair complete; ready for a narrowed human re-test of capsule/NFM and native-menu behavior.
+- **Date:** 2026-08-14.
+- The first real interaction run found behavior that the prior adapter smoke did not cover: capsule hover chained into the legacy TopA timer, NFM/TopA/capsule acquired contradictory terminal states, clicks and drags caused transient surface changes, and native context menus could be covered or activated with the right mouse button.
+- Red tests confirmed three concrete faults: NFM pointer input fed both the new monitor-panel seam and the old TopA state machine; menu lifetime was absent from the behavior model; and `TrackPopupMenu` explicitly enabled `TPM_RIGHTBUTTON`.
+- NFM/capsule pointer and timer behavior now stays exclusively on `MonitorPanelBehavior` for Ticket 01. The deferred TopA path is not exposed until Ticket 02 extends the same model with TopA, pin, manual persistence, and combined-panel dismissal.
+- Context-menu open/close is normalized into the behavior model. Menu-open state suppresses stale hover/auto-hide deadlines; close recomputes from the actual cursor point. Application topmost HWNDs are temporarily lowered for the native menu and restored afterward. Right-click command selection is disabled.
+- Focused tests and the Fast gate passed. The first Full clean build failed without an actionable diagnostic surviving the truncated output; the subsequent incremental build emitted no errors, and an unchanged Full rerun passed in 115.1 seconds: strict Debug/Release, 38/38 tests in both configurations, clang-tidy/Clang Static Analyzer, MSVC `/analyze`, Release x64, and CPack.
+- Actual menu Z order, right-click behavior, repeated capsule/NFM cycles, mixed DPI, multiple displays, and taskbar boundaries remain human-observed acceptance facts, not automated visual claims.

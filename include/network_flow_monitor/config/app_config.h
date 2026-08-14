@@ -1,12 +1,14 @@
 #ifndef NETWORK_FLOW_MONITOR_CONFIG_APP_CONFIG_H
 #define NETWORK_FLOW_MONITOR_CONFIG_APP_CONFIG_H
 
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <string_view>
 
 namespace nfm::config {
 
-inline constexpr std::uint32_t kCurrentSchemaVersion = 1U;
+inline constexpr std::uint32_t kCurrentSchemaVersion = 2U;
 
 inline constexpr std::uint8_t kMinimumTopN = 1U;
 inline constexpr std::uint8_t kMaximumTopN = 20U;
@@ -18,19 +20,35 @@ inline constexpr auto kMinimumHoverDelay = std::chrono::milliseconds{0};
 inline constexpr auto kMaximumHoverDelay = std::chrono::milliseconds{2000};
 inline constexpr auto kMinimumDismissDelay = std::chrono::milliseconds{0};
 inline constexpr auto kMaximumDismissDelay = std::chrono::milliseconds{2000};
-inline constexpr std::int32_t kMinimumSnapDistanceDip = 0;
-inline constexpr std::int32_t kMaximumSnapDistanceDip = 64;
 inline constexpr auto kMinimumAutoHideDelay = std::chrono::milliseconds{0};
 inline constexpr auto kMaximumAutoHideDelay = std::chrono::milliseconds{5000};
-inline constexpr std::int32_t kMinimumRevealStripDip = 1;
-inline constexpr std::int32_t kMaximumRevealStripDip = 16;
 inline constexpr std::uint8_t kMinimumOpacityPercent = 30U;
 inline constexpr std::uint8_t kMaximumOpacityPercent = 100U;
+inline constexpr std::int32_t kMinimumCapsuleWidthDip = 8;
+inline constexpr std::int32_t kMaximumCapsuleWidthDip = 24;
+inline constexpr std::int32_t kMinimumCapsuleHeightDip = 40;
+inline constexpr std::int32_t kMaximumCapsuleHeightDip = 160;
+inline constexpr std::size_t kMaximumMonitorIdentifierBytes = 255U;
 
 enum class SpeedUnit : std::uint8_t {
     Auto,
     Bytes,
     Bits,
+};
+
+enum class LanguageMode : std::uint8_t {
+    System,
+    English,
+    SimplifiedChinese
+};
+enum class ThemeMode : std::uint8_t {
+    System,
+    Light,
+    Dark
+};
+enum class DockSide : std::uint8_t {
+    Left,
+    Right
 };
 
 enum class CollectorMode : std::uint8_t {
@@ -75,13 +93,24 @@ struct InteractionConfig {
 };
 
 struct FloatingConfig {
-    std::int32_t snap_distance_dip;
     bool auto_hide_enabled;
     std::chrono::milliseconds auto_hide_delay;
-    std::int32_t reveal_strip_dip;
     std::uint8_t opacity_percent;
+    std::int32_t capsule_width_dip;
+    std::int32_t capsule_height_dip;
+    bool nfm_pinned;
+    std::array<char, kMaximumMonitorIdentifierBytes + 1U> anchor_monitor_id{};
+    DockSide anchor_side;
+    std::int32_t anchor_vertical_offset_dip;
 
     bool operator==(const FloatingConfig&) const = default;
+};
+
+struct AppearanceConfig {
+    LanguageMode language;
+    ThemeMode theme;
+
+    bool operator==(const AppearanceConfig&) const = default;
 };
 
 struct StartupConfig {
@@ -109,15 +138,16 @@ struct DiagnosticsConfig {
 };
 
 struct AppConfig {
-    std::uint32_t schema_version;
-    RankingConfig ranking;
-    DisplayConfig display;
-    InteractionConfig interaction;
-    FloatingConfig floating;
-    StartupConfig startup;
-    CollectorConfig collector;
-    ServiceConfig service;
-    DiagnosticsConfig diagnostics;
+    std::uint32_t schema_version{};
+    RankingConfig ranking{};
+    DisplayConfig display{};
+    InteractionConfig interaction{};
+    FloatingConfig floating{};
+    AppearanceConfig appearance{};
+    StartupConfig startup{};
+    CollectorConfig collector{};
+    ServiceConfig service{};
+    DiagnosticsConfig diagnostics{};
 
     bool operator==(const AppConfig&) const = default;
 };

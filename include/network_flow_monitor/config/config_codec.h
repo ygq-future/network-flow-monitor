@@ -16,6 +16,7 @@ enum class ConfigLoadStatus : std::uint8_t {
     Missing,
     Damaged,
     FutureVersion,
+    ReplaceableDevelopmentVersion,
     UnsupportedLegacyVersion,
     IoError,
 };

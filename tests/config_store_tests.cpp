@@ -136,6 +136,23 @@ void CheckLoading(TestContext& context, const TestDirectory& directory) {
                   "damaged file parse error");
     context.Check(ReadAll(damaged) == damaged_text, "damaged load preserves original file");
 
+    const auto development = directory.path() / L"development.json";
+    constexpr std::string_view development_text{
+        R"json({"schema_version":1,"floating":{"snap_distance_dip":20,"reveal_strip_dip":6}})json"};
+    context.Check(WriteAll(development, development_text), "prepare development config");
+    const auto development_result =
+        nfm::config::LoadConfigFile(development, nfm::config::ConfigDocumentKind::User);
+    context.Check(development_result.status == nfm::config::ConfigLoadStatus::Loaded,
+                  "recognized development config is replaced");
+    context.Check(development_result.config == nfm::config::DefaultAppConfig(),
+                  "development replacement uses current defaults");
+    const auto replaced_text = ReadAll(development);
+    context.Check(replaced_text.find("\"schema_version\": 2") != std::string::npos,
+                  "development replacement writes current schema");
+    context.Check(replaced_text.find("snap_distance_dip") == std::string::npos &&
+                      replaced_text.find("reveal_strip_dip") == std::string::npos,
+                  "development replacement removes obsolete concepts");
+
     const auto oversized = directory.path() / L"oversized.json";
     const std::string oversized_text(1024U * 1024U + 1U, 'x');
     context.Check(WriteAll(oversized, oversized_text), "prepare oversized file");
@@ -150,6 +167,7 @@ void CheckLoading(TestContext& context, const TestDirectory& directory) {
 
 void CheckSaving(TestContext& context, const TestDirectory& directory) {
     const auto target = directory.path() / L"config.json";
+    const auto entries_before = EntryCount(directory.path());
     auto config = nfm::config::DefaultAppConfig();
     config.ranking.top_n = 8U;
 
@@ -162,7 +180,8 @@ void CheckSaving(TestContext& context, const TestDirectory& directory) {
     context.Check(first_load.status == nfm::config::ConfigLoadStatus::Loaded,
                   "first save creates complete document");
     context.Check(first_load.config.ranking.top_n == 8U, "first save persists value");
-    context.Check(EntryCount(directory.path()) == 3U, "first save leaves no temporary sibling");
+    context.Check(EntryCount(directory.path()) == entries_before + 1U,
+                  "first save leaves no temporary sibling");
 
     config.ranking.top_n = 11U;
     const auto replacement =
@@ -171,7 +190,8 @@ void CheckSaving(TestContext& context, const TestDirectory& directory) {
     const auto replacement_load =
         nfm::config::LoadConfigFile(target, nfm::config::ConfigDocumentKind::User);
     context.Check(replacement_load.config.ranking.top_n == 11U, "replacement save persists value");
-    context.Check(EntryCount(directory.path()) == 3U, "replacement leaves no temporary sibling");
+    context.Check(EntryCount(directory.path()) == entries_before + 1U,
+                  "replacement leaves no temporary sibling");
 }
 
 void CheckLockedReplacement(TestContext& context, const TestDirectory& directory) {

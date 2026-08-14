@@ -15,6 +15,7 @@ add_library(
         ui/dpi_layout.cpp
         ui/display_format.cpp
         ui/interaction_state.cpp
+        ui/monitor_panel_behavior.cpp
         ui/render_resources.cpp
         ui/tray_controller.cpp
         ui/floating_window.cpp
@@ -36,6 +37,7 @@ target_include_directories(
 
 nfm_configure_target(nfm_ui)
 nfm_enable_static_analysis(nfm_ui ENABLE_EXCEPTIONS)
+target_link_libraries(nfm_ui PUBLIC Shcore Shell32)
 
 add_library(
     nfm_config

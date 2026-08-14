@@ -29,6 +29,35 @@ bool IsValid(SpeedUnit value) noexcept {
     return false;
 }
 
+bool IsValid(LanguageMode value) noexcept {
+    switch (value) {
+    case LanguageMode::System:
+    case LanguageMode::English:
+    case LanguageMode::SimplifiedChinese:
+        return true;
+    }
+    return false;
+}
+
+bool IsValid(ThemeMode value) noexcept {
+    switch (value) {
+    case ThemeMode::System:
+    case ThemeMode::Light:
+    case ThemeMode::Dark:
+        return true;
+    }
+    return false;
+}
+
+bool IsValid(DockSide value) noexcept {
+    switch (value) {
+    case DockSide::Left:
+    case DockSide::Right:
+        return true;
+    }
+    return false;
+}
+
 bool IsValid(CollectorMode value) noexcept {
     switch (value) {
     case CollectorMode::Portable:
@@ -80,17 +109,26 @@ ConfigValidationResult ValidateAppConfig(const AppConfig& config) {
                           kMaximumHoverDelay, "interaction.hover_delay_ms");
     AddRangeIssueIfNeeded(result, config.interaction.dismiss_delay, kMinimumDismissDelay,
                           kMaximumDismissDelay, "interaction.dismiss_delay_ms");
-    AddRangeIssueIfNeeded(result, config.floating.snap_distance_dip, kMinimumSnapDistanceDip,
-                          kMaximumSnapDistanceDip, "floating.snap_distance_dip");
     AddRangeIssueIfNeeded(result, config.floating.auto_hide_delay, kMinimumAutoHideDelay,
                           kMaximumAutoHideDelay, "floating.auto_hide_delay_ms");
-    AddRangeIssueIfNeeded(result, config.floating.reveal_strip_dip, kMinimumRevealStripDip,
-                          kMaximumRevealStripDip, "floating.reveal_strip_dip");
     AddRangeIssueIfNeeded(result, config.floating.opacity_percent, kMinimumOpacityPercent,
                           kMaximumOpacityPercent, "floating.opacity_percent");
+    AddRangeIssueIfNeeded(result, config.floating.capsule_width_dip, kMinimumCapsuleWidthDip,
+                          kMaximumCapsuleWidthDip, "floating.capsule_width_dip");
+    AddRangeIssueIfNeeded(result, config.floating.capsule_height_dip, kMinimumCapsuleHeightDip,
+                          kMaximumCapsuleHeightDip, "floating.capsule_height_dip");
 
     if (!IsValid(config.display.speed_unit)) {
         AddEnumIssue(result, "display.speed_unit");
+    }
+    if (!IsValid(config.appearance.language)) {
+        AddEnumIssue(result, "appearance.language");
+    }
+    if (!IsValid(config.appearance.theme)) {
+        AddEnumIssue(result, "appearance.theme");
+    }
+    if (!IsValid(config.floating.anchor_side)) {
+        AddEnumIssue(result, "floating.anchor_side");
     }
     if (!IsValid(config.collector.preferred_mode)) {
         AddEnumIssue(result, "collector.preferred_mode");

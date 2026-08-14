@@ -43,18 +43,24 @@ struct JsonBufferDeleter {
 
 using UniqueJsonBuffer = std::unique_ptr<char, JsonBufferDeleter>;
 
-constexpr std::array<std::string_view, 8> kUserRootKeys{"schema_version", "ranking",    "display",
-                                                        "interaction",    "floating",   "startup",
-                                                        "collector",      "diagnostics"};
+constexpr std::array<std::string_view, 9> kUserRootKeys{
+    "schema_version", "ranking", "display",   "interaction", "floating",
+    "appearance",     "startup", "collector", "diagnostics"};
 constexpr std::array<std::string_view, 3> kServiceRootKeys{"schema_version", "service",
                                                            "diagnostics"};
 constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
-constexpr std::array<std::string_view, 5> kFloatingKeys{"snap_distance_dip", "auto_hide_enabled",
-                                                        "auto_hide_delay_ms", "reveal_strip_dip",
-                                                        "opacity_percent"};
+constexpr std::array<std::string_view, 9> kFloatingKeys{
+    "auto_hide_enabled", "auto_hide_delay_ms", "opacity_percent",
+    "capsule_width_dip", "capsule_height_dip", "nfm_pinned",
+    "anchor_monitor_id", "anchor_side",        "anchor_vertical_offset_dip"};
+constexpr std::array<std::string_view, 11> kDevelopmentFloatingKeys{
+    "snap_distance_dip", "auto_hide_enabled", "auto_hide_delay_ms",        "reveal_strip_dip",
+    "opacity_percent",   "capsule_width_dip", "capsule_height_dip",        "nfm_pinned",
+    "anchor_monitor_id", "anchor_side",       "anchor_vertical_offset_dip"};
+constexpr std::array<std::string_view, 2> kAppearanceKeys{"language", "theme"};
 constexpr std::array<std::string_view, 1> kStartupKeys{"ui_at_login"};
 constexpr std::array<std::string_view, 1> kCollectorKeys{"preferred_mode"};
 constexpr std::array<std::string_view, 1> kServiceKeys{"start_type"};
@@ -118,7 +124,8 @@ bool Contains(std::span<const std::string_view> keys, std::string_view candidate
                                [candidate](std::string_view key) { return key == candidate; });
 }
 
-std::span<const std::string_view> GroupKeys(std::string_view group) noexcept {
+std::span<const std::string_view> GroupKeys(std::string_view group,
+                                            bool development_schema) noexcept {
     if (group == "ranking") {
         return kRankingKeys;
     }
@@ -129,7 +136,11 @@ std::span<const std::string_view> GroupKeys(std::string_view group) noexcept {
         return kInteractionKeys;
     }
     if (group == "floating") {
-        return kFloatingKeys;
+        return development_schema ? std::span<const std::string_view>{kDevelopmentFloatingKeys}
+                                  : std::span<const std::string_view>{kFloatingKeys};
+    }
+    if (group == "appearance") {
+        return kAppearanceKeys;
     }
     if (group == "startup") {
         return kStartupKeys;
@@ -146,12 +157,13 @@ std::span<const std::string_view> GroupKeys(std::string_view group) noexcept {
     return {};
 }
 
-std::optional<ConfigError> ValidateGroupKeys(yyjson_val* object, std::string_view group) {
+std::optional<ConfigError> ValidateGroupKeys(yyjson_val* object, std::string_view group,
+                                             bool development_schema) {
     if (object == nullptr) {
         return MakeError(ConfigErrorCode::TypeMismatch, std::string{group},
                          "configuration group must be an object");
     }
-    const auto allowed = GroupKeys(group);
+    const auto allowed = GroupKeys(group, development_schema);
     yyjson_obj_iter iterator{};
     if (!yyjson_obj_iter_init(object, &iterator)) {
         return MakeError(ConfigErrorCode::TypeMismatch, std::string{group},
@@ -169,7 +181,8 @@ std::optional<ConfigError> ValidateGroupKeys(yyjson_val* object, std::string_vie
     return std::nullopt;
 }
 
-std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind kind) {
+std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind kind,
+                                             bool development_schema) {
     const std::span<const std::string_view> allowed_root =
         kind == ConfigDocumentKind::User ? std::span<const std::string_view>{kUserRootKeys}
                                          : std::span<const std::string_view>{kServiceRootKeys};
@@ -192,7 +205,7 @@ std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKin
             return MakeError(ConfigErrorCode::TypeMismatch, std::string{key_text},
                              "configuration group must be an object");
         }
-        if (auto error = ValidateGroupKeys(value, key_text)) {
+        if (auto error = ValidateGroupKeys(value, key_text, development_schema)) {
             return error;
         }
     }
@@ -294,6 +307,20 @@ constexpr std::array kLogLevels{
     std::pair{std::string_view{"error"}, LogLevel::Error},
     std::pair{std::string_view{"info"}, LogLevel::Info},
     std::pair{std::string_view{"debug"}, LogLevel::Debug},
+};
+constexpr std::array kLanguageModes{
+    std::pair{std::string_view{"system"}, LanguageMode::System},
+    std::pair{std::string_view{"english"}, LanguageMode::English},
+    std::pair{std::string_view{"simplified_chinese"}, LanguageMode::SimplifiedChinese},
+};
+constexpr std::array kThemeModes{
+    std::pair{std::string_view{"system"}, ThemeMode::System},
+    std::pair{std::string_view{"light"}, ThemeMode::Light},
+    std::pair{std::string_view{"dark"}, ThemeMode::Dark},
+};
+constexpr std::array kDockSides{
+    std::pair{std::string_view{"left"}, DockSide::Left},
+    std::pair{std::string_view{"right"}, DockSide::Right},
 };
 
 std::optional<ConfigError> ParseRanking(yyjson_val* root, AppConfig& config, bool& complete) {
@@ -397,17 +424,6 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
         return std::nullopt;
     }
     std::uint64_t parsed{};
-    if (auto error = ReadUnsigned(group,
-                                  {.key = "snap_distance_dip",
-                                   .path = "floating.snap_distance_dip",
-                                   .minimum = kMinimumSnapDistanceDip,
-                                   .maximum = kMaximumSnapDistanceDip},
-                                  parsed, &complete)) {
-        return error;
-    }
-    if (yyjson_obj_get(group, "snap_distance_dip") != nullptr) {
-        config.floating.snap_distance_dip = static_cast<std::int32_t>(parsed);
-    }
     if (auto error = ReadBoolean(group, "auto_hide_enabled", "floating.auto_hide_enabled",
                                  config.floating.auto_hide_enabled, &complete)) {
         return error;
@@ -425,17 +441,6 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
         config.floating.auto_hide_delay = std::chrono::milliseconds{parsed};
     }
     if (auto error = ReadUnsigned(group,
-                                  {.key = "reveal_strip_dip",
-                                   .path = "floating.reveal_strip_dip",
-                                   .minimum = kMinimumRevealStripDip,
-                                   .maximum = kMaximumRevealStripDip},
-                                  parsed, &complete)) {
-        return error;
-    }
-    if (yyjson_obj_get(group, "reveal_strip_dip") != nullptr) {
-        config.floating.reveal_strip_dip = static_cast<std::int32_t>(parsed);
-    }
-    if (auto error = ReadUnsigned(group,
                                   {.key = "opacity_percent",
                                    .path = "floating.opacity_percent",
                                    .minimum = kMinimumOpacityPercent,
@@ -446,7 +451,75 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
     if (yyjson_obj_get(group, "opacity_percent") != nullptr) {
         config.floating.opacity_percent = static_cast<std::uint8_t>(parsed);
     }
+    if (auto error = ReadUnsigned(group,
+                                  {.key = "capsule_width_dip",
+                                   .path = "floating.capsule_width_dip",
+                                   .minimum = kMinimumCapsuleWidthDip,
+                                   .maximum = kMaximumCapsuleWidthDip},
+                                  parsed, &complete)) {
+        return error;
+    }
+    if (yyjson_obj_get(group, "capsule_width_dip") != nullptr) {
+        config.floating.capsule_width_dip = static_cast<std::int32_t>(parsed);
+    }
+    if (auto error = ReadUnsigned(group,
+                                  {.key = "capsule_height_dip",
+                                   .path = "floating.capsule_height_dip",
+                                   .minimum = kMinimumCapsuleHeightDip,
+                                   .maximum = kMaximumCapsuleHeightDip},
+                                  parsed, &complete)) {
+        return error;
+    }
+    if (yyjson_obj_get(group, "capsule_height_dip") != nullptr) {
+        config.floating.capsule_height_dip = static_cast<std::int32_t>(parsed);
+    }
+    if (auto error = ReadBoolean(group, "nfm_pinned", "floating.nfm_pinned",
+                                 config.floating.nfm_pinned, &complete)) {
+        return error;
+    }
+    auto* anchor_monitor = yyjson_obj_get(group, "anchor_monitor_id");
+    if (anchor_monitor == nullptr) {
+        complete = false;
+    } else if (!yyjson_is_str(anchor_monitor)) {
+        return MakeError(ConfigErrorCode::TypeMismatch, "floating.anchor_monitor_id",
+                         "expected a string");
+    } else {
+        const auto identifier = JsonString(anchor_monitor);
+        if (identifier.size() > kMaximumMonitorIdentifierBytes) {
+            return MakeError(ConfigErrorCode::OutOfRange, "floating.anchor_monitor_id",
+                             "monitor identifier exceeds the supported length");
+        }
+        std::copy(identifier.begin(), identifier.end(), config.floating.anchor_monitor_id.begin());
+    }
+    if (auto error = ReadEnum(group, "anchor_side", "floating.anchor_side", kDockSides,
+                              config.floating.anchor_side, &complete)) {
+        return error;
+    }
+    if (auto error = ReadUnsigned(group,
+                                  {.key = "anchor_vertical_offset_dip",
+                                   .path = "floating.anchor_vertical_offset_dip",
+                                   .minimum = 0U,
+                                   .maximum = 100000U},
+                                  parsed, &complete)) {
+        return error;
+    }
+    if (yyjson_obj_get(group, "anchor_vertical_offset_dip") != nullptr) {
+        config.floating.anchor_vertical_offset_dip = static_cast<std::int32_t>(parsed);
+    }
     return std::nullopt;
+}
+
+std::optional<ConfigError> ParseAppearance(yyjson_val* root, AppConfig& config, bool& complete) {
+    auto* group = FindGroup(root, "appearance", &complete);
+    if (group == nullptr) {
+        return std::nullopt;
+    }
+    if (auto error = ReadEnum(group, "language", "appearance.language", kLanguageModes,
+                              config.appearance.language, &complete)) {
+        return error;
+    }
+    return ReadEnum(group, "theme", "appearance.theme", kThemeModes, config.appearance.theme,
+                    &complete);
 }
 
 std::optional<ConfigError> ParseStartup(yyjson_val* root, AppConfig& config, bool& complete) {
@@ -498,6 +571,9 @@ std::optional<ConfigError> ParseUserFields(yyjson_val* root, AppConfig& config, 
     if (auto error = ParseFloating(root, config, complete)) {
         return error;
     }
+    if (auto error = ParseAppearance(root, config, complete)) {
+        return error;
+    }
     if (auto error = ParseStartup(root, config, complete)) {
         return error;
     }
@@ -523,6 +599,7 @@ AppConfig SelectedScopeConfig(const AppConfig& config, ConfigDocumentKind kind) 
         selected.display = config.display;
         selected.interaction = config.interaction;
         selected.floating = config.floating;
+        selected.appearance = config.appearance;
         selected.startup = config.startup;
         selected.collector = config.collector;
     } else {
@@ -585,6 +662,40 @@ std::string_view LogLevelText(LogLevel value) noexcept {
     return {};
 }
 
+std::string_view LanguageModeText(LanguageMode value) noexcept {
+    switch (value) {
+    case LanguageMode::System:
+        return "system";
+    case LanguageMode::English:
+        return "english";
+    case LanguageMode::SimplifiedChinese:
+        return "simplified_chinese";
+    }
+    return {};
+}
+
+std::string_view ThemeModeText(ThemeMode value) noexcept {
+    switch (value) {
+    case ThemeMode::System:
+        return "system";
+    case ThemeMode::Light:
+        return "light";
+    case ThemeMode::Dark:
+        return "dark";
+    }
+    return {};
+}
+
+std::string_view DockSideText(DockSide value) noexcept {
+    switch (value) {
+    case DockSide::Left:
+        return "left";
+    case DockSide::Right:
+        return "right";
+    }
+    return {};
+}
+
 bool AddString(yyjson_mut_doc* document, yyjson_mut_val* object, const char* key,
                std::string_view value) noexcept {
     return yyjson_mut_obj_add_strn(document, object, key, value.data(), value.size());
@@ -620,16 +731,30 @@ bool AddInteraction(yyjson_mut_doc* document, yyjson_mut_val* root,
 bool AddFloating(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {
     auto* group = yyjson_mut_obj_add_obj(document, root, "floating");
     return group != nullptr &&
-           yyjson_mut_obj_add_sint(document, group, "snap_distance_dip",
-                                   config.floating.snap_distance_dip) &&
            yyjson_mut_obj_add_bool(document, group, "auto_hide_enabled",
                                    config.floating.auto_hide_enabled) &&
            yyjson_mut_obj_add_sint(document, group, "auto_hide_delay_ms",
                                    config.floating.auto_hide_delay.count()) &&
-           yyjson_mut_obj_add_sint(document, group, "reveal_strip_dip",
-                                   config.floating.reveal_strip_dip) &&
            yyjson_mut_obj_add_uint(document, group, "opacity_percent",
-                                   config.floating.opacity_percent);
+                                   config.floating.opacity_percent) &&
+           yyjson_mut_obj_add_sint(document, group, "capsule_width_dip",
+                                   config.floating.capsule_width_dip) &&
+           yyjson_mut_obj_add_sint(document, group, "capsule_height_dip",
+                                   config.floating.capsule_height_dip) &&
+           yyjson_mut_obj_add_bool(document, group, "nfm_pinned", config.floating.nfm_pinned) &&
+           AddString(document, group, "anchor_monitor_id",
+                     std::string_view{config.floating.anchor_monitor_id.data()}) &&
+           AddString(document, group, "anchor_side", DockSideText(config.floating.anchor_side)) &&
+           yyjson_mut_obj_add_sint(document, group, "anchor_vertical_offset_dip",
+                                   config.floating.anchor_vertical_offset_dip);
+}
+
+bool AddAppearance(yyjson_mut_doc* document, yyjson_mut_val* root,
+                   const AppConfig& config) noexcept {
+    auto* group = yyjson_mut_obj_add_obj(document, root, "appearance");
+    return group != nullptr &&
+           AddString(document, group, "language", LanguageModeText(config.appearance.language)) &&
+           AddString(document, group, "theme", ThemeModeText(config.appearance.theme));
 }
 
 bool AddStartup(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {
@@ -662,8 +787,8 @@ bool AddUserDocument(yyjson_mut_doc* document, yyjson_mut_val* root,
                      const AppConfig& config) noexcept {
     return AddRanking(document, root, config) && AddDisplay(document, root, config) &&
            AddInteraction(document, root, config) && AddFloating(document, root, config) &&
-           AddStartup(document, root, config) && AddCollector(document, root, config) &&
-           AddDiagnostics(document, root, config);
+           AddAppearance(document, root, config) && AddStartup(document, root, config) &&
+           AddCollector(document, root, config) && AddDiagnostics(document, root, config);
 }
 
 bool AddServiceDocument(yyjson_mut_doc* document, yyjson_mut_val* root,
@@ -694,10 +819,6 @@ ConfigLoadResult ParseConfigJson(std::string_view json, ConfigDocumentKind kind)
     if (auto error = FindDuplicateKeys(root, {})) {
         return MakeLoadFailure(ConfigLoadStatus::Damaged, std::move(*error));
     }
-    if (auto error = ValidateStructure(root, kind)) {
-        return MakeLoadFailure(ConfigLoadStatus::Damaged, std::move(*error));
-    }
-
     auto* schema = yyjson_obj_get(root, "schema_version");
     if (schema == nullptr) {
         return MakeLoadFailure(ConfigLoadStatus::Damaged,
@@ -720,6 +841,16 @@ ConfigLoadResult ParseConfigJson(std::string_view json, ConfigDocumentKind kind)
         return MakeLoadFailure(ConfigLoadStatus::FutureVersion,
                                MakeError(ConfigErrorCode::InvalidSchemaVersion, "schema_version",
                                          "configuration was written by a newer version"));
+    }
+    const auto development_schema = schema_version == 1U;
+    if (auto error = ValidateStructure(root, kind, development_schema)) {
+        return MakeLoadFailure(ConfigLoadStatus::Damaged, std::move(*error));
+    }
+    if (development_schema) {
+        return MakeLoadFailure(
+            ConfigLoadStatus::ReplaceableDevelopmentVersion,
+            MakeError(ConfigErrorCode::InvalidSchemaVersion, "schema_version",
+                      "recognized pre-release schema must be replaced with current defaults"));
     }
 
     auto config = DefaultAppConfig();

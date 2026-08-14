@@ -72,12 +72,19 @@ bool FloatingWindow::Create() noexcept {
     window_ = ::CreateWindowExW(kExtendedStyle, kFloatingWindowClass.data(),
                                 kFloatingWindowTitle.data(), WS_POPUP, rect_.left, rect_.top,
                                 rect_.Width(), rect_.Height(), nullptr, nullptr, instance_, this);
+    if (window_ != nullptr) {
+        static_cast<void>(::SetLayeredWindowAttributes(window_, RGB(0, 0, 0), 0U, LWA_COLORKEY));
+        ApplyHitWindowRect();
+    }
     return window_ != nullptr;
 }
 
 void FloatingWindow::Show() noexcept {
     if (Create()) {
         ::ShowWindow(window_, SW_SHOWNOACTIVATE);
+        if (hit_window_ != nullptr) {
+            ::ShowWindow(hit_window_, SW_SHOWNOACTIVATE);
+        }
     }
 }
 
@@ -85,10 +92,18 @@ void FloatingWindow::Hide() noexcept {
     if (window_ != nullptr) {
         ::ShowWindow(window_, SW_HIDE);
     }
+    if (hit_window_ != nullptr) {
+        ::ShowWindow(hit_window_, SW_HIDE);
+    }
 }
 
 void FloatingWindow::Destroy() noexcept {
     target_.Reset();
+    if (hit_window_ != nullptr) {
+        auto* const hit_window = hit_window_;
+        hit_window_ = nullptr;
+        ::DestroyWindow(hit_window);
+    }
     if (window_ != nullptr) {
         auto* const window = window_;
         window_ = nullptr;
@@ -121,80 +136,75 @@ void FloatingWindow::SetDisplayOptions(WindowDisplayOptions options) noexcept {
     Invalidate();
 }
 
-void FloatingWindow::SetSnapDistance(std::int32_t snap_distance_dip) noexcept {
-    snap_distance_dip_ = std::max<std::int32_t>(0, snap_distance_dip);
+void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
+                                                 CapsulePresentation capsule,
+                                                 PixelRect visual_bounds,
+                                                 PixelRect hit_bounds) noexcept {
+    panel_surface_ = surface;
+    capsule_ = capsule;
+    visual_bounds_ = visual_bounds;
+    hit_bounds_ = hit_bounds;
+    ApplyHitWindowRect();
+    Invalidate();
 }
 
 void FloatingWindow::ApplyWindowRect(PixelRect rect) noexcept {
+    const auto size_changed = rect.Width() != rect_.Width() || rect.Height() != rect_.Height();
     rect_ = rect;
+    if (size_changed) {
+        target_.Reset();
+    }
     if (window_ != nullptr) {
         ::SetWindowPos(window_, HWND_TOPMOST, rect.left, rect.top, rect.Width(), rect.Height(),
                        SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
+    ApplyHitWindowRect();
     observer_->OnWindowMoved(WindowKind::Floating);
     Invalidate();
 }
 
-void FloatingWindow::SetEdgeHidden(bool hidden, std::int32_t reveal_strip_dip,
-                                   PixelRect work_area) noexcept {
-    if (hidden == edge_hidden_ && hidden) {
-        return;
-    }
-    if (!hidden) {
-        if (!edge_hidden_) {
-            return;
+void FloatingWindow::ApplyHitWindowRect() noexcept {
+    PixelRect extension{};
+    if (panel_surface_ == MonitorPanelSurface::Capsule) {
+        if (hit_bounds_.left < visual_bounds_.left) {
+            extension = {.left = hit_bounds_.left,
+                         .top = hit_bounds_.top,
+                         .right = visual_bounds_.left,
+                         .bottom = hit_bounds_.bottom};
+        } else if (hit_bounds_.right > visual_bounds_.right) {
+            extension = {.left = visual_bounds_.right,
+                         .top = hit_bounds_.top,
+                         .right = hit_bounds_.right,
+                         .bottom = hit_bounds_.bottom};
         }
-        edge_hidden_ = false;
-        ApplyWindowRect(normal_rect_);
+    }
+    if (extension.Width() <= 0 || extension.Height() <= 0 || window_ == nullptr) {
+        if (hit_window_ != nullptr) {
+            ::ShowWindow(hit_window_, SW_HIDE);
+        }
         return;
     }
-
-    normal_rect_ = rect_;
-    const auto dpi = window_ == nullptr ? 96U : ::GetDpiForWindow(window_);
-    const auto strip = std::max<std::int32_t>(
-        1,
-        static_cast<std::int32_t>(
-            (static_cast<long long>(std::max<std::int32_t>(1, reveal_strip_dip)) * dpi + 95) / 96));
-    const auto hidden_rect = ComputeEdgeHiddenRect(normal_rect_, work_area, strip);
-    edge_hidden_ = true;
-    ApplyWindowRect(hidden_rect);
-}
-
-PixelRect FloatingWindow::ComputeEdgeHiddenRect(PixelRect normal_rect, PixelRect work_area,
-                                                std::int32_t reveal_strip_pixels) noexcept {
-    const auto left_distance = std::llabs(static_cast<long long>(normal_rect.left) -
-                                          static_cast<long long>(work_area.left));
-    const auto right_distance = std::llabs(static_cast<long long>(work_area.right) -
-                                           static_cast<long long>(normal_rect.right));
-    const auto top_distance =
-        std::llabs(static_cast<long long>(normal_rect.top) - static_cast<long long>(work_area.top));
-    const auto bottom_distance = std::llabs(static_cast<long long>(work_area.bottom) -
-                                            static_cast<long long>(normal_rect.bottom));
-    const auto strip = std::max<std::int32_t>(1, reveal_strip_pixels);
-    PixelRect hidden_rect = normal_rect;
-    if (left_distance <= right_distance && left_distance <= top_distance &&
-        left_distance <= bottom_distance) {
-        hidden_rect.left = work_area.left;
-        hidden_rect.right = std::min(work_area.right, work_area.left + strip);
-    } else if (right_distance <= top_distance && right_distance <= bottom_distance) {
-        hidden_rect.left = std::max(work_area.left, work_area.right - strip);
-        hidden_rect.right = work_area.right;
-    } else if (top_distance <= bottom_distance) {
-        hidden_rect.top = work_area.top;
-        hidden_rect.bottom = std::min(work_area.bottom, work_area.top + strip);
+    if (hit_window_ == nullptr) {
+        hit_window_ = ::CreateWindowExW(kExtendedStyle, kFloatingWindowClass.data(), L"", WS_POPUP,
+                                        extension.left, extension.top, extension.Width(),
+                                        extension.Height(), nullptr, nullptr, instance_, this);
+        if (hit_window_ != nullptr) {
+            // A separate almost-transparent layered HWND provides a real hit-test surface without
+            // making color-key-transparent pixels responsible for pointer delivery.
+            static_cast<void>(::SetLayeredWindowAttributes(hit_window_, 0U, 1U, LWA_ALPHA));
+        }
     } else {
-        hidden_rect.top = std::max(work_area.top, work_area.bottom - strip);
-        hidden_rect.bottom = work_area.bottom;
+        ::SetWindowPos(hit_window_, HWND_TOPMOST, extension.left, extension.top, extension.Width(),
+                       extension.Height(), SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
-    return hidden_rect;
+    if (hit_window_ != nullptr && ::IsWindowVisible(window_) != FALSE) {
+        ::ShowWindow(hit_window_, SW_SHOWNOACTIVATE);
+    }
 }
 
 void FloatingWindow::Reposition(PixelRect rect) noexcept {
     if (rect_ == rect) {
         return;
-    }
-    if (!edge_hidden_) {
-        normal_rect_ = rect;
     }
     ApplyWindowRect(rect);
 }
@@ -214,21 +224,6 @@ void FloatingWindow::Invalidate() noexcept {
         static_cast<void>(::InvalidateRect(window_, nullptr, FALSE));
     }
     observer_->OnWindowInvalidated(WindowKind::Floating);
-}
-
-void FloatingWindow::HandleDpiChanged(LPARAM lparam) noexcept {
-    if (lparam == 0) {
-        return;
-    }
-    const auto* suggested =
-        reinterpret_cast<const RECT*>(lparam); // NOLINT(performance-no-int-to-ptr): WM_DPICHANGED
-                                               // carries a RECT pointer in LPARAM.
-    rect_ = FromNativeRect(*suggested);
-    if (window_ != nullptr) {
-        ::SetWindowPos(window_, nullptr, rect_.left, rect_.top, rect_.Width(), rect_.Height(),
-                       SWP_NOACTIVATE | SWP_NOZORDER);
-    }
-    Invalidate();
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape): formatting allocations are caught before drawing.
@@ -271,20 +266,55 @@ void FloatingWindow::Paint() noexcept {
             SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.94F, 0.97F, 1.0F, 1.0F),
                                                      text_brush.GetAddressOf()))) {
             target_->BeginDraw();
-            target_->Clear(D2D1::ColorF(0.02F, 0.04F, 0.08F, 1.0F));
-            const D2D1_RECT_F background{.left = 0.0F,
-                                         .top = 0.0F,
-                                         .right = static_cast<float>(size.width),
-                                         .bottom = static_cast<float>(size.height)};
-            target_->FillRectangle(background, background_brush.Get());
-            const D2D1_RECT_F title_rect{
-                .left = 10.0F, .top = 7.0F, .right = 310.0F, .bottom = 28.0F};
-            target_->DrawTextW(title.data(), static_cast<UINT32>(title.size()),
-                               resources_->text_format(), title_rect, text_brush.Get());
-            const D2D1_RECT_F status_rect{
-                .left = 10.0F, .top = 34.0F, .right = 310.0F, .bottom = 58.0F};
-            target_->DrawTextW(status.data(), static_cast<UINT32>(status.size()),
-                               resources_->text_format(), status_rect, text_brush.Get());
+            target_->Clear(D2D1::ColorF(0.0F, 0.0F, 0.0F, 1.0F));
+            const D2D1_RECT_F background{
+                .left = static_cast<float>(visual_bounds_.left - rect_.left),
+                .top = static_cast<float>(visual_bounds_.top - rect_.top),
+                .right = static_cast<float>(visual_bounds_.right - rect_.left),
+                .bottom = static_cast<float>(visual_bounds_.bottom - rect_.top)};
+            const auto radius = panel_surface_ == MonitorPanelSurface::Capsule
+                                    ? static_cast<float>(visual_bounds_.Width()) / 2.0F
+                                    : 12.0F;
+            target_->FillRoundedRectangle(D2D1::RoundedRect(background, radius, radius),
+                                          background_brush.Get());
+            if (panel_surface_ == MonitorPanelSurface::Capsule) {
+                const auto color = [](std::uint32_t rgb) {
+                    return D2D1::ColorF(static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0F,
+                                        static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0F,
+                                        static_cast<float>(rgb & 0xFFU) / 255.0F, 1.0F);
+                };
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> download_brush;
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> upload_brush;
+                if (SUCCEEDED(target_->CreateSolidColorBrush(color(capsule_.download.color),
+                                                             download_brush.GetAddressOf())) &&
+                    SUCCEEDED(target_->CreateSolidColorBrush(color(capsule_.upload.color),
+                                                             upload_brush.GetAddressOf()))) {
+                    const auto half_height = (background.bottom - background.top) / 2.0F;
+                    const auto download_height = half_height * capsule_.download.fill;
+                    const auto upload_height = half_height * capsule_.upload.fill;
+                    target_->FillRoundedRectangle(
+                        D2D1::RoundedRect(D2D1::RectF(background.left, background.top,
+                                                      background.right,
+                                                      background.top + download_height),
+                                          radius, radius),
+                        download_brush.Get());
+                    target_->FillRoundedRectangle(
+                        D2D1::RoundedRect(D2D1::RectF(background.left,
+                                                      background.bottom - upload_height,
+                                                      background.right, background.bottom),
+                                          radius, radius),
+                        upload_brush.Get());
+                }
+            } else {
+                const D2D1_RECT_F title_rect{
+                    .left = 10.0F, .top = 7.0F, .right = 310.0F, .bottom = 28.0F};
+                target_->DrawTextW(title.data(), static_cast<UINT32>(title.size()),
+                                   resources_->text_format(), title_rect, text_brush.Get());
+                const D2D1_RECT_F status_rect{
+                    .left = 10.0F, .top = 34.0F, .right = 310.0F, .bottom = 58.0F};
+                target_->DrawTextW(status.data(), static_cast<UINT32>(status.size()),
+                                   resources_->text_format(), status_rect, text_brush.Get());
+            }
             if (RenderResources::EndDraw(*target_.Get()) == DrawResult::RecreateTarget) {
                 target_.Reset();
             }
@@ -292,23 +322,6 @@ void FloatingWindow::Paint() noexcept {
     }
     static_cast<void>(device_context);
     ::EndPaint(window_, &paint);
-}
-
-void FloatingWindow::HandleMouseMove(LPARAM /*lparam*/) noexcept {
-    if (!dragging_) {
-        return;
-    }
-    POINT cursor{};
-    if (::GetCursorPos(&cursor) == FALSE) {
-        return;
-    }
-    const auto dx = cursor.x - drag_anchor_.x;
-    const auto dy = cursor.y - drag_anchor_.y;
-    ApplyWindowRect(PixelRect{.left = drag_origin_.left + dx,
-                              .top = drag_origin_.top + dy,
-                              .right = drag_origin_.right + dx,
-                              .bottom = drag_origin_.bottom + dy});
-    normal_rect_ = rect_;
 }
 
 void FloatingWindow::PositionOnFirstShow() noexcept {
@@ -324,53 +337,6 @@ void FloatingWindow::PositionOnFirstShow() noexcept {
     rect_.left = rect_.right - width;
     rect_.top = static_cast<std::int32_t>(work.top) + kTopMargin;
     rect_.bottom = rect_.top + height;
-    normal_rect_ = rect_;
-}
-
-void FloatingWindow::SnapToWorkArea() noexcept {
-    auto* const monitor = ::MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
-    if (monitor == nullptr || ::GetMonitorInfoW(monitor, &monitor_info) == FALSE) {
-        return;
-    }
-    const auto work_area = PixelRect{.left = monitor_info.rcWork.left,
-                                     .top = monitor_info.rcWork.top,
-                                     .right = monitor_info.rcWork.right,
-                                     .bottom = monitor_info.rcWork.bottom};
-    const auto dpi = window_ == nullptr ? 96U : ::GetDpiForWindow(window_);
-    const auto snap = std::max<std::int32_t>(
-        0,
-        static_cast<std::int32_t>(((static_cast<long long>(snap_distance_dip_) * dpi) + 95) / 96));
-    auto snapped = rect_;
-    if (snapped.left <= work_area.left + snap) {
-        snapped.left = work_area.left;
-        snapped.right = snapped.left + rect_.Width();
-    }
-    if (snapped.right >= work_area.right - snap) {
-        snapped.right = work_area.right;
-        snapped.left = snapped.right - rect_.Width();
-    }
-    if (snapped.top <= work_area.top + snap) {
-        snapped.top = work_area.top;
-        snapped.bottom = snapped.top + rect_.Height();
-    }
-    if (snapped.bottom >= work_area.bottom - snap) {
-        snapped.bottom = work_area.bottom;
-        snapped.top = snapped.bottom - rect_.Height();
-    }
-    normal_rect_ = snapped;
-    ApplyWindowRect(snapped);
-}
-
-void FloatingWindow::FinishDrag() noexcept {
-    if (!dragging_) {
-        return;
-    }
-    dragging_ = false;
-    if (::GetCapture() == window_) {
-        ::ReleaseCapture();
-    }
-    SnapToWorkArea();
 }
 
 LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wparam,
@@ -383,7 +349,11 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         self = static_cast<FloatingWindow*>(create->lpCreateParams);
         // NOLINTNEXTLINE(performance-no-int-to-ptr): Win32 ABI.
         ::SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-        self->window_ = window;
+        if (self->window_ == nullptr) {
+            self->window_ = window;
+        } else {
+            self->hit_window_ = window;
+        }
     }
     if (self == nullptr) {
         return ::DefWindowProcW(window, message, wparam, lparam);
@@ -394,17 +364,23 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         return MA_NOACTIVATE;
     case WM_NCHITTEST:
         return HTCLIENT;
-    case WM_LBUTTONDOWN:
-        if (!self->edge_hidden_) {
-            self->dragging_ = true;
-            self->drag_origin_ = self->rect_;
-            static_cast<void>(::GetCursorPos(&self->drag_anchor_));
+    case WM_LBUTTONDOWN: {
+        POINT cursor{};
+        if (::GetCursorPos(&cursor) != FALSE) {
+            self->panel_pressing_ = true;
             static_cast<void>(::SetCapture(window));
+            self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelPress,
+                                                 {.x = cursor.x, .y = cursor.y});
         }
+    }
         return 0;
     case WM_MOUSEMOVE:
-        if (self->dragging_ && (wparam & MK_LBUTTON) != 0U) {
-            self->HandleMouseMove(lparam);
+        if (self->panel_pressing_ && (wparam & MK_LBUTTON) != 0U) {
+            POINT cursor{};
+            if (::GetCursorPos(&cursor) != FALSE) {
+                self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PointerMove,
+                                                     {.x = cursor.x, .y = cursor.y});
+            }
             return 0;
         }
         if (!self->tracking_mouse_) {
@@ -414,38 +390,65 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
                                      .dwHoverTime = 0U};
             static_cast<void>(::TrackMouseEvent(&tracking));
             self->tracking_mouse_ = true;
-            self->observer_->OnWindowPointer(WindowKind::Floating, InteractionEvent::PointerEnter,
-                                             MouseTarget::Anchor);
+            if (self->panel_surface_ == MonitorPanelSurface::Capsule) {
+                self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::CapsulePointerEnter,
+                                                     {});
+            } else {
+                self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelPointerEnter, {});
+            }
         }
         return 0;
     case WM_LBUTTONUP:
-        self->FinishDrag();
+        if (self->panel_pressing_) {
+            POINT cursor{};
+            static_cast<void>(::GetCursorPos(&cursor));
+            self->panel_pressing_ = false;
+            if (::GetCapture() == window) {
+                ::ReleaseCapture();
+            }
+            self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelRelease,
+                                                 {.x = cursor.x, .y = cursor.y});
+        }
         return 0;
     case WM_RBUTTONUP:
         self->observer_->OnWindowContextMenu(WindowKind::Floating);
         return 0;
     case WM_CAPTURECHANGED:
-        self->dragging_ = false;
+        if (self->panel_pressing_) {
+            self->panel_pressing_ = false;
+            self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::DragCancelled, {});
+        }
         return 0;
     case WM_MOUSELEAVE:
         self->tracking_mouse_ = false;
-        self->observer_->OnWindowPointer(WindowKind::Floating, InteractionEvent::PointerLeave,
-                                         MouseTarget::Anchor);
+        if (self->panel_surface_ == MonitorPanelSurface::Capsule) {
+            self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::CapsulePointerLeave, {});
+        } else {
+            self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelPointerLeave, {});
+        }
         return 0;
     case WM_DPICHANGED:
-        self->HandleDpiChanged(lparam);
-        return 0;
     case WM_DISPLAYCHANGE:
     case WM_SETTINGCHANGE:
-        self->Invalidate();
+        self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::EnvironmentChanged, {});
         return 0;
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT:
-        self->Paint();
+        if (window == self->window_) {
+            self->Paint();
+        } else {
+            PAINTSTRUCT paint{};
+            static_cast<void>(::BeginPaint(window, &paint));
+            ::EndPaint(window, &paint);
+        }
         return 0;
     case WM_NCDESTROY:
-        self->window_ = nullptr;
+        if (window == self->window_) {
+            self->window_ = nullptr;
+        } else if (window == self->hit_window_) {
+            self->hit_window_ = nullptr;
+        }
         self->tracking_mouse_ = false;
         ::SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         break;

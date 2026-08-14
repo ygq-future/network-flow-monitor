@@ -38,6 +38,12 @@ target_link_libraries(nfm_ui_layout_tests PRIVATE nfm_ui)
 
 add_test(NAME ui.layout COMMAND nfm_ui_layout_tests)
 
+add_executable(nfm_monitor_panel_behavior_tests monitor_panel_behavior_tests.cpp)
+nfm_configure_target(nfm_monitor_panel_behavior_tests)
+nfm_enable_static_analysis(nfm_monitor_panel_behavior_tests)
+target_link_libraries(nfm_monitor_panel_behavior_tests PRIVATE nfm_ui)
+add_test(NAME ui.monitor_panel_behavior COMMAND nfm_monitor_panel_behavior_tests)
+
 add_executable(nfm_ui_tray_tests ui_tray_tests.cpp)
 
 nfm_configure_target(nfm_ui_tray_tests)

@@ -26,6 +26,7 @@ struct FakeTrayApi final : TrayApi {
     int menu_destroy_calls{};
     int track_menu_calls{};
     int foreground_calls{};
+    UINT track_menu_flags{};
 
     bool ShellNotifyIcon(DWORD action, NOTIFYICONDATAW&) noexcept override {
         if (action == NIM_ADD) {
@@ -48,8 +49,9 @@ struct FakeTrayApi final : TrayApi {
         return true;
     }
 
-    UINT TrackPopupMenu(HMENU, UINT, int, int, HWND) noexcept override {
+    UINT TrackPopupMenu(HMENU, UINT flags, int, int, HWND) noexcept override {
         ++track_menu_calls;
+        track_menu_flags = flags;
         return menu_command;
     }
 
@@ -155,6 +157,8 @@ void CheckTrayMenu(TestContext& context) {
     context.Check(api.menu_create_calls == 1 && api.track_menu_calls == 1 &&
                       api.menu_destroy_calls == 1,
                   "menu lifecycle completed");
+    context.Check((api.track_menu_flags & TPM_RIGHTBUTTON) == 0U,
+                  "right click cannot activate a context-menu command");
 
     api.menu_command = TrayController::kRetryCollectorCommand;
     context.Check(controller.ShowContextMenu(), "retry context menu shown");

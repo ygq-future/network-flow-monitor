@@ -53,11 +53,15 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.display.show_download, "default show download");
     context.Check(config.interaction.hover_delay == 350ms, "default hover delay");
     context.Check(config.interaction.dismiss_delay == 250ms, "default dismiss delay");
-    context.Check(config.floating.snap_distance_dip == 20, "default snap distance");
     context.Check(config.floating.auto_hide_enabled, "default auto hide");
     context.Check(config.floating.auto_hide_delay == 500ms, "default auto hide delay");
-    context.Check(config.floating.reveal_strip_dip == 6, "default reveal strip");
     context.Check(config.floating.opacity_percent == 92U, "default opacity");
+    context.Check(config.floating.capsule_width_dip == 10, "default capsule width");
+    context.Check(config.floating.capsule_height_dip == 64, "default capsule height");
+    context.Check(config.appearance.language == nfm::config::LanguageMode::English,
+                  "default language is English");
+    context.Check(config.appearance.theme == nfm::config::ThemeMode::System,
+                  "default theme is system");
     context.Check(!config.startup.ui_at_login, "default UI startup");
     context.Check(config.collector.preferred_mode == nfm::config::CollectorMode::Portable,
                   "default collector mode");
@@ -128,16 +132,6 @@ void CheckRanges(TestContext& context) {
     CheckInvalidRange(context, config, "interaction.dismiss_delay_ms", "dismiss above maximum");
 
     config = nfm::config::DefaultAppConfig();
-    config.floating.snap_distance_dip = 0;
-    context.CheckValid(config, "snap minimum");
-    config.floating.snap_distance_dip = 64;
-    context.CheckValid(config, "snap maximum");
-    config.floating.snap_distance_dip = -1;
-    CheckInvalidRange(context, config, "floating.snap_distance_dip", "snap below minimum");
-    config.floating.snap_distance_dip = 65;
-    CheckInvalidRange(context, config, "floating.snap_distance_dip", "snap above maximum");
-
-    config = nfm::config::DefaultAppConfig();
     config.floating.auto_hide_delay = 0ms;
     context.CheckValid(config, "auto hide minimum");
     config.floating.auto_hide_delay = 5000ms;
@@ -148,16 +142,6 @@ void CheckRanges(TestContext& context) {
     CheckInvalidRange(context, config, "floating.auto_hide_delay_ms", "auto hide above maximum");
 
     config = nfm::config::DefaultAppConfig();
-    config.floating.reveal_strip_dip = 1;
-    context.CheckValid(config, "reveal minimum");
-    config.floating.reveal_strip_dip = 16;
-    context.CheckValid(config, "reveal maximum");
-    config.floating.reveal_strip_dip = 0;
-    CheckInvalidRange(context, config, "floating.reveal_strip_dip", "reveal below minimum");
-    config.floating.reveal_strip_dip = 17;
-    CheckInvalidRange(context, config, "floating.reveal_strip_dip", "reveal above maximum");
-
-    config = nfm::config::DefaultAppConfig();
     config.floating.opacity_percent = 30U;
     context.CheckValid(config, "opacity minimum");
     config.floating.opacity_percent = 100U;
@@ -166,6 +150,23 @@ void CheckRanges(TestContext& context) {
     CheckInvalidRange(context, config, "floating.opacity_percent", "opacity below minimum");
     config.floating.opacity_percent = 101U;
     CheckInvalidRange(context, config, "floating.opacity_percent", "opacity above maximum");
+
+    config = nfm::config::DefaultAppConfig();
+    config.floating.capsule_width_dip = 8;
+    context.CheckValid(config, "capsule width minimum");
+    config.floating.capsule_width_dip = 24;
+    context.CheckValid(config, "capsule width maximum");
+    config.floating.capsule_width_dip = 7;
+    CheckInvalidRange(context, config, "floating.capsule_width_dip", "capsule width below minimum");
+
+    config = nfm::config::DefaultAppConfig();
+    config.floating.capsule_height_dip = 40;
+    context.CheckValid(config, "capsule height minimum");
+    config.floating.capsule_height_dip = 160;
+    context.CheckValid(config, "capsule height maximum");
+    config.floating.capsule_height_dip = 161;
+    CheckInvalidRange(context, config, "floating.capsule_height_dip",
+                      "capsule height above maximum");
 }
 
 } // namespace

@@ -6,6 +6,8 @@
 #include <iostream>
 #include <memory>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -23,6 +25,22 @@ struct TestContext {
             ++failures;
         }
     }
+};
+
+class RecordingObserver final : public nfm::ui::UiWindowObserver {
+  public:
+    void OnWindowInvalidated(nfm::ui::WindowKind) noexcept override {}
+    void OnWindowPointer(nfm::ui::WindowKind, nfm::ui::InteractionEvent event,
+                         nfm::ui::MouseTarget target) noexcept override {
+        legacy_pointer_events.emplace_back(event, target);
+    }
+    void OnMonitorPanelEvent(nfm::ui::MonitorPanelEventKind event,
+                             nfm::ui::PixelPoint) noexcept override {
+        events.push_back(event);
+    }
+
+    std::vector<nfm::ui::MonitorPanelEventKind> events;
+    std::vector<std::pair<nfm::ui::InteractionEvent, nfm::ui::MouseTarget>> legacy_pointer_events;
 };
 
 void CheckDirtyDecisions(TestContext& context) {
@@ -49,25 +67,60 @@ void CheckDpiAndWorkArea(TestContext& context) {
                       floating.top >= work_area.top && floating.bottom <= work_area.bottom,
                   "floating DPI suggestion is clamped");
     context.Check(popup == floating, "popup and floating DPI policy agree");
-
-    const auto hidden_left = FloatingWindow::ComputeEdgeHiddenRect(
-        PixelRect{.left = 12, .top = 20, .right = 332, .bottom = 84},
-        PixelRect{.left = 0, .top = 0, .right = 1920, .bottom = 1080}, 4);
-    context.Check(hidden_left.left == 0 && hidden_left.right == 4,
-                  "edge hiding leaves a left reveal strip");
-
-    const auto hidden_right = FloatingWindow::ComputeEdgeHiddenRect(
-        PixelRect{.left = 1588, .top = 20, .right = 1908, .bottom = 84},
-        PixelRect{.left = 0, .top = 0, .right = 1920, .bottom = 1080}, 4);
-    context.Check(hidden_right.left == 1916 && hidden_right.right == 1920,
-                  "edge hiding leaves a right reveal strip");
 }
 
 void CheckWindowStyles(TestContext& context) {
     static_assert((FloatingWindow::kExtendedStyle & WS_EX_TOOLWINDOW) != 0U);
     static_assert((FloatingWindow::kExtendedStyle & WS_EX_NOACTIVATE) != 0U);
+    static_assert((FloatingWindow::kExtendedStyle & WS_EX_LAYERED) != 0U);
     static_assert((RankingPopup::kExtendedStyle & WS_EX_NOACTIVATE) != 0U);
     static_cast<void>(context);
+}
+
+void CheckCapsuleHitAdapter(TestContext& context) {
+    nfm::ui::RenderResources resources;
+    RecordingObserver observer;
+    FloatingWindow window{::GetModuleHandleW(nullptr), resources, observer};
+    context.Check(window.Create(), "floating adapter creates main HWND");
+    window.SetMonitorPanelPresentation(nfm::ui::MonitorPanelSurface::Capsule, {},
+                                       {.left = 200, .top = 100, .right = 210, .bottom = 164},
+                                       {.left = 200, .top = 100, .right = 216, .bottom = 164});
+    window.Reposition({.left = 200, .top = 100, .right = 210, .bottom = 164});
+    const auto hit = window.hit_test_hwnd();
+    context.Check(hit != nullptr && ::IsWindow(hit) != FALSE,
+                  "capsule adapter creates a hit-testable extension HWND");
+    if (hit != nullptr) {
+        ::SendMessageW(hit, WM_MOUSEMOVE, 0U, MAKELPARAM(1, 1));
+        ::SendMessageW(hit, WM_MOUSELEAVE, 0U, 0);
+        ::SendMessageW(hit, WM_DPICHANGED, 0U, 0);
+    }
+    context.Check(observer.events.size() >= 3U &&
+                      observer.events[0] == nfm::ui::MonitorPanelEventKind::CapsulePointerEnter &&
+                      observer.events[1] == nfm::ui::MonitorPanelEventKind::CapsulePointerLeave &&
+                      observer.events[2] == nfm::ui::MonitorPanelEventKind::EnvironmentChanged,
+                  "hit extension normalizes pointer and environment messages");
+    window.Destroy();
+    context.Check(window.hwnd() == nullptr && window.hit_test_hwnd() == nullptr,
+                  "capsule adapter destroys both HWNDs");
+}
+
+void CheckNfmUsesOnlyMonitorPanelSeam(TestContext& context) {
+    nfm::ui::RenderResources resources;
+    RecordingObserver observer;
+    FloatingWindow window{::GetModuleHandleW(nullptr), resources, observer};
+    context.Check(window.Create(), "NFM adapter creates its HWND");
+    window.SetMonitorPanelPresentation(nfm::ui::MonitorPanelSurface::Nfm, {},
+                                       {.left = 200, .top = 100, .right = 460, .bottom = 192},
+                                       {.left = 200, .top = 100, .right = 460, .bottom = 192});
+    ::SendMessageW(window.hwnd(), WM_MOUSEMOVE, 0U, MAKELPARAM(1, 1));
+    ::SendMessageW(window.hwnd(), WM_MOUSELEAVE, 0U, 0);
+    context.Check(observer.events.size() >= 2U &&
+                      observer.events[0] == nfm::ui::MonitorPanelEventKind::PanelPointerEnter &&
+                      observer.events[1] == nfm::ui::MonitorPanelEventKind::PanelPointerLeave,
+                  "NFM pointer enter and leave reach MonitorPanelBehavior");
+    context.Check(observer.legacy_pointer_events.empty(),
+                  "NFM pointer input does not feed the competing legacy TopA state machine");
+    window.Destroy();
 }
 
 } // namespace
@@ -77,5 +130,7 @@ int main() {
     CheckDirtyDecisions(context);
     CheckDpiAndWorkArea(context);
     CheckWindowStyles(context);
+    CheckCapsuleHitAdapter(context);
+    CheckNfmUsesOnlyMonitorPanelSeam(context);
     return context.failures == 0 ? 0 : 1;
 }

@@ -127,6 +127,7 @@ bool SettingsWindow::Show(HWND owner, const config::AppConfig& value) noexcept {
         if (window_ == nullptr && !CreateSettingsWindow(owner)) {
             return false;
         }
+        current_value_ = value;
         PopulateControls(value);
         UpdateServiceStatus(value);
         const auto window = window_;
@@ -200,14 +201,14 @@ bool SettingsWindow::CreateControls() noexcept {
     dismiss_delay_ = CreateEdit(window_, instance_, kDismissDelay, y);
     CreateLabel(window_, instance_, L"Dismiss delay (ms)", y);
     y += kRowHeight;
-    snap_distance_ = CreateEdit(window_, instance_, kSnapDistance, y);
-    CreateLabel(window_, instance_, L"Snap distance (DIP)", y);
+    capsule_width_ = CreateEdit(window_, instance_, kCapsuleWidth, y);
+    CreateLabel(window_, instance_, L"Capsule width (DIP)", y);
     y += kRowHeight;
     auto_hide_delay_ = CreateEdit(window_, instance_, kAutoHideDelay, y);
     CreateLabel(window_, instance_, L"Auto-hide delay (ms)", y);
     y += kRowHeight;
-    reveal_strip_ = CreateEdit(window_, instance_, kRevealStrip, y);
-    CreateLabel(window_, instance_, L"Reveal strip (DIP)", y);
+    capsule_height_ = CreateEdit(window_, instance_, kCapsuleHeight, y);
+    CreateLabel(window_, instance_, L"Capsule height (DIP)", y);
     y += kRowHeight;
     opacity_ = CreateEdit(window_, instance_, kOpacity, y);
     CreateLabel(window_, instance_, L"Opacity (%)", y);
@@ -268,7 +269,7 @@ bool SettingsWindow::CreateControls() noexcept {
 
     const std::array<HWND, 18> controls{
         top_n_,          ranking_window_,     refresh_interval_, hover_delay_, dismiss_delay_,
-        snap_distance_,  auto_hide_delay_,    reveal_strip_,     opacity_,     speed_unit_,
+        capsule_width_,  auto_hide_delay_,    capsule_height_,   opacity_,     speed_unit_,
         collector_mode_, service_start_type_, log_level_,        show_upload_, show_download_,
         auto_hide_,      ui_at_login_,        service_status_};
     for (const auto control : controls) {
@@ -303,9 +304,9 @@ void SettingsWindow::PopulateControls(const config::AppConfig& value) noexcept {
         set_number(refresh_interval_, value.display.refresh_interval.count());
         set_number(hover_delay_, value.interaction.hover_delay.count());
         set_number(dismiss_delay_, value.interaction.dismiss_delay.count());
-        set_number(snap_distance_, value.floating.snap_distance_dip);
+        set_number(capsule_width_, value.floating.capsule_width_dip);
         set_number(auto_hide_delay_, value.floating.auto_hide_delay.count());
-        set_number(reveal_strip_, value.floating.reveal_strip_dip);
+        set_number(capsule_height_, value.floating.capsule_height_dip);
         set_number(opacity_, value.floating.opacity_percent);
         static_cast<void>(::SendMessageW(speed_unit_, CB_SETCURSEL,
                                          static_cast<WPARAM>(value.display.speed_unit), 0));
@@ -330,9 +331,9 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     std::uint32_t refresh_interval{};
     std::uint32_t hover_delay{};
     std::uint32_t dismiss_delay{};
-    std::uint32_t snap_distance{};
+    std::uint32_t capsule_width{};
     std::uint32_t auto_hide_delay{};
-    std::uint32_t reveal_strip{};
+    std::uint32_t capsule_height{};
     std::uint32_t opacity{};
     if (!ReadUnsigned(top_n_, config::kMinimumTopN, config::kMaximumTopN, top_n) ||
         !ReadUnsigned(
@@ -348,13 +349,14 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
         !ReadUnsigned(
             dismiss_delay_, static_cast<std::uint32_t>(config::kMinimumDismissDelay.count()),
             static_cast<std::uint32_t>(config::kMaximumDismissDelay.count()), dismiss_delay) ||
-        !ReadUnsigned(snap_distance_, static_cast<std::uint32_t>(config::kMinimumSnapDistanceDip),
-                      static_cast<std::uint32_t>(config::kMaximumSnapDistanceDip), snap_distance) ||
+        !ReadUnsigned(capsule_width_, static_cast<std::uint32_t>(config::kMinimumCapsuleWidthDip),
+                      static_cast<std::uint32_t>(config::kMaximumCapsuleWidthDip), capsule_width) ||
         !ReadUnsigned(
             auto_hide_delay_, static_cast<std::uint32_t>(config::kMinimumAutoHideDelay.count()),
             static_cast<std::uint32_t>(config::kMaximumAutoHideDelay.count()), auto_hide_delay) ||
-        !ReadUnsigned(reveal_strip_, static_cast<std::uint32_t>(config::kMinimumRevealStripDip),
-                      static_cast<std::uint32_t>(config::kMaximumRevealStripDip), reveal_strip) ||
+        !ReadUnsigned(capsule_height_, static_cast<std::uint32_t>(config::kMinimumCapsuleHeightDip),
+                      static_cast<std::uint32_t>(config::kMaximumCapsuleHeightDip),
+                      capsule_height) ||
         !ReadUnsigned(opacity_, config::kMinimumOpacityPercent, config::kMaximumOpacityPercent,
                       opacity)) {
         return false;
@@ -376,10 +378,10 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     value.display.show_download = IsChecked(show_download_);
     value.interaction.hover_delay = std::chrono::milliseconds{hover_delay};
     value.interaction.dismiss_delay = std::chrono::milliseconds{dismiss_delay};
-    value.floating.snap_distance_dip = static_cast<std::int32_t>(snap_distance);
+    value.floating.capsule_width_dip = static_cast<std::int32_t>(capsule_width);
     value.floating.auto_hide_enabled = IsChecked(auto_hide_);
     value.floating.auto_hide_delay = std::chrono::milliseconds{auto_hide_delay};
-    value.floating.reveal_strip_dip = static_cast<std::int32_t>(reveal_strip);
+    value.floating.capsule_height_dip = static_cast<std::int32_t>(capsule_height);
     value.floating.opacity_percent = static_cast<std::uint8_t>(opacity);
     value.startup.ui_at_login = IsChecked(ui_at_login_);
     value.collector.preferred_mode = static_cast<config::CollectorMode>(collector_mode);
@@ -394,7 +396,7 @@ void SettingsWindow::HandleCommand(int control_id) noexcept {
         return;
     }
     if (control_id == kSave) {
-        config::AppConfig value = config::DefaultAppConfig();
+        auto value = current_value_;
         if (!ReadControls(value)) {
             ShowError(L"Invalid settings",
                       L"One or more values are missing or outside the allowed range.");

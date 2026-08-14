@@ -194,9 +194,8 @@ std::optional<std::uint32_t> ReplaceTarget(const std::filesystem::path& target,
 } // namespace
 
 ConfigLoadResult LoadConfigFile(const std::filesystem::path& path, ConfigDocumentKind kind) {
-    const UniqueHandle file{CreateFileW(path.c_str(), GENERIC_READ,
-                                        FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                        FILE_FLAG_BACKUP_SEMANTICS, nullptr)};
+    UniqueHandle file{CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
+                                  nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr)};
     if (!file.valid()) {
         const auto error = GetLastError();
         if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
@@ -242,7 +241,19 @@ ConfigLoadResult LoadConfigFile(const std::filesystem::path& path, ConfigDocumen
         }
         offset += read;
     }
-    return ParseConfigJson(contents, kind);
+    file.Reset();
+    auto parsed = ParseConfigJson(contents, kind);
+    if (parsed.status != ConfigLoadStatus::ReplaceableDevelopmentVersion) {
+        return parsed;
+    }
+    auto replacement = DefaultAppConfig();
+    const auto saved = SaveConfigFile(path, replacement, kind);
+    if (!saved.saved) {
+        return ConfigLoadResult{
+            .config = replacement, .status = ConfigLoadStatus::IoError, .error = saved.error};
+    }
+    return ConfigLoadResult{
+        .config = replacement, .status = ConfigLoadStatus::Loaded, .error = std::nullopt};
 }
 
 ConfigSaveResult SaveConfigFile(const std::filesystem::path& path, const AppConfig& config,

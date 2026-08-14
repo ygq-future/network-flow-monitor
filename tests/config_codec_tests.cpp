@@ -14,18 +14,19 @@ using nfm::config::ConfigErrorCode;
 using nfm::config::ConfigLoadStatus;
 
 constexpr std::string_view kCompleteUserJson = R"json({
-  "schema_version": 1,
+  "schema_version": 2,
   "ranking": {"top_n": 7, "window_ms": 1750},
   "display": {"refresh_interval_ms": 250, "speed_unit": "bits", "show_upload": false, "show_download": true},
   "interaction": {"hover_delay_ms": 100, "dismiss_delay_ms": 200},
-  "floating": {"snap_distance_dip": 8, "auto_hide_enabled": false, "auto_hide_delay_ms": 300, "reveal_strip_dip": 4, "opacity_percent": 85},
+  "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "capsule_width_dip": 12, "capsule_height_dip": 96, "nfm_pinned": true, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
+  "appearance": {"language": "simplified_chinese", "theme": "dark"},
   "startup": {"ui_at_login": true},
   "collector": {"preferred_mode": "service"},
   "diagnostics": {"log_level": "debug"}
 })json";
 
 constexpr std::string_view kCompleteServiceJson = R"json({
-  "schema_version": 1,
+  "schema_version": 2,
   "service": {"start_type": "manual"},
   "diagnostics": {"log_level": "error"}
 })json";
@@ -62,7 +63,7 @@ class TestContext {
 };
 
 std::string FieldDocument(std::string_view group, std::string_view field, std::int64_t value) {
-    return R"json({"schema_version":1,")json" + std::string{group} + R"json(":{")json" +
+    return R"json({"schema_version":2,")json" + std::string{group} + R"json(":{")json" +
            std::string{field} + R"json(":)json" + std::to_string(value) + "}}";
 }
 
@@ -75,28 +76,28 @@ void CheckStructuralFailures(TestContext& context) {
     context.CheckError("{", ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::ParseFailed, "", "malformed JSON");
 
-    auto invalid_utf8 = std::string{R"json({"schema_version":1,"diagnostics":{"log_level":")json"};
+    auto invalid_utf8 = std::string{R"json({"schema_version":2,"diagnostics":{"log_level":")json"};
     invalid_utf8.push_back(static_cast<char>(0xFF));
     invalid_utf8 += "\"}}";
     context.CheckError(invalid_utf8, ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::ParseFailed, "", "invalid UTF-8");
 
-    context.CheckError(R"json({"schema_version":1,"ranking":{"top_n":5,"top_n":6}})json",
+    context.CheckError(R"json({"schema_version":2,"ranking":{"top_n":5,"top_n":6}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::DuplicateKey, "ranking.top_n", "duplicate nested key");
-    context.CheckError(R"json({"schema_version":1,"mystery":{}})json", ConfigDocumentKind::User,
+    context.CheckError(R"json({"schema_version":2,"mystery":{}})json", ConfigDocumentKind::User,
                        ConfigLoadStatus::Damaged, ConfigErrorCode::UnknownKey, "mystery",
                        "unknown root key");
-    context.CheckError(R"json({"schema_version":1,"ranking":{"mystery":5}})json",
+    context.CheckError(R"json({"schema_version":2,"ranking":{"mystery":5}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::UnknownKey, "ranking.mystery", "unknown group key");
-    context.CheckError(R"json({"schema_version":1,"service":{"start_type":"manual"}})json",
+    context.CheckError(R"json({"schema_version":2,"service":{"start_type":"manual"}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::UnknownKey, "service", "service group in user document");
-    context.CheckError(R"json({"schema_version":1,"ranking":{"top_n":5}})json",
+    context.CheckError(R"json({"schema_version":2,"ranking":{"top_n":5}})json",
                        ConfigDocumentKind::Service, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::UnknownKey, "ranking", "user group in service document");
-    context.CheckError(R"json({"schema_version":1,"ranking":{"top_n":"5"}})json",
+    context.CheckError(R"json({"schema_version":2,"ranking":{"top_n":"5"}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::TypeMismatch, "ranking.top_n", "wrong scalar type");
 }
@@ -105,7 +106,11 @@ void CheckSchemaStates(TestContext& context) {
     context.CheckError(R"json({"schema_version":0})json", ConfigDocumentKind::User,
                        ConfigLoadStatus::UnsupportedLegacyVersion,
                        ConfigErrorCode::InvalidSchemaVersion, "schema_version", "legacy schema");
-    context.CheckError(R"json({"schema_version":2})json", ConfigDocumentKind::User,
+    context.CheckError(
+        R"json({"schema_version":1,"floating":{"snap_distance_dip":20,"reveal_strip_dip":6}})json",
+        ConfigDocumentKind::User, ConfigLoadStatus::ReplaceableDevelopmentVersion,
+        ConfigErrorCode::InvalidSchemaVersion, "schema_version", "development schema");
+    context.CheckError(R"json({"schema_version":3})json", ConfigDocumentKind::User,
                        ConfigLoadStatus::FutureVersion, ConfigErrorCode::InvalidSchemaVersion,
                        "schema_version", "future schema");
     context.CheckError(R"json({"schema_version":1.0})json", ConfigDocumentKind::User,
@@ -116,7 +121,7 @@ void CheckSchemaStates(TestContext& context) {
                        "schema_version", "schema exceeds uint32");
 
     const auto partial = nfm::config::ParseConfigJson(
-        R"json({"schema_version":1,"ranking":{"top_n":6}})json", ConfigDocumentKind::User);
+        R"json({"schema_version":2,"ranking":{"top_n":6}})json", ConfigDocumentKind::User);
     context.Check(partial.status == ConfigLoadStatus::LoadedWithDefaults,
                   "missing ordinary fields use defaults");
     context.Check(partial.config.ranking.top_n == 6U, "present field overlays default");
@@ -127,7 +132,7 @@ void CheckSchemaStates(TestContext& context) {
 void CheckEnums(TestContext& context) {
     constexpr std::array speed_units{"auto", "bytes", "bits"};
     for (const auto* value : speed_units) {
-        const auto json = std::string{R"json({"schema_version":1,"display":{"speed_unit":")json"} +
+        const auto json = std::string{R"json({"schema_version":2,"display":{"speed_unit":")json"} +
                           value + R"json("}})json";
         context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::User).error,
                       "valid speed unit");
@@ -136,7 +141,7 @@ void CheckEnums(TestContext& context) {
     constexpr std::array collector_modes{"portable", "service"};
     for (const auto* value : collector_modes) {
         const auto json =
-            std::string{R"json({"schema_version":1,"collector":{"preferred_mode":")json"} + value +
+            std::string{R"json({"schema_version":2,"collector":{"preferred_mode":")json"} + value +
             R"json("}})json";
         context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::User).error,
                       "valid collector mode");
@@ -144,7 +149,7 @@ void CheckEnums(TestContext& context) {
 
     constexpr std::array service_start_types{"manual", "automatic", "automatic_delayed"};
     for (const auto* value : service_start_types) {
-        const auto json = std::string{R"json({"schema_version":1,"service":{"start_type":")json"} +
+        const auto json = std::string{R"json({"schema_version":2,"service":{"start_type":")json"} +
                           value + R"json("}})json";
         context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::Service).error,
                       "valid service start type");
@@ -153,13 +158,13 @@ void CheckEnums(TestContext& context) {
     constexpr std::array log_levels{"off", "error", "info", "debug"};
     for (const auto* value : log_levels) {
         const auto json =
-            std::string{R"json({"schema_version":1,"diagnostics":{"log_level":")json"} + value +
+            std::string{R"json({"schema_version":2,"diagnostics":{"log_level":")json"} + value +
             R"json("}})json";
         context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::User).error,
                       "valid log level");
     }
 
-    context.CheckError(R"json({"schema_version":1,"display":{"speed_unit":"packets"}})json",
+    context.CheckError(R"json({"schema_version":2,"display":{"speed_unit":"packets"}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::InvalidEnum, "display.speed_unit", "invalid enum");
 }
@@ -200,25 +205,25 @@ void CheckNumericRanges(TestContext& context) {
                     .maximum = 2000,
                     .path = "interaction.dismiss_delay_ms"},
         NumericCase{.group = "floating",
-                    .field = "snap_distance_dip",
-                    .minimum = 0,
-                    .maximum = 64,
-                    .path = "floating.snap_distance_dip"},
-        NumericCase{.group = "floating",
                     .field = "auto_hide_delay_ms",
                     .minimum = 0,
                     .maximum = 5000,
                     .path = "floating.auto_hide_delay_ms"},
         NumericCase{.group = "floating",
-                    .field = "reveal_strip_dip",
-                    .minimum = 1,
-                    .maximum = 16,
-                    .path = "floating.reveal_strip_dip"},
-        NumericCase{.group = "floating",
                     .field = "opacity_percent",
                     .minimum = 30,
                     .maximum = 100,
                     .path = "floating.opacity_percent"},
+        NumericCase{.group = "floating",
+                    .field = "capsule_width_dip",
+                    .minimum = 8,
+                    .maximum = 24,
+                    .path = "floating.capsule_width_dip"},
+        NumericCase{.group = "floating",
+                    .field = "capsule_height_dip",
+                    .minimum = 40,
+                    .maximum = 160,
+                    .path = "floating.capsule_height_dip"},
     };
 
     for (const auto& item : cases) {
@@ -252,6 +257,12 @@ void CheckCompleteDocuments(TestContext& context) {
     context.Check(user.config.ranking.top_n == 7U, "user top N decoded");
     context.Check(user.config.collector.preferred_mode == nfm::config::CollectorMode::Service,
                   "user collector mode decoded");
+    context.Check(user.config.floating.capsule_width_dip == 12 &&
+                      user.config.floating.anchor_side == nfm::config::DockSide::Left,
+                  "capsule configuration and anchor decoded");
+    context.Check(user.config.appearance.language == nfm::config::LanguageMode::SimplifiedChinese &&
+                      user.config.appearance.theme == nfm::config::ThemeMode::Dark,
+                  "appearance configuration decoded");
     context.Check(user.config.service == nfm::config::DefaultAppConfig().service,
                   "user document leaves service defaults");
 
@@ -278,6 +289,9 @@ void CheckSerialization(TestContext& context) {
                   "serialization has final newline");
     context.Check(first.json.find("\"service\":") == std::string::npos,
                   "user serialization excludes service group");
+    context.Check(first.json.find("snap_distance_dip") == std::string::npos &&
+                      first.json.find("reveal_strip_dip") == std::string::npos,
+                  "obsolete development settings are not serialized");
     const auto user_round_trip = nfm::config::ParseConfigJson(first.json, ConfigDocumentKind::User);
     context.Check(user_round_trip.status == ConfigLoadStatus::Loaded,
                   "serialized user document is complete");

@@ -37,12 +37,44 @@ bool RenderResources::Initialize() noexcept {
         Reset();
         return false;
     }
+    result = dwrite_factory_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                               DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                               12.0F, L"", row_name_format_.GetAddressOf());
+    if (FAILED(result) || FAILED(row_name_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)) ||
+        FAILED(row_name_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER))) {
+        last_error_ = FAILED(result) ? result : E_FAIL;
+        Reset();
+        return false;
+    }
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+    DWRITE_TRIMMING trimming{.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                             .delimiter = 0U,
+                             .delimiterCount = 0U};
+    result = dwrite_factory_->CreateEllipsisTrimmingSign(row_name_format_.Get(),
+                                                         ellipsis.GetAddressOf());
+    if (FAILED(result) || FAILED(row_name_format_->SetTrimming(&trimming, ellipsis.Get()))) {
+        last_error_ = FAILED(result) ? result : E_FAIL;
+        Reset();
+        return false;
+    }
+    result = dwrite_factory_->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                               DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                               11.0F, L"", rate_format_.GetAddressOf());
+    if (FAILED(result) || FAILED(rate_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING)) ||
+        FAILED(rate_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)) ||
+        FAILED(rate_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER))) {
+        last_error_ = FAILED(result) ? result : E_FAIL;
+        Reset();
+        return false;
+    }
 
     last_error_ = S_OK;
     return true;
 }
 
 void RenderResources::Reset() noexcept {
+    rate_format_.Reset();
+    row_name_format_.Reset();
     text_format_.Reset();
     dwrite_factory_.Reset();
     d2d_factory_.Reset();

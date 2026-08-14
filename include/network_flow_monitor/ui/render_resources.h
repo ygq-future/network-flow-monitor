@@ -32,7 +32,8 @@ class RenderResources final {
     void Reset() noexcept;
 
     [[nodiscard]] bool initialized() const noexcept {
-        return d2d_factory_ != nullptr && dwrite_factory_ != nullptr && text_format_ != nullptr;
+        return d2d_factory_ != nullptr && dwrite_factory_ != nullptr && text_format_ != nullptr &&
+               row_name_format_ != nullptr && rate_format_ != nullptr;
     }
     [[nodiscard]] HRESULT last_error() const noexcept {
         return last_error_;
@@ -46,6 +47,12 @@ class RenderResources final {
     [[nodiscard]] IDWriteTextFormat* text_format() const noexcept {
         return text_format_.Get();
     }
+    [[nodiscard]] IDWriteTextFormat* row_name_format() const noexcept {
+        return row_name_format_.Get();
+    }
+    [[nodiscard]] IDWriteTextFormat* rate_format() const noexcept {
+        return rate_format_.Get();
+    }
 
     [[nodiscard]] Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> CreateHwndRenderTarget(
         HWND window, PixelSize pixel_size) const noexcept;
@@ -57,6 +64,8 @@ class RenderResources final {
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> text_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> row_name_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> rate_format_;
     HRESULT last_error_{S_OK};
 };
 

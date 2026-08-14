@@ -128,13 +128,12 @@ UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
                            service_action_api_},
       startup_registration_{startup_store_}, settings_window_{instance_, *this},
       collector_process_{shell_api_}, floating_window_{instance_, render_resources_, *this},
-      ranking_popup_{instance_, render_resources_, *this}, tray_icon_{},
-      tray_controller_{nullptr,
-                       TrayIconOptions{.callback_message = kTrayCallbackMessage,
-                                       .icon_id = 1U,
-                                       .icon = nullptr,
-                                       .tooltip = L"Network Flow Monitor"},
-                       tray_api_, *this},
+      tray_icon_{}, tray_controller_{nullptr,
+                                     TrayIconOptions{.callback_message = kTrayCallbackMessage,
+                                                     .icon_id = 1U,
+                                                     .icon = nullptr,
+                                                     .tooltip = L"Network Flow Monitor"},
+                                     tray_api_, *this},
       snapshot_generation_{0U}, memory_error_{false} {
     tray_icon_ = CreateNetworkFlowMonitorIcon(instance_);
     if (tray_icon_ == nullptr) {
@@ -146,7 +145,6 @@ UiController::UiController(HINSTANCE instance, const config::AppConfig& config)
     tray_controller_.SetIcon(tray_icon_);
     static_cast<void>(RecreateRankingEngine());
     floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
-    ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
 }
 
 UiController::~UiController() {
@@ -168,7 +166,7 @@ bool UiController::Start() noexcept {
 
     const auto collection_started = StartCollection();
     static_cast<void>(tray_controller_.Initialize());
-    if (!floating_window_.Create() || !ranking_popup_.Create()) {
+    if (!floating_window_.Create()) {
         tray_controller_.Shutdown();
         StopCollection();
         return false;
@@ -229,10 +227,8 @@ int UiController::Run(bool smoke_test) noexcept {
 
 void UiController::Shutdown() noexcept {
     if (message_window_ != nullptr) {
-        static_cast<void>(::KillTimer(message_window_, kUiInteractionTimerId));
         static_cast<void>(::KillTimer(message_window_, kUiMonitorPanelTimerId));
     }
-    ranking_popup_.Destroy();
     floating_window_.Destroy();
     tray_controller_.Shutdown();
     StopCollection();
@@ -245,55 +241,24 @@ void UiController::AttachMessageWindow(HWND window) noexcept {
 }
 
 void UiController::ApplyInteractionState() noexcept {
-    const auto state = interaction_.state();
-    floating_window_.SetInteractionState(state);
-    switch (state) {
-    case InteractionState::Hidden:
-        ranking_popup_.Hide();
-        floating_window_.Hide();
-        break;
-    case InteractionState::Visible:
-    case InteractionState::DisconnectedOverlay:
-    case InteractionState::EdgeHidden:
-    case InteractionState::RankingVisible:
-        ranking_popup_.Hide();
-        floating_window_.Show();
-        break;
-    }
-}
-
-void UiController::HandleInteraction(InteractionEvent event, MouseTarget target) noexcept {
-    interaction_.Handle(event, InteractionStateMachine::Clock::now(),
-                        InteractionOptionsFromConfig(), target);
-    if (event == InteractionEvent::Toggle && interaction_.state() != InteractionState::Hidden) {
-        HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ShowNfm});
-    }
-    ApplyInteractionState();
-    ScheduleInteractionTimer();
-}
-
-void UiController::ScheduleInteractionTimer() noexcept {
-    if (message_window_ == nullptr) {
-        return;
-    }
-    const auto deadline = interaction_.next_deadline();
-    if (!deadline.has_value()) {
-        static_cast<void>(::KillTimer(message_window_, kUiInteractionTimerId));
-        return;
-    }
-    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               *deadline - InteractionStateMachine::Clock::now())
-                               .count();
-    constexpr auto kMaximumTimerMilliseconds =
-        static_cast<std::int64_t>(std::numeric_limits<UINT>::max());
-    const auto delay = static_cast<UINT>(
-        std::clamp<std::int64_t>(remaining <= 0 ? 1 : remaining, 1, kMaximumTimerMilliseconds));
-    static_cast<void>(::SetTimer(message_window_, kUiInteractionTimerId, delay, nullptr));
+    floating_window_.SetInteractionState(overlay_state_.load(std::memory_order_acquire));
 }
 
 void UiController::HandleStateOnUiThread(ipc::IpcClientState state) noexcept {
-    HandleInteraction(state == ipc::IpcClientState::Streaming ? InteractionEvent::Reconnected
-                                                              : InteractionEvent::Disconnected);
+    const auto connected = state == ipc::IpcClientState::Streaming;
+    overlay_state_.store(connected ? InteractionState::Visible
+                                   : InteractionState::DisconnectedOverlay,
+                         std::memory_order_release);
+    if (!connected) {
+        ranking_instance_.reset();
+        ranking_snapshot_.reset();
+        const auto generation = snapshot_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
+        floating_window_.SetSnapshot(nullptr, generation);
+    }
+    HandleMonitorPanelEvent({.kind = state == ipc::IpcClientState::Streaming
+                                         ? MonitorPanelEventKind::CollectorConnected
+                                         : MonitorPanelEventKind::CollectorDisconnected});
+    ApplyInteractionState();
 }
 
 PixelRect UiController::CurrentWorkArea() const noexcept {
@@ -378,9 +343,19 @@ bool UiController::ProcessPendingSnapshot() noexcept {
             return false;
         }
         ranking_snapshot_ = std::make_shared<ranking::RankingSnapshot>(result.snapshot);
+        const auto ranked_count = ranking_snapshot_->applications.size();
+        auto presentation = MonitorPanelEventKind::RankingReadyRows;
+        auto visible_rows = static_cast<std::uint8_t>(std::min<std::size_t>(ranked_count, 255U));
+        if (ranking_snapshot_->status == ranking::RankingStatus::WarmingUp) {
+            presentation = MonitorPanelEventKind::RankingWarming;
+            visible_rows = 0;
+        } else if (ranked_count == 0U) {
+            presentation = MonitorPanelEventKind::RankingReadyIdle;
+            visible_rows = 0;
+        }
+        HandleMonitorPanelEvent({.kind = presentation, .visible_rows = visible_rows});
         const auto generation = snapshot_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
         floating_window_.SetSnapshot(ranking_snapshot_, generation);
-        ranking_popup_.SetSnapshot(ranking_snapshot_, generation);
         const auto& rate = ranking_snapshot_->total_rate;
         const auto bounded = [](double value) noexcept {
             return value <= 0.0 ? 0ULL
@@ -391,7 +366,7 @@ bool UiController::ProcessPendingSnapshot() noexcept {
             monitor_panel_state_.surface,
             MonitorPanelBehavior::MapCapsuleRates(bounded(rate.download_bytes_per_second),
                                                   bounded(rate.upload_bytes_per_second)),
-            monitor_panel_state_.bounds, monitor_panel_hit_bounds_);
+            monitor_panel_state_.bounds, monitor_panel_hit_bounds_, monitor_panel_viewport_);
         return true;
     } catch (...) {
         memory_error_.store(true, std::memory_order_release);
@@ -440,7 +415,7 @@ void UiController::SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept {
 }
 
 void UiController::OnTrayLeftClick() noexcept {
-    HandleInteraction(InteractionEvent::Toggle);
+    HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ToggleVisibility});
 }
 
 void UiController::OnTrayRightClick() noexcept {
@@ -448,8 +423,7 @@ void UiController::OnTrayRightClick() noexcept {
 }
 
 void UiController::OnTrayHover() noexcept {
-    // Ticket 01 deliberately limits the monitor surface to capsule/NFM. Tray hover must not feed
-    // the legacy TopA state machine; complete tray/TopA behavior is owned by Ticket 02.
+    // Tray hover is informational and never changes monitor-panel visibility.
 }
 
 void UiController::OnTraySettings() noexcept {
@@ -465,7 +439,7 @@ void UiController::OnTraySettings() noexcept {
         }
         config_ = loaded.config;
         floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
-        ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
+        HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ConfigurationChanged});
     } else if (loaded.error.has_value()) {
         static_cast<void>(::MessageBoxW(
             message_window_,
@@ -505,11 +479,9 @@ void UiController::OnTrayExit() noexcept {
     ::PostQuitMessage(0);
 }
 
-void UiController::OnWindowContextMenu(WindowKind kind) noexcept {
-    static_cast<void>(kind);
-    menu_open_ = true;
+void UiController::OnWindowContextMenu() noexcept {
     HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ContextMenuOpened});
-    ranking_popup_.Hide();
+    const auto menu_owner = floating_window_.hwnd();
     const auto lower = [](HWND window) noexcept {
         if (window != nullptr) {
             static_cast<void>(::SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0,
@@ -518,8 +490,7 @@ void UiController::OnWindowContextMenu(WindowKind kind) noexcept {
     };
     lower(floating_window_.hwnd());
     lower(floating_window_.hit_test_hwnd());
-    lower(ranking_popup_.hwnd());
-    static_cast<void>(tray_controller_.ShowContextMenu());
+    static_cast<void>(tray_controller_.ShowContextMenu(menu_owner));
     const auto raise = [](HWND window) noexcept {
         if (window != nullptr) {
             static_cast<void>(::SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
@@ -528,20 +499,13 @@ void UiController::OnWindowContextMenu(WindowKind kind) noexcept {
     };
     raise(floating_window_.hwnd());
     raise(floating_window_.hit_test_hwnd());
-    raise(ranking_popup_.hwnd());
-    menu_open_ = false;
     POINT cursor{};
     static_cast<void>(::GetCursorPos(&cursor));
     HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ContextMenuClosed,
                              .point = {.x = cursor.x, .y = cursor.y}});
 }
 
-void UiController::OnWindowMoved(WindowKind kind) noexcept {
-    if (kind == WindowKind::Floating && interaction_.state() == InteractionState::RankingVisible) {
-        ranking_popup_.Reposition(PopupPlacementContext{.anchor = floating_window_.rect(),
-                                                        .work_area = CurrentWorkArea()});
-    }
-}
+void UiController::OnWindowMoved() noexcept {}
 
 void UiController::OnMonitorPanelEvent(MonitorPanelEventKind event, PixelPoint point) noexcept {
     HandleMonitorPanelEvent({.kind = event, .point = point});
@@ -570,7 +534,8 @@ MonitorPanelConfig UiController::MonitorPanelConfigFromAppConfig() const noexcep
             .minimum_drag_distance_y_pixels = ::GetSystemMetrics(SM_CYDRAG),
             .auto_hide_delay = config_.floating.auto_hide_delay,
             .auto_hide_enabled = config_.floating.auto_hide_enabled,
-            .pinned = config_.floating.nfm_pinned};
+            .pinned = config_.floating.nfm_pinned,
+            .top_n = config_.ranking.top_n};
 }
 
 void UiController::HandleMonitorPanelEvent(const MonitorPanelEvent& event) noexcept {
@@ -584,9 +549,15 @@ void UiController::HandleMonitorPanelEvent(const MonitorPanelEvent& event) noexc
 }
 
 void UiController::ApplyMonitorPanelTransition(MonitorPanelTransition transition) {
+    const auto previous_deadline = monitor_panel_state_.deadline;
     monitor_panel_state_ = std::move(transition.state);
     monitor_panel_hit_bounds_ = transition.hit_bounds;
-    floating_window_.Reposition(transition.target_bounds);
+    monitor_panel_viewport_ = transition.viewport;
+    if (monitor_panel_state_.surface == MonitorPanelSurface::Hidden) {
+        floating_window_.Hide();
+        ScheduleMonitorPanelTimer(std::nullopt);
+        return;
+    }
     CapsulePresentation capsule{};
     if (ranking_snapshot_ != nullptr) {
         const auto& rate = ranking_snapshot_->total_rate;
@@ -599,9 +570,15 @@ void UiController::ApplyMonitorPanelTransition(MonitorPanelTransition transition
                                                         bounded(rate.upload_bytes_per_second));
     }
     floating_window_.SetMonitorPanelPresentation(monitor_panel_state_.surface, capsule,
-                                                 transition.target_bounds, transition.hit_bounds);
+                                                 transition.target_bounds, transition.hit_bounds,
+                                                 transition.viewport);
+    floating_window_.SetMonitorPanelControls(monitor_panel_state_.pin_preference,
+                                             config_.floating.auto_hide_enabled);
+    floating_window_.Reposition(transition.target_bounds);
     floating_window_.Show();
-    ScheduleMonitorPanelTimer(transition.next_deadline);
+    if (monitor_panel_state_.deadline != previous_deadline) {
+        ScheduleMonitorPanelTimer(transition.next_deadline);
+    }
     for (const auto& effect : transition.effects) {
         if (effect.kind == MonitorPanelEffectKind::PersistAnchor) {
             const auto saved = PersistMonitorAnchor(effect.anchor);
@@ -615,6 +592,21 @@ void UiController::ApplyMonitorPanelTransition(MonitorPanelTransition transition
                 static_cast<void>(::MessageBoxW(
                     message_window_,
                     L"The monitor position could not be saved. It will remain here for this "
+                    L"session.",
+                    L"Network Flow Monitor", MB_OK | MB_ICONWARNING));
+            }
+        } else if (effect.kind == MonitorPanelEffectKind::PersistPin) {
+            const auto saved = PersistPinPreference(effect.pinned);
+            auto feedback = MonitorPanelBehavior::Transition(
+                monitor_panel_state_,
+                {.kind = saved ? MonitorPanelEventKind::PersistSucceeded
+                               : MonitorPanelEventKind::PersistFailed},
+                BuildMonitorEnvironment(), MonitorPanelConfigFromAppConfig());
+            monitor_panel_state_ = std::move(feedback.state);
+            if (!saved) {
+                static_cast<void>(::MessageBoxW(
+                    message_window_,
+                    L"The pin preference could not be saved. It will remain active for this "
                     L"session.",
                     L"Network Flow Monitor", MB_OK | MB_ICONWARNING));
             }
@@ -649,18 +641,12 @@ bool UiController::PersistMonitorAnchor(const PersistedMonitorAnchor& anchor) no
     return saved.saved;
 }
 
-void UiController::OnWindowInvalidated(WindowKind kind) noexcept {
-    static_cast<void>(kind);
+bool UiController::PersistPinPreference(bool pinned) noexcept {
+    config_.floating.nfm_pinned = pinned;
+    return settings_controller_.Save(config_).saved;
 }
 
-void UiController::OnWindowPointer(WindowKind kind, InteractionEvent event,
-                                   MouseTarget target) noexcept {
-    static_cast<void>(kind);
-    static_cast<void>(event);
-    static_cast<void>(target);
-    // NFM/capsule input is normalized through MonitorPanelBehavior. TopA pointer routing resumes
-    // when Ticket 02 extends that same model instead of reviving this competing seam.
-}
+void UiController::OnWindowInvalidated() noexcept {}
 
 bool UiController::StartCollection() noexcept {
     const auto endpoint = config_.collector.preferred_mode == config::CollectorMode::Portable
@@ -697,7 +683,12 @@ bool UiController::StartCollection() noexcept {
 void UiController::MarkCollectionDisconnected() noexcept {
     ipc_state_.store(ipc::IpcClientState::Failed, std::memory_order_release);
     overlay_state_.store(InteractionState::DisconnectedOverlay, std::memory_order_release);
-    HandleInteraction(InteractionEvent::Disconnected);
+    ranking_instance_.reset();
+    ranking_snapshot_.reset();
+    const auto generation = snapshot_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
+    floating_window_.SetSnapshot(nullptr, generation);
+    HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::CollectorDisconnected});
+    ApplyInteractionState();
 }
 
 void UiController::StopCollection() noexcept {
@@ -744,7 +735,6 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
     bool service_stopped{};
     config_ = value;
     floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
-    ranking_popup_.SetDisplayOptions(WindowOptionsFromConfig(config_));
     if (reconnect) {
         StopCollection();
         if (!StartCollection()) {
@@ -793,23 +783,14 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
         RestoreCollectionState(previous, reconnect, service_stopped);
         return result;
     }
+    HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ConfigurationChanged});
     ApplyInteractionState();
-    ScheduleInteractionTimer();
     return result;
 }
 
 SettingsActionResult UiController::ExecuteServiceAction(
     SettingsServiceAction action, config::ServiceStartType start_type) noexcept {
     return settings_controller_.ExecuteService(action, start_type);
-}
-
-InteractionOptions UiController::InteractionOptionsFromConfig() const noexcept {
-    return {.hover_delay = config_.interaction.hover_delay,
-            .dismiss_delay = config_.interaction.dismiss_delay,
-            .auto_hide_delay = config_.floating.auto_hide_delay,
-            // NFM/capsule auto-hide is owned by MonitorPanelBehavior. This legacy machine remains
-            // only for tray and TopA compatibility until Ticket 02 folds those states in.
-            .auto_hide_enabled = false};
 }
 
 bool UiController::RecreateRankingEngine() noexcept {
@@ -869,16 +850,6 @@ LRESULT CALLBACK UiController::MessageWindowProc(HWND window, UINT message, WPAR
     }
     if (message == kUiStateMessage) {
         controller->HandleStateOnUiThread(static_cast<ipc::IpcClientState>(wparam));
-        return 0;
-    }
-    if (message == WM_TIMER && wparam == kUiInteractionTimerId) {
-        if (controller->menu_open_) {
-            return 0;
-        }
-        controller->interaction_.Tick(InteractionStateMachine::Clock::now(),
-                                      controller->InteractionOptionsFromConfig());
-        controller->ApplyInteractionState();
-        controller->ScheduleInteractionTimer();
         return 0;
     }
     if (message == WM_TIMER && wparam == kUiMonitorPanelTimerId) {

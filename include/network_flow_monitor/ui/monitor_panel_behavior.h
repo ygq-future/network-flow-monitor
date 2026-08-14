@@ -11,20 +11,25 @@
 
 namespace nfm::ui {
 
-// This is the sole public seam for monitor-panel interaction.  It deliberately
-// contains no Win32 types or clock/configuration dependencies.
+// This is the sole public seam for monitor-panel interaction. It deliberately
+// contains no Win32 types or clock/configuration dependencies. The product
+// exposes one surface in two presentations: a dock capsule and a single monitor
+// panel. There is no separate NFM/TopA product distinction and no ranking
+// expand/collapse control.
 enum class DockSide : std::uint8_t {
     Left,
     Right
 };
 enum class MonitorPanelSurface : std::uint8_t {
+    Hidden,
     Capsule,
-    Nfm
+    Panel
 };
 enum class MonitorPanelEventKind : std::uint8_t {
     Start,
     ShowCapsule,
-    ShowNfm,
+    ShowPanel,
+    ToggleVisibility,
     CapsulePointerEnter,
     CapsulePointerLeave,
     PanelPointerEnter,
@@ -33,16 +38,37 @@ enum class MonitorPanelEventKind : std::uint8_t {
     PointerMove,
     PanelRelease,
     HoverDeadline,
+    PinTogglePressed,
+    CollectorConnected,
+    CollectorDisconnected,
+    RankingWarming,
+    RankingReadyIdle,
+    RankingReadyRows,
     ContextMenuOpened,
     ContextMenuClosed,
     DragCancelled,
+    ConfigurationChanged,
     EnvironmentChanged,
     PersistSucceeded,
     PersistFailed,
 };
 enum class MonitorPanelEffectKind : std::uint8_t {
     PersistAnchor,
+    PersistPin,
     ReportPersistenceFailure
+};
+
+enum class MonitorPanelDeadline : std::uint8_t {
+    None,
+    CapsuleReveal,
+    Dismiss,
+};
+
+enum class RankingPresentation : std::uint8_t {
+    Disconnected,
+    WarmingUp,
+    ReadyIdle,
+    ReadyWithRows,
 };
 
 struct MonitorWorkArea {
@@ -66,6 +92,7 @@ struct MonitorPanelConfig {
     std::chrono::milliseconds auto_hide_delay{500};
     bool auto_hide_enabled{true};
     bool pinned{};
+    std::uint8_t top_n{5};
 };
 struct PersistedMonitorAnchor {
     std::string monitor_id;
@@ -79,6 +106,9 @@ struct MonitorPanelEvent {
     PixelPoint point{};
     std::chrono::milliseconds elapsed{};
     std::optional<PersistedMonitorAnchor> anchor;
+    // Number of ranked application rows carried by RankingReadyRows, so the panel
+    // height derives from the actual visible rows rather than a reserved top_n.
+    std::uint8_t visible_rows{};
 };
 struct CapsuleTrack {
     float fill{};
@@ -100,16 +130,25 @@ struct MonitorPanelState {
     bool dragging{};
     bool hover_pending{};
     bool auto_hide_pending{};
+    bool pin_preference{};
+    bool panel_pointer_inside{};
+    MonitorPanelDeadline deadline{MonitorPanelDeadline::None};
+    RankingPresentation ranking_presentation{RankingPresentation::Disconnected};
+    std::uint8_t visible_rows{};
     bool context_menu_active{};
     bool persistence_failed{};
 };
 struct MonitorPanelEffect {
     MonitorPanelEffectKind kind{};
     PersistedMonitorAnchor anchor{};
+    bool pinned{};
 };
 struct MonitorPanelTransition {
     MonitorPanelState state{};
     PixelRect target_bounds{};
+    // The scrollable ranking-row region in screen coordinates. Empty unless the
+    // panel is visible and rendering ranking rows.
+    PixelRect viewport{};
     PixelRect hit_bounds{};
     std::optional<std::chrono::milliseconds> next_deadline;
     std::vector<MonitorPanelEffect> effects;

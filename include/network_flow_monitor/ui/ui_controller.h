@@ -9,7 +9,6 @@
 #include "network_flow_monitor/ui/floating_window.h"
 #include "network_flow_monitor/ui/interaction_state.h"
 #include "network_flow_monitor/ui/monitor_panel_behavior.h"
-#include "network_flow_monitor/ui/ranking_popup.h"
 #include "network_flow_monitor/ui/settings_controller.h"
 #include "network_flow_monitor/ui/settings_window.h"
 #include "network_flow_monitor/ui/startup_registration.h"
@@ -28,7 +27,6 @@ namespace nfm::ui {
 
 inline constexpr UINT kUiSnapshotMessage = WM_APP + 0x32U;
 inline constexpr UINT kUiStateMessage = WM_APP + 0x33U;
-inline constexpr UINT_PTR kUiInteractionTimerId = 1U;
 inline constexpr UINT_PTR kUiMonitorPanelTimerId = 2U;
 
 class UiController final : public ipc::IpcClientObserver,
@@ -64,7 +62,15 @@ class UiController final : public ipc::IpcClientObserver,
     [[nodiscard]] bool memory_error() const noexcept {
         return memory_error_.load(std::memory_order_acquire);
     }
-
+    [[nodiscard]] const MonitorPanelState& monitor_panel_state() const noexcept {
+        return monitor_panel_state_;
+    }
+    [[nodiscard]] HWND monitor_panel_hwnd() const noexcept {
+        return floating_window_.hwnd();
+    }
+    [[nodiscard]] HWND monitor_panel_hit_hwnd() const noexcept {
+        return floating_window_.hit_test_hwnd();
+    }
     void StateChanged(ipc::IpcClientState state) noexcept override;
     void SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept override;
 
@@ -74,18 +80,15 @@ class UiController final : public ipc::IpcClientObserver,
     void OnTraySettings() noexcept override;
     void OnTrayRetryCollector() noexcept override;
     void OnTrayExit() noexcept override;
-    void OnWindowInvalidated(WindowKind kind) noexcept override;
-    void OnWindowPointer(WindowKind kind, InteractionEvent event,
-                         MouseTarget target) noexcept override;
-    void OnWindowContextMenu(WindowKind kind) noexcept override;
-    void OnWindowMoved(WindowKind kind) noexcept override;
+    void OnWindowInvalidated() noexcept override;
+    void OnWindowContextMenu() noexcept override;
+    void OnWindowMoved() noexcept override;
     void OnMonitorPanelEvent(MonitorPanelEventKind event, PixelPoint point) noexcept override;
     [[nodiscard]] SettingsSaveResult SaveSettings(const config::AppConfig& value) noexcept override;
     [[nodiscard]] SettingsActionResult ExecuteServiceAction(
         SettingsServiceAction action, config::ServiceStartType start_type) noexcept override;
 
   private:
-    [[nodiscard]] InteractionOptions InteractionOptionsFromConfig() const noexcept;
     [[nodiscard]] bool RecreateRankingEngine() noexcept;
     [[nodiscard]] bool StartCollection() noexcept;
     void MarkCollectionDisconnected() noexcept;
@@ -93,8 +96,6 @@ class UiController final : public ipc::IpcClientObserver,
     void RestoreCollectionState(const config::AppConfig& previous, bool reconnect,
                                 bool service_stopped) noexcept;
     void ApplyInteractionState() noexcept;
-    void HandleInteraction(InteractionEvent event, MouseTarget target = MouseTarget::None) noexcept;
-    void ScheduleInteractionTimer() noexcept;
     void HandleStateOnUiThread(ipc::IpcClientState state) noexcept;
     [[nodiscard]] PixelRect CurrentWorkArea() const noexcept;
     [[nodiscard]] MonitorPanelEnvironment BuildMonitorEnvironment() const;
@@ -103,6 +104,7 @@ class UiController final : public ipc::IpcClientObserver,
     void ApplyMonitorPanelTransition(MonitorPanelTransition transition);
     void ScheduleMonitorPanelTimer(std::optional<std::chrono::milliseconds> deadline) noexcept;
     [[nodiscard]] bool PersistMonitorAnchor(const PersistedMonitorAnchor& anchor) noexcept;
+    [[nodiscard]] bool PersistPinPreference(bool pinned) noexcept;
     [[nodiscard]] bool CreateMessageWindow() noexcept;
     void DestroyMessageWindow() noexcept;
     void PostSnapshotMessage() noexcept;
@@ -122,11 +124,10 @@ class UiController final : public ipc::IpcClientObserver,
     CollectorProcess collector_process_;
     WindowsTrayApi tray_api_;
     RenderResources render_resources_;
-    InteractionStateMachine interaction_;
     MonitorPanelState monitor_panel_state_;
     PixelRect monitor_panel_hit_bounds_{};
+    PixelRect monitor_panel_viewport_{};
     FloatingWindow floating_window_;
-    RankingPopup ranking_popup_;
     HICON tray_icon_{};
     bool tray_icon_owned_{};
     TrayController tray_controller_;
@@ -143,7 +144,6 @@ class UiController final : public ipc::IpcClientObserver,
     bool pending_message_posted_{};
     HWND message_window_{};
     bool started_{};
-    bool menu_open_{};
 };
 
 } // namespace nfm::ui

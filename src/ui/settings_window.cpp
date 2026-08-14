@@ -154,7 +154,7 @@ bool SettingsWindow::CreateSettingsWindow(HWND owner) noexcept {
     WNDCLASSEXW existing{};
     existing.cbSize = sizeof(existing);
     if (::GetClassInfoExW(instance_, kSettingsClassName, &existing) == FALSE) {
-        const auto icon = CreateNetworkFlowMonitorIcon(instance_);
+        auto* const icon = NetworkFlowMonitorClassIcon(instance_);
         const WNDCLASSEXW window_class{.cbSize = sizeof(window_class),
                                        .style = CS_HREDRAW | CS_VREDRAW,
                                        .lpfnWndProc = &SettingsWindow::WindowProc,

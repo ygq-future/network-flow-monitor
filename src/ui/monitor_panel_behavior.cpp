@@ -1,5 +1,7 @@
 #include "network_flow_monitor/ui/monitor_panel_behavior.h"
 
+#include "network_flow_monitor/ui/monitor_panel_layout.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -56,16 +58,35 @@ namespace {
     return Primary(environment);
 }
 
+[[nodiscard]] std::int32_t PanelRowCount(const MonitorPanelConfig& config,
+                                         RankingPresentation presentation,
+                                         std::uint8_t visible_rows) noexcept {
+    if (presentation != RankingPresentation::ReadyWithRows) {
+        return 1;
+    }
+    const auto ranked = std::max(1, static_cast<int>(visible_rows));
+    return std::max(1, std::min(static_cast<int>(config.top_n), ranked));
+}
+
+[[nodiscard]] std::int32_t PanelHeightDip(const MonitorPanelConfig& config,
+                                          RankingPresentation presentation,
+                                          std::uint8_t visible_rows) noexcept {
+    return (2 * MonitorPanelLayout::kVerticalPaddingDip) + MonitorPanelLayout::kHeaderRowDip +
+           (PanelRowCount(config, presentation, visible_rows) * MonitorPanelLayout::kRowDip);
+}
+
 [[nodiscard]] PixelRect BoundsFor(const PersistedMonitorAnchor& anchor,
                                   const MonitorWorkArea& monitor, const MonitorPanelConfig& config,
-                                  MonitorPanelSurface surface) noexcept {
+                                  MonitorPanelSurface surface, RankingPresentation presentation,
+                                  std::uint8_t visible_rows) noexcept {
     const auto dpi = static_cast<int>(monitor.dpi);
     const auto desired_width = surface == MonitorPanelSurface::Capsule
                                    ? DipToPixels(config.capsule_width_dip, dpi)
-                                   : DipToPixels(260, dpi);
-    const auto desired_height = surface == MonitorPanelSurface::Capsule
-                                    ? DipToPixels(config.capsule_height_dip, dpi)
-                                    : DipToPixels(92, dpi);
+                                   : DipToPixels(MonitorPanelLayout::kWidthDip, dpi);
+    const auto desired_height =
+        surface == MonitorPanelSurface::Capsule
+            ? DipToPixels(config.capsule_height_dip, dpi)
+            : DipToPixels(PanelHeightDip(config, presentation, visible_rows), dpi);
     const auto reserve_reveal =
         (anchor.side == DockSide::Left && monitor.auto_hide_reveal_on_left) ||
         (anchor.side == DockSide::Right && monitor.auto_hide_reveal_on_right);
@@ -89,7 +110,9 @@ namespace {
 [[nodiscard]] PersistedMonitorAnchor DockAt(const MonitorWorkArea& monitor, PixelPoint release,
                                             PixelPoint press_offset, DockSide previous_side,
                                             const MonitorPanelConfig& config,
-                                            MonitorPanelSurface surface) {
+                                            MonitorPanelSurface surface,
+                                            RankingPresentation presentation,
+                                            std::uint8_t visible_rows) {
     const auto left_distance = static_cast<std::int64_t>(release.x) - monitor.rect.left;
     const auto right_distance = static_cast<std::int64_t>(monitor.rect.right) - release.x;
     auto side = previous_side;
@@ -101,7 +124,8 @@ namespace {
     const auto desired_height =
         surface == MonitorPanelSurface::Capsule
             ? DipToPixels(config.capsule_height_dip, static_cast<int>(monitor.dpi))
-            : DipToPixels(92, static_cast<int>(monitor.dpi));
+            : DipToPixels(PanelHeightDip(config, presentation, visible_rows),
+                          static_cast<int>(monitor.dpi));
     const auto height = std::max(1, std::min(desired_height, monitor.rect.Height()));
     const auto top = std::clamp(release.y - press_offset.y, monitor.rect.top,
                                 std::max(monitor.rect.top, monitor.rect.bottom - height));
@@ -151,7 +175,10 @@ void ApplyStart(MonitorPanelTransition& result, const MonitorPanelEvent& event,
         return;
     }
     result.state.anchor = requested;
-    result.state.surface = config.pinned ? MonitorPanelSurface::Nfm : MonitorPanelSurface::Capsule;
+    result.state.pin_preference = config.pinned;
+    result.state.surface = !config.auto_hide_enabled || result.state.pin_preference
+                               ? MonitorPanelSurface::Panel
+                               : MonitorPanelSurface::Capsule;
     if (requested.monitor_id != monitor->id) {
         result.state.anchor.monitor_id = monitor->id;
         result.effects.push_back(
@@ -159,75 +186,133 @@ void ApplyStart(MonitorPanelTransition& result, const MonitorPanelEvent& event,
     }
 }
 
+[[nodiscard]] bool PointerInside(const MonitorPanelState& state) noexcept {
+    return state.panel_pointer_inside;
+}
+
+void ClearDeadline(MonitorPanelState& state) noexcept {
+    state.hover_pending = false;
+    state.auto_hide_pending = false;
+    state.deadline = MonitorPanelDeadline::None;
+}
+
+void ScheduleDismiss(MonitorPanelTransition& result, const MonitorPanelConfig& config) {
+    if (result.state.context_menu_active || PointerInside(result.state)) {
+        return;
+    }
+    const auto pinned = !config.auto_hide_enabled || result.state.pin_preference;
+    if (result.state.surface == MonitorPanelSurface::Panel && !pinned) {
+        result.state.auto_hide_pending = true;
+        result.state.deadline = MonitorPanelDeadline::Dismiss;
+        result.next_deadline = config.auto_hide_delay;
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): This is the intentionally centralized
+// normalized-event reducer required by the public behavior seam.
 void ApplyPointerEvent(MonitorPanelTransition& result, const MonitorPanelEvent& event,
                        const MonitorPanelEnvironment& environment,
                        const MonitorPanelConfig& config) {
     if (result.state.context_menu_active &&
         event.kind != MonitorPanelEventKind::ContextMenuClosed &&
-        event.kind != MonitorPanelEventKind::ContextMenuOpened) {
+        event.kind != MonitorPanelEventKind::ContextMenuOpened &&
+        event.kind != MonitorPanelEventKind::ToggleVisibility) {
         return;
     }
     switch (event.kind) {
     case MonitorPanelEventKind::ShowCapsule:
         result.state.surface = MonitorPanelSurface::Capsule;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
+        ClearDeadline(result.state);
         break;
-    case MonitorPanelEventKind::ShowNfm:
-        result.state.surface = MonitorPanelSurface::Nfm;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
+    case MonitorPanelEventKind::ToggleVisibility:
+        if (result.state.surface == MonitorPanelSurface::Hidden) {
+            result.state.surface = MonitorPanelSurface::Panel;
+        } else {
+            result.state.surface = MonitorPanelSurface::Hidden;
+        }
+        ClearDeadline(result.state);
+        break;
+    case MonitorPanelEventKind::ShowPanel:
+        result.state.surface = MonitorPanelSurface::Panel;
+        ClearDeadline(result.state);
         break;
     case MonitorPanelEventKind::CapsulePointerEnter:
         result.state.auto_hide_pending = false;
         if (result.state.surface == MonitorPanelSurface::Capsule) {
             result.state.hover_pending = true;
+            result.state.deadline = MonitorPanelDeadline::CapsuleReveal;
             result.next_deadline = config.hover_delay;
         }
         break;
     case MonitorPanelEventKind::CapsulePointerLeave:
         result.state.hover_pending = false;
+        result.state.deadline = MonitorPanelDeadline::None;
         break;
     case MonitorPanelEventKind::PanelPointerEnter:
-        result.state.auto_hide_pending = false;
+        result.state.panel_pointer_inside = true;
+        ClearDeadline(result.state);
         break;
     case MonitorPanelEventKind::PanelPointerLeave:
-        if (result.state.surface == MonitorPanelSurface::Nfm && config.auto_hide_enabled &&
-            !config.pinned) {
-            result.state.auto_hide_pending = true;
-            result.next_deadline = config.auto_hide_delay;
-        }
+        result.state.panel_pointer_inside = false;
+        ClearDeadline(result.state);
+        ScheduleDismiss(result, config);
         break;
     case MonitorPanelEventKind::HoverDeadline:
-        if (result.state.hover_pending && !result.state.dragging) {
-            result.state.surface = MonitorPanelSurface::Nfm;
-            result.state.hover_pending = false;
-        } else if (result.state.auto_hide_pending && !result.state.dragging) {
-            result.state.surface = MonitorPanelSurface::Capsule;
-            result.state.auto_hide_pending = false;
+        if (result.state.deadline == MonitorPanelDeadline::CapsuleReveal &&
+            result.state.hover_pending && !result.state.dragging) {
+            result.state.surface = MonitorPanelSurface::Panel;
+            result.state.panel_pointer_inside = true;
+        } else if (result.state.deadline == MonitorPanelDeadline::Dismiss &&
+                   result.state.auto_hide_pending && !result.state.dragging) {
+            if (config.auto_hide_enabled && !result.state.pin_preference) {
+                result.state.surface = MonitorPanelSurface::Capsule;
+            }
         }
+        ClearDeadline(result.state);
+        break;
+    case MonitorPanelEventKind::PinTogglePressed:
+        if (config.auto_hide_enabled && !result.state.dragging) {
+            result.state.pin_preference = !result.state.pin_preference;
+            result.effects.push_back({.kind = MonitorPanelEffectKind::PersistPin,
+                                      .pinned = result.state.pin_preference});
+            ClearDeadline(result.state);
+            if (!result.state.pin_preference) {
+                ScheduleDismiss(result, config);
+            }
+        }
+        break;
+    case MonitorPanelEventKind::CollectorDisconnected:
+        result.state.ranking_presentation = RankingPresentation::Disconnected;
+        result.state.visible_rows = 0;
+        break;
+    case MonitorPanelEventKind::CollectorConnected:
+    case MonitorPanelEventKind::RankingWarming:
+        result.state.ranking_presentation = RankingPresentation::WarmingUp;
+        result.state.visible_rows = 0;
+        break;
+    case MonitorPanelEventKind::RankingReadyIdle:
+        result.state.ranking_presentation = RankingPresentation::ReadyIdle;
+        result.state.visible_rows = 0;
+        break;
+    case MonitorPanelEventKind::RankingReadyRows:
+        result.state.ranking_presentation = RankingPresentation::ReadyWithRows;
+        result.state.visible_rows = event.visible_rows;
         break;
     case MonitorPanelEventKind::ContextMenuOpened:
         result.state.context_menu_active = true;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
+        ClearDeadline(result.state);
         break;
-    case MonitorPanelEventKind::ContextMenuClosed: {
+    case MonitorPanelEventKind::ContextMenuClosed:
         result.state.context_menu_active = false;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
-        const auto pointer_inside = event.point.x >= result.state.bounds.left &&
-                                    event.point.x < result.state.bounds.right &&
-                                    event.point.y >= result.state.bounds.top &&
-                                    event.point.y < result.state.bounds.bottom;
-        if (!pointer_inside && result.state.surface == MonitorPanelSurface::Nfm &&
-            config.auto_hide_enabled && !config.pinned) {
-            result.state.auto_hide_pending = true;
-            result.next_deadline = config.auto_hide_delay;
-        }
+        result.state.panel_pointer_inside = event.point.x >= result.state.bounds.left &&
+                                            event.point.x < result.state.bounds.right &&
+                                            event.point.y >= result.state.bounds.top &&
+                                            event.point.y < result.state.bounds.bottom;
+        ClearDeadline(result.state);
+        ScheduleDismiss(result, config);
         break;
-    }
     case MonitorPanelEventKind::PanelPress:
+        ClearDeadline(result.state);
         result.state.pressing = true;
         result.state.press_point = event.point;
         result.state.press_offset = {.x = event.point.x - result.state.bounds.left,
@@ -245,27 +330,28 @@ void ApplyPointerEvent(MonitorPanelTransition& result, const MonitorPanelEvent& 
                 monitor != nullptr) {
                 result.state.anchor =
                     DockAt(*monitor, event.point, result.state.press_offset,
-                           result.state.drag_origin.side, config, result.state.surface);
+                           result.state.drag_origin.side, config, result.state.surface,
+                           result.state.ranking_presentation, result.state.visible_rows);
             }
         }
         break;
     case MonitorPanelEventKind::PanelRelease:
         if (result.state.pressing && !result.state.dragging) {
-            result.state.surface = MonitorPanelSurface::Nfm;
+            result.state.surface = MonitorPanelSurface::Panel;
         } else if (result.state.dragging) {
             const auto* const release_monitor = MonitorForPoint(environment, event.point);
             if (release_monitor != nullptr) {
                 result.state.anchor =
                     DockAt(*release_monitor, event.point, result.state.press_offset,
-                           result.state.drag_origin.side, config, result.state.surface);
+                           result.state.drag_origin.side, config, result.state.surface,
+                           result.state.ranking_presentation, result.state.visible_rows);
                 result.effects.push_back(
                     {.kind = MonitorPanelEffectKind::PersistAnchor, .anchor = result.state.anchor});
             }
         }
         result.state.pressing = false;
         result.state.dragging = false;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
+        ClearDeadline(result.state);
         break;
     case MonitorPanelEventKind::DragCancelled:
         if (result.state.dragging) {
@@ -273,8 +359,7 @@ void ApplyPointerEvent(MonitorPanelTransition& result, const MonitorPanelEvent& 
         }
         result.state.pressing = false;
         result.state.dragging = false;
-        result.state.hover_pending = false;
-        result.state.auto_hide_pending = false;
+        ClearDeadline(result.state);
         break;
     default:
         break;
@@ -290,6 +375,14 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
         .state = state, .target_bounds = state.bounds, .hit_bounds = state.bounds};
     if (event.kind == MonitorPanelEventKind::Start) {
         ApplyStart(result, event, environment, config);
+    } else if (event.kind == MonitorPanelEventKind::ConfigurationChanged) {
+        result.state.pin_preference = config.pinned;
+        if (!config.auto_hide_enabled || result.state.pin_preference) {
+            result.state.surface = MonitorPanelSurface::Panel;
+            ClearDeadline(result.state);
+        } else {
+            ScheduleDismiss(result, config);
+        }
     } else if (event.kind == MonitorPanelEventKind::EnvironmentChanged) {
         const auto* const changed_monitor = MonitorForAnchor(environment, result.state.anchor);
         if (changed_monitor != nullptr && result.state.anchor.monitor_id != changed_monitor->id) {
@@ -309,7 +402,8 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
     const auto* const monitor = MonitorForAnchor(environment, result.state.anchor);
     if (monitor != nullptr) {
         result.state.bounds =
-            BoundsFor(result.state.anchor, *monitor, config, result.state.surface);
+            BoundsFor(result.state.anchor, *monitor, config, result.state.surface,
+                      result.state.ranking_presentation, result.state.visible_rows);
         if (result.state.dragging && event.kind == MonitorPanelEventKind::PointerMove) {
             const auto width = result.state.bounds.Width();
             const auto height = result.state.bounds.Height();
@@ -324,6 +418,18 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
         }
     }
     result.target_bounds = result.state.bounds;
+    result.viewport = {};
+    if (result.state.surface == MonitorPanelSurface::Panel && monitor != nullptr &&
+        result.state.ranking_presentation == RankingPresentation::ReadyWithRows) {
+        const auto dpi = static_cast<int>(monitor->dpi);
+        const auto padding = DipToPixels(MonitorPanelLayout::kVerticalPaddingDip, dpi);
+        const auto header = DipToPixels(MonitorPanelLayout::kHeaderRowDip, dpi);
+        result.viewport = {.left = result.state.bounds.left + padding,
+                           .top = result.state.bounds.top + padding + header,
+                           .right = result.state.bounds.right - padding,
+                           .bottom = std::max(result.state.bounds.top + padding + header,
+                                              result.state.bounds.bottom - padding)};
+    }
     result.hit_bounds = result.state.bounds;
     if (result.state.surface == MonitorPanelSurface::Capsule && monitor != nullptr) {
         const auto hit_width = DipToPixels(16, static_cast<int>(monitor->dpi));

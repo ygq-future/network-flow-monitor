@@ -27,6 +27,10 @@ struct FakeTrayApi final : TrayApi {
     int track_menu_calls{};
     int foreground_calls{};
     UINT track_menu_flags{};
+    HWND foreground_window{};
+    HWND track_menu_owner{};
+    HWND posted_window{};
+    UINT posted_message{};
 
     bool ShellNotifyIcon(DWORD action, NOTIFYICONDATAW&) noexcept override {
         if (action == NIM_ADD) {
@@ -49,10 +53,17 @@ struct FakeTrayApi final : TrayApi {
         return true;
     }
 
-    UINT TrackPopupMenu(HMENU, UINT flags, int, int, HWND) noexcept override {
+    UINT TrackPopupMenu(HMENU, UINT flags, int, int, HWND owner) noexcept override {
         ++track_menu_calls;
         track_menu_flags = flags;
+        track_menu_owner = owner;
         return menu_command;
+    }
+
+    bool PostWindowMessage(HWND window, UINT message, WPARAM, LPARAM) noexcept override {
+        posted_window = window;
+        posted_message = message;
+        return true;
     }
 
     bool DestroyMenu(HMENU) noexcept override {
@@ -66,8 +77,9 @@ struct FakeTrayApi final : TrayApi {
         return true;
     }
 
-    bool SetForegroundWindow(HWND) noexcept override {
+    bool SetForegroundWindow(HWND window) noexcept override {
         ++foreground_calls;
+        foreground_window = window;
         return true;
     }
 };
@@ -151,7 +163,8 @@ void CheckTrayMenu(TestContext& context) {
     api.menu_command = TrayController::kSettingsCommand;
     FakeCallbacks callbacks;
     auto controller = MakeController(api, callbacks);
-    context.Check(controller.ShowContextMenu(), "context menu shown");
+    const auto surface_owner = reinterpret_cast<HWND>(&context);
+    context.Check(controller.ShowContextMenu(surface_owner), "context menu shown");
     context.Check(callbacks.settings_commands == 1 && callbacks.exit_commands == 0,
                   "settings command routed");
     context.Check(api.menu_create_calls == 1 && api.track_menu_calls == 1 &&
@@ -159,13 +172,17 @@ void CheckTrayMenu(TestContext& context) {
                   "menu lifecycle completed");
     context.Check((api.track_menu_flags & TPM_RIGHTBUTTON) == 0U,
                   "right click cannot activate a context-menu command");
+    context.Check(api.foreground_window == surface_owner && api.track_menu_owner == surface_owner &&
+                      api.posted_window == surface_owner && api.posted_message == WM_NULL,
+                  "application menus use the clicked visible surface as foreground owner and "
+                  "complete with the documented benign message");
 
     api.menu_command = TrayController::kRetryCollectorCommand;
-    context.Check(controller.ShowContextMenu(), "retry context menu shown");
+    context.Check(controller.ShowContextMenu(surface_owner), "retry context menu shown");
     context.Check(callbacks.retry_commands == 1, "retry command routed");
 
     api.menu_command = TrayController::kOpenCommand;
-    context.Check(controller.ShowContextMenu(), "open context menu shown");
+    context.Check(controller.ShowContextMenu(surface_owner), "open context menu shown");
     context.Check(callbacks.left_clicks == 1, "open command routes to left click");
 }
 

@@ -6,6 +6,29 @@
 #include <strsafe.h>
 
 namespace nfm::ui {
+namespace {
+
+class ProcessIcon final {
+  public:
+    explicit ProcessIcon(HICON icon) noexcept : icon_{icon} {}
+    ~ProcessIcon() {
+        if (icon_ != nullptr) {
+            static_cast<void>(::DestroyIcon(icon_));
+        }
+    }
+    ProcessIcon(const ProcessIcon&) = delete;
+    ProcessIcon& operator=(const ProcessIcon&) = delete;
+    ProcessIcon(ProcessIcon&&) = delete;
+    ProcessIcon& operator=(ProcessIcon&&) = delete;
+    [[nodiscard]] HICON get() const noexcept {
+        return icon_;
+    }
+
+  private:
+    HICON icon_{};
+};
+
+} // namespace
 
 HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept {
     static_cast<void>(instance);
@@ -74,6 +97,11 @@ HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept {
     return icon;
 }
 
+HICON NetworkFlowMonitorClassIcon(HINSTANCE instance) noexcept {
+    static const ProcessIcon icon{CreateNetworkFlowMonitorIcon(instance)};
+    return icon.get();
+}
+
 bool WindowsTrayApi::ShellNotifyIcon(DWORD action, NOTIFYICONDATAW& data) noexcept {
     return Shell_NotifyIconW(action, &data) != FALSE;
 }
@@ -88,6 +116,11 @@ bool WindowsTrayApi::AppendMenu(HMENU menu, UINT flags, UINT_PTR command, LPCWST
 
 UINT WindowsTrayApi::TrackPopupMenu(HMENU menu, UINT flags, int x, int y, HWND owner) noexcept {
     return ::TrackPopupMenu(menu, flags, x, y, 0, owner, nullptr);
+}
+
+bool WindowsTrayApi::PostWindowMessage(HWND window, UINT message, WPARAM wparam,
+                                       LPARAM lparam) noexcept {
+    return ::PostMessageW(window, message, wparam, lparam) != FALSE;
 }
 
 bool WindowsTrayApi::DestroyMenu(HMENU menu) noexcept {
@@ -182,7 +215,7 @@ bool TrayController::HandleCallback(TrayNotification notification) noexcept {
     }
 }
 
-bool TrayController::ShowContextMenu() noexcept {
+bool TrayController::ShowContextMenu(HWND owner_override) noexcept {
     POINT point{};
     if (!api_->GetCursorPos(&point)) {
         return false;
@@ -202,9 +235,16 @@ bool TrayController::ShowContextMenu() noexcept {
         return false;
     }
 
-    static_cast<void>(api_->SetForegroundWindow(owner_));
+    const auto owner = owner_override != nullptr ? owner_override : owner_;
+    if (owner == nullptr || !api_->SetForegroundWindow(owner)) {
+        static_cast<void>(api_->DestroyMenu(menu));
+        return false;
+    }
     const auto command =
-        api_->TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, point.x, point.y, owner_);
+        api_->TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, point.x, point.y, owner);
+    // Required by the TrackPopupMenu foreground-owner contract so repeated menus and outside
+    // clicks complete their native menu loop instead of waiting for unrelated pointer traffic.
+    static_cast<void>(api_->PostWindowMessage(owner, WM_NULL, 0U, 0));
     static_cast<void>(api_->DestroyMenu(menu));
     RouteMenuCommand(command);
     return true;

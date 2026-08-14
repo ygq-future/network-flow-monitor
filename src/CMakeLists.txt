@@ -13,13 +13,13 @@ add_library(
     nfm_ui
     STATIC
         ui/dpi_layout.cpp
+        ui/application_icon_cache.cpp
         ui/display_format.cpp
         ui/interaction_state.cpp
         ui/monitor_panel_behavior.cpp
         ui/render_resources.cpp
         ui/tray_controller.cpp
         ui/floating_window.cpp
-        ui/ranking_popup.cpp
         ui/collector_process.cpp
         ui/settings_controller.cpp
         ui/settings_window.cpp

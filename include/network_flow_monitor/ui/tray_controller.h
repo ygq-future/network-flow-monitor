@@ -37,6 +37,8 @@ class TrayCallbacks {
 // Creates the small application-owned icon used by the notification-area entry.
 // The caller owns the returned handle and must release it with DestroyIcon.
 [[nodiscard]] HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept;
+// Returns a process-lifetime, non-owning icon for registered window classes.
+[[nodiscard]] HICON NetworkFlowMonitorClassIcon(HINSTANCE instance) noexcept;
 
 class TrayApi {
   public:
@@ -50,6 +52,8 @@ class TrayApi {
     virtual HMENU CreatePopupMenu() noexcept = 0;
     virtual bool AppendMenu(HMENU menu, UINT flags, UINT_PTR command, LPCWSTR text) noexcept = 0;
     virtual UINT TrackPopupMenu(HMENU menu, UINT flags, int x, int y, HWND owner) noexcept = 0;
+    virtual bool PostWindowMessage(HWND window, UINT message, WPARAM wparam,
+                                   LPARAM lparam) noexcept = 0;
     virtual bool DestroyMenu(HMENU menu) noexcept = 0;
     virtual bool GetCursorPos(POINT* point) noexcept = 0;
     virtual bool SetForegroundWindow(HWND window) noexcept = 0;
@@ -61,6 +65,8 @@ class WindowsTrayApi final : public TrayApi {
     HMENU CreatePopupMenu() noexcept override;
     bool AppendMenu(HMENU menu, UINT flags, UINT_PTR command, LPCWSTR text) noexcept override;
     UINT TrackPopupMenu(HMENU menu, UINT flags, int x, int y, HWND owner) noexcept override;
+    bool PostWindowMessage(HWND window, UINT message, WPARAM wparam,
+                           LPARAM lparam) noexcept override;
     bool DestroyMenu(HMENU menu) noexcept override;
     bool GetCursorPos(POINT* point) noexcept override;
     bool SetForegroundWindow(HWND window) noexcept override;
@@ -103,7 +109,7 @@ class TrayController final {
     }
     void SetOwner(HWND owner) noexcept;
     [[nodiscard]] bool HandleCallback(TrayNotification notification) noexcept;
-    [[nodiscard]] bool ShowContextMenu() noexcept;
+    [[nodiscard]] bool ShowContextMenu(HWND owner_override = nullptr) noexcept;
 
   private:
     [[nodiscard]] NOTIFYICONDATAW BuildIconData() const noexcept;

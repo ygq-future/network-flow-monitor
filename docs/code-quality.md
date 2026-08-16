@@ -24,6 +24,29 @@ C++ 没有单一工具能完全等价于 ESLint。项目使用互补工具覆盖
 
 关闭的少数 clang-tidy 检查主要针对 Win32 ABI 必需的数组、指针运算和显式转换，或容易产生高噪声的命名/魔法数字规则。关闭某个检查不等于放弃对应设计约束；例如配置值仍必须集中管理。
 
+## 质量门的三层体系
+
+项目建立明确的三层质量门（Three-Tier Gate Hierarchy）：
+
+1. **Gate A — Fast Automated（快速自动化门，完全 Headless）**
+   - 包含：C++/C# 格式检查、C++ Debug 构建、.NET 10 Debug 构建、C++ 核心与协议测试、.NET xUnit 契约与行为测试、clang-tidy & Clang Static Analyzer。
+   - 不变式：完全无人值守、无桌面交互、无可见窗口、不触发 UAC。
+
+2. **Gate B — Full Automated（全量自动化门，完全 Headless）**
+   - 包含：Fast 门全部内容 + MSVC `/analyze` 深度静态分析 + C++ Release x64 构建与 CTest + .NET Release 测试 + CPack 便携 ZIP 打包校验。
+   - 不变式：依然完全 Headless、无可见窗口、不触发 UAC、无需人工干预。
+
+3. **Gate C — Target-Host Acceptance（目标机实机验收，交互式）**
+   - 包含：真实 UAC 提权启动、真实内核 ETW 采集、`WpfSurfaceSpike` 实机预研、真实 DWM Backdrop/Acrylic 渲染、多 DPI 贴边、进程生命周期守护以及**用户人工视觉验收（Human Visual Acceptance）**。
+   - 只有 Gate A 和 Gate B 完全通过后，才在实机执行 Gate C。
+
+## 自动化门 Headless 不变式与旧 UI 测试退役
+
+- `tools/quality.ps1 -Mode Fast` 和 `tools/quality.ps1 -Mode Full` 严禁弹出任何旧 C++ Win32 窗口或新 WPF 窗口，严禁调用 `SetCursorPos` 移动鼠标或读取屏幕 DC，严禁触发 UAC 提权弹窗。
+- 专门测试旧 C++ Win32/Direct2D UI 交互的测试（`ui_window_logic`、`ui_controller`、`ui_integration_smoke`、`ui_settings_window`）已正式从活动自动化门中退役（Retired），不再执行。
+- 纯算法/协议的 C++ Core 测试（ETW 解码、进程跟踪、PID 防复用、滑动窗口排行、协议 V1 编解码、Named Pipe 服务端传输）保持 100% 自动化测试与通过。
+- C# WPF UI 测试聚焦于纯状态机 `MonitorBehaviorModel`、`TelemetryStore`、数据模型与数学转换的确定性测试；真正的视觉平滑度、毛玻璃质感与手感由 Gate C 目标机实机人工验收。
+
 ## 统一质量命令
 
 实现脚手架时创建 `tools/quality.ps1`。最终接口应至少支持：

@@ -501,24 +501,82 @@ Raw Win32 / WPF Input Events
   - Runtime language switching updates all open windows, menus, dialogs, and diagnostics immediately without restart.
   - Product brand `Network Flow Monitor` and standard rate units (`KB/s`, `MB/s`, `bps`) remain untranslated.
 
-## Testing Decisions
+## Testing Decisions & Three-Tier Gate Architecture
 
-### What Makes a Good Test
+### 1. Three-Tier Quality Gate Hierarchy
 
-1. **Deterministic Seam Isolation**: All high-level window logic and behavior state transitions are tested in pure C# tests without instantiating HWNDs, WPF `Window`, Dispatchers, or sleeping the thread.
-2. **Cross-Language Fixture Consistency**: Golden JSON fixtures in `tests/fixtures/` are validated bidirectionally by both C++ CTest and C# xUnit test suites to guarantee that byte-level framing, limits, and payload serialization are identical.
-3. **Pure Function Math Coverage**: Mathematical rate-to-fill, color interpolation, and work-area clipping algorithms are tested across negative, zero, boundary, and overflow values.
+```
+┌────────────────────────────────────────────────────────┐
+│ Gate A — Fast Automated Gate (Headless)                │
+│ tools/quality.ps1 -Mode Fast                           │
+│ - C++ clang-format & C# format check                   │
+│ - C++ Debug build & C# Debug build                     │
+│ - C++ Core Engine & Protocol CTest (26 tests)          │
+│ - .NET 10 xUnit tests (Protocol Fixtures, Store, E2E)  │
+│ - clang-tidy & Clang Static Analyzer                   │
+│ Invariant: 100% Headless, Zero UI Windows, Zero UAC   │
+└───────────────────────────┬────────────────────────────┘
+                            │ PASS
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ Gate B — Full Automated Gate (Headless)                │
+│ tools/quality.ps1 -Mode Full                           │
+│ - Everything in Fast Gate                              │
+│ - MSVC /analyze deep static analysis                   │
+│ - C++ Release x64 build & CTest                        │
+│ - CPack Release portable distribution packaging        │
+│ Invariant: 100% Headless, Zero UI Windows, Zero UAC   │
+└───────────────────────────┬────────────────────────────┘
+                            │ PASS
+                            ▼
+┌────────────────────────────────────────────────────────┐
+│ Gate C — Target-Host Acceptance (Interactive / Live)   │
+│ Live Windows 11 Target Machine Execution               │
+│ - Real UAC elevation & ETW packet capture session      │
+│ - Real DWM backdrop, Acrylic blur, rounded pill shape  │
+│ - WpfSurfaceSpike live host technical validation       │
+│ - Multi-monitor, mixed-DPI & auto-hide taskbar edges   │
+│ - Parent-process watch & clean zero-orphan termination │
+│ - Human Visual Acceptance (Mandatory Gate for polish)  │
+└────────────────────────────────────────────────────────┘
+```
+
+### 2. Headless Automated Quality Gate Invariant
+
+`tools/quality.ps1 -Mode Fast` and `tools/quality.ps1 -Mode Full` must be 100% unattended, headless automated quality gates. During execution, the following are strictly prohibited:
+- Spawning legacy C++ Win32 monitor or settings windows
+- Spawning new WPF `DockCapsuleWindow`, `MonitorPanelWindow`, or `SettingsWindow`
+- Displaying native context menus
+- Moving the operating system cursor (`SetCursorPos`) or sampling desktop DC pixels (`GetDC`/`GetPixel`)
+- Waiting for mouse, keyboard, or window close input
+- Prompting for UAC administrator elevation
+- Requiring human visual inspection
+
+### 3. Legacy UI Test Retirement Policy
+
+- **Interactive Legacy UI Tests Retired**: Tests that create visible HWNDs, run Win32 message loops, or manipulate desktop cursors (`ui_window_logic_tests`, `ui_controller_tests`, `ui_integration_smoke_tests`, `ui_settings_window_tests`) are retired and removed from active CTest registration.
+- **Pure Reusable Legacy UI Tests Isolated**: Remaining legacy UI tests are tagged with label `legacy-ui` and excluded from automated gates (`-LE legacy-ui|interactive|requires-admin`).
+- **Core C++ Tests Preserved**: All 26 core engine, ETW decoder, process tracker, identity resolver, sliding-window ranking, and IPC protocol/server tests remain mandatory and 100% passing.
+- **Legacy Source Final Cleanup**: Legacy `src/ui/` production source is deleted in Milestone 05 only after 01–04 completion, green Fast/Full gates, accepted `WpfSurfaceSpike`, and accepted Target-Host Acceptance.
+
+### 4. WPF UI Testing Philosophy
+
+The automated testing focus for .NET WPF is **deterministic pure state and math verification**, not fragile pixel UI automation:
+- Complex interaction logic is concentrated into `MonitorBehaviorModel`, `TelemetryStore`, `ViewModels`, pure rate-to-fill logarithms, color interpolation math, and layout geometry algorithms.
+- Ordinary `dotnet test` executes headlessly in hundreds of milliseconds without calling `Show()`, `ShowDialog()`, `Dispatcher.Run()`, or `Thread.Sleep()`.
+- Production visual quality (fluid gradient transitions, 350 ms hover feel, Acrylic backdrop, rounded corners, multi-DPI aesthetics) is certified through live **Target-Host Acceptance & Human Visual Review**, not automated unit tests.
 
 ### Test Suites
 
-| Test Suite | Framework | Target of Test | Prior Art in Codebase |
+| Test Suite | Framework | Target of Test | Execution Tier |
 | :--- | :--- | :--- | :--- |
-| **C++ Core Engine Tests** | C++20 / CTest | ETW decoder, process tracker, sliding-window rate tracking, 12-byte IPC framing, parent-watch lifecycle. | `ranking_engine_tests.cpp`, `ipc_frame_codec_tests.cpp` |
-| **Protocol Fixture Tests** | C++ & C# xUnit | 12-byte header, magic validation, 256 KiB cap, `Hello`, `HelloAck`, `TrafficTick`, `RankingSnapshot`, `CollectorStatus`, `ShutdownRequest`. | `ipc_snapshot_codec_tests.cpp` |
-| **MonitorBehaviorModel Tests** | C# / xUnit | Pure state transitions: `TrayOnly` $\leftrightarrow$ `CapsuleVisible` $\leftrightarrow$ `PanelVisible`, hover, click, drag threshold, drag cancel, Pin, auto-hide, fullscreen yield, disconnect/reconnect. | `monitor_panel_behavior_tests.cpp` |
-| **Animation & Math Tests** | C# / xUnit | Pure rate-to-fill log mapping, color channel interpolation, attack/decay curves, retargeting from in-flight values. | `ui_appearance_tests.cpp` |
-| **Automated Hybrid E2E Test** | C++ Test Daemon + C# Client | Real Named Pipe launch, 12-byte framing, 4 Hz stream ingestion into `TelemetryStore`, instance reset, clean exit (No UAC/ETW required). | `ipc_server_integration_tests.cpp` |
-| **Target-Host Acceptance Test** | Live Win11 Runner | Elevated portable collector, real ETW packet stream, WPF dock capsule visually fluid animation without 250 ms stepping, DWM backdrop, multi-DPI snapping, clean parent-watch termination. | `portable-acceptance.ps1` |
+| **C++ Core Engine Tests** | C++20 / CTest | ETW decoder, process tracker, sliding-window rate tracking, 12-byte IPC framing, parent-watch lifecycle. | Gate A & B (Headless) |
+| **Protocol Fixture Tests** | C++ & C# xUnit | 12-byte header, magic validation, 256 KiB cap, `Hello`, `HelloAck`, `TrafficTick`, `RankingSnapshot`, `CollectorStatus`, `ShutdownRequest`. | Gate A & B (Headless) |
+| **MonitorBehaviorModel Tests** | C# / xUnit | Pure state transitions: `TrayOnly` $\leftrightarrow$ `CapsuleVisible` $\leftrightarrow$ `PanelVisible`, hover, click, drag threshold, drag cancel, Pin, auto-hide, fullscreen yield, disconnect/reconnect. | Gate A & B (Headless) |
+| **Animation & Math Tests** | C# / xUnit | Pure rate-to-fill log mapping, color channel interpolation, attack/decay curves, retargeting from in-flight values. | Gate A & B (Headless) |
+| **Automated Hybrid E2E Test** | C# xUnit | In-memory Named Pipe launch, 12-byte framing, 4 Hz stream ingestion into `TelemetryStore`, instance reset, clean exit (No UAC/ETW required). | Gate A & B (Headless) |
+| **WpfSurfaceSpike** | C# WPF Spike App | Live Windows 11 DWM backdrop, Acrylic blur, `AllowsTransparency=False`, corner rounding, pill silhouette. | Gate C (Live Host) |
+| **Target-Host Acceptance Test** | Live Win11 Runner | Elevated portable collector, real ETW packet stream, WPF dock capsule visually fluid animation without 250 ms stepping, DWM backdrop, multi-DPI snapping, clean parent-watch termination, human visual pass. | Gate C (Live Host) |
 
 ## Out of Scope
 

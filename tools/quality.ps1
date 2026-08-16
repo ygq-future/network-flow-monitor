@@ -189,10 +189,13 @@ Invoke-QualityPhase -Name 'Build Debug' -LogName 'debug-build' -Action {
     Invoke-Native -FilePath $cmake -ArgumentList (@('--build', '--preset', 'windows-x64-debug') + $buildArguments)
 }
 Invoke-QualityPhase -Name 'Test Debug' -LogName 'debug-test' -Action {
-    $ctestArguments = @('-E', 'chdir', 'build/windows-x64-debug', 'ctest', '--output-on-failure')
-    if ($Mode -eq 'Fast') {
-        $ctestArguments += @('-LE', 'requires-admin')
-    }
+    # Automated quality gates are strictly headless and non-interactive.
+    # Exclude legacy C++ UI tests, interactive window tests, and UAC-triggering admin tests.
+    $ctestArguments = @(
+        '-E', 'chdir', 'build/windows-x64-debug',
+        'ctest', '--output-on-failure',
+        '-LE', 'legacy-ui|interactive|requires-admin'
+    )
     Invoke-Native -FilePath $cmake -ArgumentList $ctestArguments
 }
 
@@ -243,9 +246,12 @@ if ($Mode -eq 'Full') {
         Invoke-Native -FilePath $cmake -ArgumentList (@('--build', '--preset', 'windows-x64-release') + $buildArguments)
     }
     Invoke-QualityPhase -Name 'Test Release x64' -LogName 'release-test' -Action {
-        Invoke-Native -FilePath $cmake -ArgumentList @(
-            '-E', 'chdir', 'build/windows-x64-release', 'ctest', '--output-on-failure'
+        $ctestArguments = @(
+            '-E', 'chdir', 'build/windows-x64-release',
+            'ctest', '--output-on-failure',
+            '-LE', 'legacy-ui|interactive|requires-admin'
         )
+        Invoke-Native -FilePath $cmake -ArgumentList $ctestArguments
     }
     Invoke-QualityPhase -Name 'Package Release x64' -LogName 'package' -Action {
         Invoke-Native -FilePath $cpack -ArgumentList @(

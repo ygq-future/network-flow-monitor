@@ -174,6 +174,7 @@ class OverlappedPipeOperation {
     HANDLE event_{};
     OVERLAPPED operation_{};
     PipeIoState state_{PipeIoState::Idle};
+    bool cancel_submitted_{};
     PipeIoResult initialization_result_{};
     PipeIoResult completed_result_{};
 };

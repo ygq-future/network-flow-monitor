@@ -18,3 +18,16 @@ Deliver the complete, production-grade visual experience for the dock capsule an
 - [ ] Application icons are extracted asynchronously via `SHGetFileInfo`, cached in memory with explicit `HICON` ownership / `DestroyIcon` GDI cleanup, and use consistent fallback icons for inaccessible/system processes without shifting row geometry.
 - [ ] Over-tall ranking viewport scrolls smoothly via mouse wheel, touchpad, and keyboard while keeping the header row pinned; application names ellipsize without widening the card.
 - [ ] Shared native context menu renders dynamic Show/Hide Monitor items based on `TrayOnly` / visible state, Pin toggle (disabled with retained check when auto-hide is off, emits `EffectIntent.PersistPin`), pause-dismiss on open, and Settings forward activation.
+- [ ] **Live-Host Human Visual Acceptance (Mandatory Gate)**: Production WPF visual quality requires live Target-Host Acceptance. Automated unit tests prove state, math, and contracts, but do not certify visual polish. Ticket 04 is only complete after running real `NetworkFlowMonitor.exe` and human passes visual/interaction evaluation for:
+  - Capsule 350ms hover reveal feel
+  - Capsule click reveal immediate transition
+  - Auto-hide 500ms dismiss smoothness and mid-flight re-entry reversal
+  - Dragging smoothness across display edges
+  - Fluid rate fill animation without 250ms stepping
+  - Continuous RGB gradient color transitions
+  - Ranking row reordering animation feel
+  - Shared context menu presentation and dismiss pausing
+  - Compact 340 DIP card layout and typography alignment
+  - DWM backdrop material and Windows 11 rounded corners
+  - Theme switching (System, Light, Dark)
+  - Language switching (System, English, Simplified Chinese)

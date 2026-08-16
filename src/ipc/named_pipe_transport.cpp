@@ -245,12 +245,15 @@ PipeIoResult OverlappedPipeOperation::Complete() noexcept {
     }
     if (state_ == PipeIoState::Completed) {
         state_ = PipeIoState::Idle;
+        cancel_submitted_ = false;
         return completed_result_;
     }
     DWORD transferred{};
     std::uint32_t error{};
-    const bool succeeded = api_.GetOperationResult(pipe_, &operation_, transferred, true, error);
+    const bool wait = (state_ != PipeIoState::CancelRequested) || cancel_submitted_;
+    const bool succeeded = api_.GetOperationResult(pipe_, &operation_, transferred, wait, error);
     state_ = PipeIoState::Idle;
+    cancel_submitted_ = false;
     return succeeded ? PipeIoResult{.transferred = transferred} : ClassifyWindowsError(error);
 }
 
@@ -266,7 +269,13 @@ PipeIoResult OverlappedPipeOperation::RequestCancel() noexcept {
     }
     std::uint32_t error{};
     const bool succeeded = api_.Cancel(pipe_, &operation_, error);
-    if (succeeded || error == ERROR_NOT_FOUND) {
+    if (succeeded) {
+        cancel_submitted_ = true;
+        state_ = PipeIoState::CancelRequested;
+        return {.win32_error = ERROR_SUCCESS, .pending = true};
+    }
+    if (error == ERROR_NOT_FOUND) {
+        cancel_submitted_ = false;
         state_ = PipeIoState::CancelRequested;
         return {.win32_error = error, .pending = true};
     }

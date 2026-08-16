@@ -18,5 +18,12 @@ Deliver the Fluent Settings control center covering all public user configuratio
 - [ ] Portable companion lifecycle: UI launches `nfm-collector.exe` via UAC on cold start; collector monitors UI parent process handle via `WaitForSingleObject` and exits immediately on UI close or crash; 3-second reconnect grace period cleans up collector if pipe disconnects while UI lives.
 - [ ] System tray icon integrates with shared context menu and application lifecycle.
 - [ ] `tools/quality.ps1` updated as the unified quality gate compiling C++20 and .NET 10, running cross-language protocol tests, unit tests, and producing `dist/NetworkFlowMonitor-<version>-win-x64-portable.zip`.
-- [ ] Full Target-Host Acceptance test passes on a live Windows 11 environment without installation or lingering background processes.
-- [ ] Architecture Gate 7 passed: legacy C++ Win32/Direct2D UI source in `src/ui/` is cleanly removed, and the final repository builds and tests 100% green.
+- [ ] Full Target-Host Acceptance test passes on a live Windows 11 environment (human visual acceptance, real UAC, real ETW, live SCM/portable lifecycle) without installation or lingering background processes.
+- [ ] **Legacy C++ UI Source Retirement & Final Quality Cleanliness**: Final deletion of `src/ui/` legacy C++ UI production source is strictly gated upon:
+  1. Milestones 01–04 implementation complete
+  2. Automated Fast quality gate green (headless)
+  3. Automated Full release quality gate green (headless)
+  4. `WpfSurfaceSpike` accepted on live Windows 11 host
+  5. Target-Host Acceptance accepted by human reviewer
+  - Upon all 5 conditions met, delete remaining `src/ui/` legacy source, obsolete CMake targets, obsolete legacy UI resources, and remaining legacy-only test assets.
+  - Finally rerun Fast and Full quality gates to certify that the repository compiles, tests, and packages 100% green without any legacy C++ UI dependencies.

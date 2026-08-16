@@ -65,9 +65,9 @@ std::vector<std::byte> CurrentUserSid() {
 }
 
 AuthorizedPrincipal Principal() {
-    return {.mode = CollectorEndpointMode::Service,
-            .authorized_sid = CurrentUserSid(),
-            .server_logon_sid = {}};
+    const auto sid = CurrentUserSid();
+    return {
+        .mode = CollectorEndpointMode::Portable, .authorized_sid = sid, .server_logon_sid = sid};
 }
 
 class FakeProvider final : public SnapshotProvider {

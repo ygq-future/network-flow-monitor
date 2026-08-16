@@ -11,7 +11,7 @@ namespace NetworkFlowMonitor.Ipc;
 
 public class NamedPipeClient : IAsyncDisposable
 {
-    private readonly string _pipeName;
+    private readonly string? _explicitPipeName;
     private readonly TelemetryStore _store;
     private readonly CancellationTokenSource _cts = new();
     private Task? _workerTask;
@@ -20,13 +20,63 @@ public class NamedPipeClient : IAsyncDisposable
     public NamedPipeClient(TelemetryStore store, string? pipeName = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _pipeName = pipeName ?? GetDefaultPipeName();
+        _explicitPipeName = pipeName;
+    }
+
+    public static string[] GetCandidatePipeNames()
+    {
+        var candidates = new System.Collections.Generic.List<string>();
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var files = Directory.GetFiles(@"\\.\pipe\", "NetworkFlowMonitor.*");
+                foreach (var file in files)
+                {
+                    var name = Path.GetFileName(file);
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        candidates.Add(name);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+
+        try
+        {
+            var identity = WindowsIdentity.GetCurrent();
+            if (identity.Groups != null)
+            {
+                foreach (var group in identity.Groups)
+                {
+                    if (group.Value.StartsWith("S-1-5-5-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidates.Add($"NetworkFlowMonitor.portable.{group.Value}");
+                    }
+                }
+            }
+            if (identity.User != null)
+            {
+                candidates.Add($"NetworkFlowMonitor.portable.{identity.User.Value}");
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+
+        candidates.Add("NetworkFlowMonitor.service.S-1-5-32-545");
+        return [.. candidates];
     }
 
     public static string GetDefaultPipeName()
     {
-        var sid = WindowsIdentity.GetCurrent().User?.Value ?? "S-1-5-18";
-        return $"NetworkFlowMonitor.portable.{sid}";
+        var candidates = GetCandidatePipeNames();
+        return candidates.Length > 0 ? candidates[0] : "NetworkFlowMonitor.portable.S-1-5-18";
     }
 
     public void Start()
@@ -78,15 +128,39 @@ public class NamedPipeClient : IAsyncDisposable
             {
                 _store.UpdateConnection(CollectorConnectionState.Connecting);
 
-                var pipe = new NamedPipeClientStream(
-                    ".",
-                    _pipeName,
-                    PipeDirection.InOut,
-                    PipeOptions.Asynchronous | PipeOptions.WriteThrough);
+                var candidatePipes = _explicitPipeName != null ? [_explicitPipeName] : GetCandidatePipeNames();
+                NamedPipeClientStream? connectedPipe = null;
 
-                _pipeStream = pipe;
+                foreach (var candidate in candidatePipes)
+                {
+                    try
+                    {
+                        var pipe = new NamedPipeClientStream(
+                            ".",
+                            candidate,
+                            PipeDirection.InOut,
+                            PipeOptions.Asynchronous | PipeOptions.WriteThrough);
 
-                await pipe.ConnectAsync(3000, ct).ConfigureAwait(false);
+                        await pipe.ConnectAsync(500, ct).ConfigureAwait(false);
+                        connectedPipe = pipe;
+                        break;
+                    }
+                    catch
+                    {
+                        // Try next candidate
+                    }
+                }
+
+                if (connectedPipe == null)
+                {
+                    _store.UpdateConnection(CollectorConnectionState.Offline);
+                    await Task.Delay(retryDelay, ct).ConfigureAwait(false);
+                    retryDelay = TimeSpan.FromMilliseconds(Math.Min(retryDelay.TotalMilliseconds * 2, maxRetryDelay.TotalMilliseconds));
+                    continue;
+                }
+
+                var pipeStream = connectedPipe;
+                _pipeStream = pipeStream;
 
                 // Handshake: Send Hello
                 var hello = new HelloMessage(
@@ -95,8 +169,8 @@ public class NamedPipeClient : IAsyncDisposable
                     ClientName: "NetworkFlowMonitor.Ui"
                 );
                 var helloBytes = ProtocolV1Codec.EncodeMessage(MessageType.Hello, hello);
-                await pipe.WriteAsync(helloBytes, ct).ConfigureAwait(false);
-                await pipe.FlushAsync(ct).ConfigureAwait(false);
+                await pipeStream.WriteAsync(helloBytes, ct).ConfigureAwait(false);
+                await pipeStream.FlushAsync(ct).ConfigureAwait(false);
 
                 // Read Loop
                 var headerBuffer = new byte[ProtocolConstants.HeaderSize];
@@ -104,9 +178,9 @@ public class NamedPipeClient : IAsyncDisposable
 
                 retryDelay = TimeSpan.FromMilliseconds(250); // Reset on successful connect
 
-                while (!ct.IsCancellationRequested && pipe.IsConnected)
+                while (!ct.IsCancellationRequested && pipeStream.IsConnected)
                 {
-                    await pipe.ReadExactlyAsync(headerBuffer.AsMemory(0, ProtocolConstants.HeaderSize), ct).ConfigureAwait(false);
+                    await pipeStream.ReadExactlyAsync(headerBuffer.AsMemory(0, ProtocolConstants.HeaderSize), ct).ConfigureAwait(false);
 
                     if (!ProtocolV1Codec.TryDecodeHeader(headerBuffer, out var header, out var errorCode) || errorCode != ProtocolErrorCode.None)
                     {
@@ -121,7 +195,7 @@ public class NamedPipeClient : IAsyncDisposable
                     var payloadMemory = payloadBuffer.AsMemory(0, (int)header.PayloadLength);
                     if (header.PayloadLength > 0)
                     {
-                        await pipe.ReadExactlyAsync(payloadMemory, ct).ConfigureAwait(false);
+                        await pipeStream.ReadExactlyAsync(payloadMemory, ct).ConfigureAwait(false);
                     }
 
                     switch (header.MessageType)

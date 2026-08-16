@@ -1,31 +1,28 @@
 #ifndef NETWORK_FLOW_MONITOR_IPC_PROTOCOL_TYPES_H
 #define NETWORK_FLOW_MONITOR_IPC_PROTOCOL_TYPES_H
 
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <variant>
+#include <string>
 #include <vector>
 
 namespace nfm::ipc {
 
-inline constexpr std::uint32_t kFrameMagic = 0x314D464EU;
-inline constexpr std::uint16_t kFrameHeaderSize = 24U;
+inline constexpr std::uint32_t kFrameMagic = 0x314D464EU; // "NFM1" in little-endian
+inline constexpr std::uint16_t kFrameHeaderSize = 12U;
 inline constexpr std::uint16_t kCurrentProtocolVersion = 1U;
-inline constexpr std::uint32_t kMaximumFramePayload = 1'048'576U;
+inline constexpr std::uint32_t kMaximumFramePayload = 262'144U; // 256 KiB
 
-enum class MessageType : std::uint8_t {
-    ClientHello = 1,
-    ServerHello = 2,
-    Subscribe = 3,
-    SubscriptionAccepted = 4,
-    ApplicationCatalog = 5,
-    Snapshot = 6,
-    CollectorStatus = 7,
-    ProtocolError = 8,
+// NOLINTNEXTLINE(performance-enum-size): Wire header specifies a fixed 16-bit message type.
+enum class MessageType : std::uint16_t {
+    Hello = 1,
+    HelloAck = 2,
+    TrafficTick = 3,
+    RankingSnapshot = 4,
+    CollectorStatus = 5,
+    ShutdownRequest = 6,
 };
 
 enum class ProtocolErrorCode : std::uint8_t {
@@ -34,16 +31,13 @@ enum class ProtocolErrorCode : std::uint8_t {
     UnsupportedHeader = 2,
     VersionMismatch = 3,
     UnknownMessageType = 4,
-    InvalidFlags = 5,
-    PayloadTooLarge = 6,
-    MalformedPayload = 7,
-    InvalidUtf8 = 8,
-    InvalidSubscription = 9,
-    UnexpectedMessage = 10,
-    CatalogOutOfOrder = 11,
-    Unauthorized = 12,
-    ServerBusy = 13,
-    InternalFailure = 14,
+    PayloadTooLarge = 5,
+    MalformedPayload = 6,
+    InvalidUtf8 = 7,
+    Unauthorized = 8,
+    UnexpectedMessage = 9,
+    ServerBusy = 10,
+    InternalFailure = 11,
 };
 
 enum class FrameParseStatus : std::uint8_t {
@@ -52,24 +46,12 @@ enum class FrameParseStatus : std::uint8_t {
     Rejected,
 };
 
-enum class MessageDirection : std::uint8_t {
-    ClientToServer,
-    ServerToClient,
-};
-
 struct FrameHeader {
-    std::uint16_t protocol_version{};
-    MessageType message_type{MessageType::ClientHello};
-    std::uint64_t request_id{};
+    std::uint16_t protocol_version{kCurrentProtocolVersion};
+    MessageType message_type{MessageType::Hello};
     std::uint32_t payload_length{};
 
     bool operator==(const FrameHeader&) const = default;
-};
-
-struct CollectorInstanceId {
-    std::array<std::byte, 16> bytes{};
-
-    bool operator==(const CollectorInstanceId&) const = default;
 };
 
 struct FrameView {
@@ -82,52 +64,82 @@ struct OwnedFrame {
     std::vector<std::byte> payload;
 };
 
-struct ClientHello {
-    std::uint16_t minimum_version{};
-    std::uint16_t maximum_version{};
-    std::chrono::milliseconds requested_refresh;
+struct HelloMessage {
+    std::uint32_t client_pid{};
+    std::uint16_t protocol_version{kCurrentProtocolVersion};
+    std::string client_name;
 
-    bool operator==(const ClientHello&) const = default;
+    bool operator==(const HelloMessage&) const = default;
 };
 
-struct ServerHello {
-    std::uint16_t selected_version{};
-    std::uint32_t maximum_frame_payload{};
-    CollectorInstanceId instance;
+struct HelloAckMessage {
+    std::uint16_t protocol_version{kCurrentProtocolVersion};
+    std::string collector_instance_id;
+    std::uint32_t collector_pid{};
+    std::vector<std::string> capabilities;
 
-    bool operator==(const ServerHello&) const = default;
+    bool operator==(const HelloAckMessage&) const = default;
 };
 
-struct Subscribe {
-    std::chrono::milliseconds requested_refresh;
+struct TrafficTickMessage {
+    std::uint64_t seq{};
+    std::uint64_t monotonic_ms{};
+    std::uint64_t download_bytes_per_sec{};
+    std::uint64_t upload_bytes_per_sec{};
 
-    bool operator==(const Subscribe&) const = default;
+    bool operator==(const TrafficTickMessage&) const = default;
 };
 
-struct SubscriptionAccepted {
-    std::chrono::milliseconds effective_refresh;
+struct RankingApplication {
+    std::string id;
+    std::string executable_path;
+    std::string display_name;
+    std::string icon_key;
+    std::uint64_t download_bytes_per_sec{};
+    std::uint64_t upload_bytes_per_sec{};
 
-    bool operator==(const SubscriptionAccepted&) const = default;
+    bool operator==(const RankingApplication&) const = default;
 };
 
-struct ProtocolErrorMessage {
-    ProtocolErrorCode code{ProtocolErrorCode::None};
-    std::uint8_t retry_disposition{};
-    std::uint16_t server_minimum_version{};
-    std::uint16_t server_maximum_version{};
-    std::uint32_t win32_error{};
+struct TotalRate {
+    std::uint64_t download_bytes_per_sec{};
+    std::uint64_t upload_bytes_per_sec{};
 
-    bool operator==(const ProtocolErrorMessage&) const = default;
+    bool operator==(const TotalRate&) const = default;
 };
 
-using ControlMessage =
-    std::variant<ClientHello, ServerHello, Subscribe, SubscriptionAccepted, ProtocolErrorMessage>;
+struct RankingSnapshotMessage {
+    std::uint64_t seq{};
+    std::uint64_t monotonic_ms{};
+    std::string status{"Ready"};
+    TotalRate total_rate;
+    std::vector<RankingApplication> applications;
+
+    bool operator==(const RankingSnapshotMessage&) const = default;
+};
+
+struct CollectorStatusMessage {
+    std::uint64_t monotonic_ms{};
+    bool etw_session_active{true};
+    std::uint64_t dropped_packets{};
+    std::uint32_t active_pids{};
+
+    bool operator==(const CollectorStatusMessage&) const = default;
+};
+
+struct ShutdownRequestMessage {
+    std::string reason{"ui_exit"};
+
+    bool operator==(const ShutdownRequestMessage&) const = default;
+};
 
 struct FrameEncodeResult {
     ProtocolErrorCode error{ProtocolErrorCode::None};
     std::vector<std::byte> bytes;
 
-    [[nodiscard]] bool ok() const noexcept;
+    [[nodiscard]] bool ok() const noexcept {
+        return error == ProtocolErrorCode::None;
+    }
 };
 
 struct FrameParseResult {
@@ -138,11 +150,13 @@ struct FrameParseResult {
     std::optional<OwnedFrame> frame;
 };
 
-struct ControlDecodeResult {
+template <typename T> struct MessageDecodeResult {
     ProtocolErrorCode error{ProtocolErrorCode::None};
-    std::optional<ControlMessage> message;
+    std::optional<T> message;
 
-    [[nodiscard]] bool ok() const noexcept;
+    [[nodiscard]] bool ok() const noexcept {
+        return error == ProtocolErrorCode::None && message.has_value();
+    }
 };
 
 } // namespace nfm::ipc

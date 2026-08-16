@@ -3,7 +3,6 @@
 
 #include "network_flow_monitor/ipc/frame_codec.h"
 #include "network_flow_monitor/ipc/named_pipe_transport.h"
-#include "network_flow_monitor/ipc/snapshot_codec.h"
 #include "network_flow_monitor/ipc/windows_pipe_security.h"
 
 #include <windows.h>
@@ -15,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace nfm::ipc {
@@ -22,20 +22,6 @@ namespace nfm::ipc {
 inline constexpr std::size_t kMaximumIpcClients = 4U;
 inline constexpr auto kHandshakeTimeout = std::chrono::seconds{3};
 inline constexpr auto kWriteTimeout = std::chrono::seconds{5};
-
-struct ClientSubscription {
-    std::uint64_t client_id{};
-    std::chrono::milliseconds refresh_interval{};
-};
-
-struct PublishedSnapshot {
-    SnapshotMessage message;
-    std::vector<CatalogEntry> latest_changes;
-    std::vector<CatalogEntry> full_catalog;
-    // Empty means broadcast. A publisher can restrict delivery to clients whose
-    // refresh deadlines have elapsed without changing the wire payload.
-    std::vector<std::uint64_t> recipient_client_ids;
-};
 
 enum class IpcServerError : std::uint8_t {
     None,
@@ -55,6 +41,34 @@ struct IpcServerResult {
     [[nodiscard]] bool ok() const noexcept;
 };
 
+enum class IpcServerState : std::uint8_t {
+    Stopped,
+    Starting,
+    Running,
+    Degraded,
+    Failed,
+};
+
+struct IpcServerHealth {
+    IpcServerState state{IpcServerState::Stopped};
+    std::uint8_t active_clients{};
+    std::uint32_t last_win32_error{};
+    std::uint64_t accepted_connections{};
+    std::uint64_t unauthorized_connections{};
+    std::uint64_t protocol_errors{};
+    std::uint64_t frames_received{};
+    std::uint64_t frames_sent{};
+    std::uint64_t bytes_received{};
+    std::uint64_t bytes_sent{};
+    std::uint64_t ticks_published{};
+    std::uint64_t snapshots_published{};
+    std::uint64_t slow_client_disconnects{};
+    std::uint64_t cancellation_failures{};
+    std::uint64_t internal_failures{};
+
+    bool operator==(const IpcServerHealth&) const = default;
+};
+
 class ClientSessionObserver {
   public:
     ClientSessionObserver() = default;
@@ -64,13 +78,12 @@ class ClientSessionObserver {
     ClientSessionObserver& operator=(ClientSessionObserver&&) = delete;
     virtual ~ClientSessionObserver() = default;
 
-    virtual void SubscriptionChanged(ClientSubscription subscription) noexcept = 0;
+    virtual void ClientConnected(std::uint64_t client_id, const HelloMessage& hello) noexcept = 0;
     virtual void ClientDisconnected(std::uint64_t client_id) noexcept = 0;
 };
 
 enum class ClientSessionState : std::uint8_t {
     AwaitingHello,
-    AwaitingAuthorization,
     Streaming,
     Closing,
     Closed,
@@ -81,7 +94,7 @@ enum class ClientSessionError : std::uint8_t {
     InvalidState,
     Protocol,
     Unauthorized,
-    InvalidSnapshot,
+    InvalidPayload,
     InternalFailure,
 };
 
@@ -92,54 +105,35 @@ struct ClientSessionResult {
     [[nodiscard]] bool ok() const noexcept;
 };
 
-// Pure protocol and mailbox state. It owns no Windows handles and is used by the
-// worker and by deterministic tests alike.
 class ClientSessionProtocol final {
   public:
-    ClientSessionProtocol(std::uint64_t client_id, CollectorInstanceId instance);
+    ClientSessionProtocol(std::uint64_t client_id, std::string collector_instance_id);
 
-    [[nodiscard]] ClientSessionResult Receive(FrameView frame, bool authorized) noexcept;
-    [[nodiscard]] ClientSessionResult QueueSnapshot(
-        const std::shared_ptr<const PublishedSnapshot>& snapshot) noexcept;
-    [[nodiscard]] ClientSessionResult QueueStatus(
-        const std::shared_ptr<const CollectorStatusMessage>& status) noexcept;
+    [[nodiscard]] ClientSessionResult Receive(FrameView frame, bool authorized,
+                                              std::uint32_t actual_client_pid) noexcept;
+    [[nodiscard]] ClientSessionResult QueueTrafficTick(const TrafficTickMessage& tick) noexcept;
+    [[nodiscard]] ClientSessionResult QueueRankingSnapshot(
+        const RankingSnapshotMessage& snapshot) noexcept;
+    [[nodiscard]] ClientSessionResult QueueCollectorStatus(
+        const CollectorStatusMessage& status) noexcept;
 
     [[nodiscard]] ClientSessionState state() const noexcept;
     [[nodiscard]] std::uint64_t client_id() const noexcept;
-    [[nodiscard]] std::chrono::milliseconds refresh_interval() const noexcept;
+    [[nodiscard]] const HelloMessage& hello_message() const noexcept;
     [[nodiscard]] const OwnedFrame* StartNextFrame() noexcept;
     [[nodiscard]] const OwnedFrame* active_frame() const noexcept;
     [[nodiscard]] ClientSessionResult CompleteActiveFrame() noexcept;
     void Close() noexcept;
 
   private:
-    struct QueuedFrame {
-        OwnedFrame frame;
-        std::uint64_t catalog_sequence{};
-        bool final_catalog_chunk{};
-    };
-
-    [[nodiscard]] ClientSessionResult ProtocolFailure(ProtocolErrorCode error,
-                                                      std::uint64_t request_id) noexcept;
-    [[nodiscard]] ClientSessionResult QueueWireFrame(std::vector<std::byte> wire) noexcept;
-    [[nodiscard]] ClientSessionResult QueueEncodedFrame(MessageType type,
-                                                        std::vector<std::byte> payload) noexcept;
-    [[nodiscard]] ClientSessionResult BuildSnapshotFrames(
-        const PublishedSnapshot& snapshot) noexcept;
-    [[nodiscard]] ClientSessionResult BuildStatusFrame(
-        const CollectorStatusMessage& status) noexcept;
-    void PromotePendingSnapshot() noexcept;
+    [[nodiscard]] ClientSessionResult QueueEncodedFrame(FrameEncodeResult encoded) noexcept;
 
     std::uint64_t client_id_{};
-    CollectorInstanceId instance_{};
+    std::string collector_instance_id_;
     ClientSessionState state_{ClientSessionState::AwaitingHello};
-    std::chrono::milliseconds refresh_interval_{};
-    std::uint64_t known_catalog_sequence_{};
-    std::deque<QueuedFrame> queued_frames_;
-    std::optional<QueuedFrame> active_frame_;
-    std::shared_ptr<const PublishedSnapshot> pending_snapshot_;
-    std::shared_ptr<const CollectorStatusMessage> pending_status_;
-    bool protocol_error_sent_{};
+    HelloMessage hello_message_{};
+    std::deque<OwnedFrame> queued_frames_;
+    std::optional<OwnedFrame> active_frame_;
 };
 
 class ClientAuthorizer {
@@ -166,9 +160,9 @@ class WindowsClientAuthorizer final : public ClientAuthorizer {
 
 class IpcServer final {
   public:
-    IpcServer(CollectorInstanceId instance, AuthorizedPrincipal principal,
+    IpcServer(std::string collector_instance_id, AuthorizedPrincipal principal,
               PipeTransportFactory& transport_factory);
-    IpcServer(CollectorInstanceId instance, AuthorizedPrincipal principal,
+    IpcServer(std::string collector_instance_id, AuthorizedPrincipal principal,
               PipeTransportFactory& transport_factory, ClientAuthorizer& authorizer);
     ~IpcServer();
     IpcServer(const IpcServer&) = delete;
@@ -176,11 +170,15 @@ class IpcServer final {
     IpcServer(IpcServer&&) = delete;
     IpcServer& operator=(IpcServer&&) = delete;
 
-    [[nodiscard]] IpcServerResult SetSubscriptionObserver(ClientSessionObserver& observer) noexcept;
+    [[nodiscard]] IpcServerResult SetSessionObserver(ClientSessionObserver& observer) noexcept;
+    [[nodiscard]] IpcServerResult SetSubscriptionObserver(
+        ClientSessionObserver& observer) noexcept {
+        return SetSessionObserver(observer);
+    }
     [[nodiscard]] IpcServerResult Start();
-    [[nodiscard]] IpcServerResult Publish(std::shared_ptr<const PublishedSnapshot> snapshot);
-    [[nodiscard]] IpcServerResult PublishStatus(
-        std::shared_ptr<const CollectorStatusMessage> status);
+    [[nodiscard]] IpcServerResult PublishTrafficTick(const TrafficTickMessage& tick);
+    [[nodiscard]] IpcServerResult PublishRankingSnapshot(const RankingSnapshotMessage& snapshot);
+    [[nodiscard]] IpcServerResult PublishCollectorStatus(const CollectorStatusMessage& status);
     [[nodiscard]] IpcServerResult Stop() noexcept;
     [[nodiscard]] IpcServerHealth health() const noexcept;
 

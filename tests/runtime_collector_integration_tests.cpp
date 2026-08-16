@@ -48,9 +48,7 @@ void CheckPrincipal(TestContext& context) {
 void CheckInstanceIdentity(TestContext& context) {
     const auto first = nfm::app::CreateCollectorInstanceId();
     const auto second = nfm::app::CreateCollectorInstanceId();
-    context.Check(first != nfm::ipc::CollectorInstanceId{} &&
-                      second != nfm::ipc::CollectorInstanceId{},
-                  "runtime instances are non-zero");
+    context.Check(!first.empty() && !second.empty(), "runtime instances are non-empty");
     context.Check(first != second, "successive runtime instances are distinct");
 }
 

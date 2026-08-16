@@ -54,7 +54,7 @@ CollectorHostResult CollectorHost::Start() noexcept {
     state_ = CollectorHostState::Starting;
     last_error_ = CollectorHostError::None;
     last_source_error_ = 0U;
-    const auto observer = server_->SetSubscriptionObserver(*publisher_);
+    const auto observer = server_->SetSessionObserver(*publisher_);
     if (!observer.ok()) {
         return Fail(CollectorHostError::SubscriptionObserverFailed, observer.win32_error);
     }

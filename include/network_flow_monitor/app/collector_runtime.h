@@ -24,7 +24,7 @@ struct CollectorPrincipalResult {
 
 [[nodiscard]] CollectorPrincipalResult BuildCollectorPrincipal(
     ipc::CollectorEndpointMode mode) noexcept;
-[[nodiscard]] ipc::CollectorInstanceId CreateCollectorInstanceId() noexcept;
+[[nodiscard]] std::string CreateCollectorInstanceId();
 
 class CollectorRuntime final : public service::ServiceHost {
   public:
@@ -45,7 +45,7 @@ class CollectorRuntime final : public service::ServiceHost {
         std::wstring_view stop_event_name = {}) noexcept;
 
   private:
-    ipc::CollectorInstanceId instance_;
+    std::string instance_;
     ipc::AuthorizedPrincipal principal_;
     collector::WindowsEtwApi etw_api_;
     collector::WindowsEtwSession session_;

@@ -19,9 +19,9 @@ using nfm::collector::CollectorState;
 using nfm::ipc::ApplicationHandle;
 using nfm::ipc::CatalogChunk;
 using nfm::ipc::CatalogEntry;
-using nfm::ipc::CollectorStatusMessage;
 using nfm::ipc::IpcServerHealth;
 using nfm::ipc::IpcServerState;
+using nfm::ipc::LegacyCollectorStatusMessage;
 using nfm::ipc::SnapshotCodecError;
 using nfm::ipc::SnapshotMessage;
 
@@ -294,24 +294,20 @@ void CheckCatalogRoundTripsAndBounds(TestContext& context) {
         .chunk_index = 0U,
         .chunk_count = 1U,
         .full_baseline = false,
-        .entries = {MakeEntry(2U, 1U, std::string(131'072U, 'a'), std::string(131'072U, 'b')),
+        .entries = {MakeEntry(2U, 1U, std::string(32'768U, 'a'), std::string(32'768U, 'b')),
                     {.handle = ApplicationHandle{1U},
                      .metadata_revision = 3U,
                      .removed = true,
                      .metadata = {}}}};
     const auto max_strings = nfm::ipc::EncodeCatalogChunk(delta);
     context.Check(max_strings.ok() && nfm::ipc::DecodeCatalogChunk(max_strings.payload).ok(),
-                  "131072-byte strings and zero-length removal round trip");
+                  "32768-byte strings and zero-length removal round trip");
 
     std::vector<CatalogEntry> exact_entries;
-    exact_entries.push_back(
-        MakeEntry(1U, 1U, std::string(131'072U, 'a'), std::string(131'072U, 'b')));
-    exact_entries.push_back(
-        MakeEntry(2U, 1U, std::string(131'072U, 'c'), std::string(131'072U, 'd')));
-    exact_entries.push_back(
-        MakeEntry(3U, 1U, std::string(131'072U, 'e'), std::string(131'072U, 'f')));
-    exact_entries.push_back(
-        MakeEntry(4U, 1U, std::string(131'072U, 'g'), std::string(130'952U, 'h')));
+    for (std::uint64_t handle = 1U; handle <= 5U; ++handle) {
+        exact_entries.push_back(
+            MakeEntry(handle, 1U, std::string(26'200U, 'a'), std::string(26'200U, 'b')));
+    }
     const CatalogChunk exact{.sequence = 20U,
                              .chunk_index = 0U,
                              .chunk_count = 1U,
@@ -320,7 +316,7 @@ void CheckCatalogRoundTripsAndBounds(TestContext& context) {
     const auto exact_result = nfm::ipc::EncodeCatalogChunk(exact);
     context.Check(exact_result.ok() &&
                       exact_result.payload.size() == nfm::ipc::kMaximumFramePayload,
-                  "catalog accepts an exact 1 MiB payload");
+                  "catalog accepts an exact 256 KiB payload");
     exact_entries.back().metadata.icon_key.push_back('i');
     const auto oversized = nfm::ipc::EncodeCatalogChunk({.sequence = 20U,
                                                          .chunk_index = 0U,
@@ -328,16 +324,16 @@ void CheckCatalogRoundTripsAndBounds(TestContext& context) {
                                                          .full_baseline = false,
                                                          .entries = exact_entries});
     context.Check(oversized.error == SnapshotCodecError::PayloadTooLarge,
-                  "catalog rejects a payload one byte above 1 MiB");
+                  "catalog rejects a payload one byte above 256 KiB");
 
     std::vector<CatalogEntry> split_entries;
-    for (std::uint64_t handle = 1U; handle <= 4U; ++handle) {
+    for (std::uint64_t handle = 1U; handle <= 6U; ++handle) {
         split_entries.push_back(
-            MakeEntry(handle, 1U, std::string(131'072U, 'x'), std::string(131'072U, 'y')));
+            MakeEntry(handle, 1U, std::string(26'200U, 'x'), std::string(26'200U, 'y')));
     }
     const auto split = nfm::ipc::EncodeCatalog(30U, true, split_entries);
     context.Check(split.ok() && split.payloads.size() == 2U,
-                  "catalog chunker does not split an entry across 1 MiB frames");
+                  "catalog chunker does not split an entry across 256 KiB frames");
     if (split.payloads.size() == 2U) {
         const auto first = nfm::ipc::DecodeCatalogChunk(split.payloads.front());
         const auto second = nfm::ipc::DecodeCatalogChunk(split.payloads.back());
@@ -495,9 +491,9 @@ void CheckSnapshotInvariants(TestContext& context) {
 }
 
 void CheckCollectorStatus(TestContext& context) {
-    const CollectorStatusMessage source{.uptime_microseconds = 44U,
-                                        .collector_health = MakeCollectorHealth(),
-                                        .ipc_health = MakeIpcHealth()};
+    const LegacyCollectorStatusMessage source{.uptime_microseconds = 44U,
+                                              .collector_health = MakeCollectorHealth(),
+                                              .ipc_health = MakeIpcHealth()};
     const auto encoded = nfm::ipc::EncodeCollectorStatus(source);
     const auto decoded = nfm::ipc::DecodeCollectorStatus(encoded.payload);
     if (decoded.message.has_value()) {

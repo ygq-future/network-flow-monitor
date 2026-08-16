@@ -435,49 +435,26 @@ void UiController::DestroyMessageWindow() noexcept {
     }
 }
 
-std::optional<ipc::ClientSnapshot> UiController::TakePendingSnapshot() noexcept {
+std::optional<ipc::TrafficTickMessage> UiController::TakePendingTick() noexcept {
     const std::scoped_lock lock{pending_mutex_};
     pending_message_posted_ = false;
-    if (!pending_snapshot_.has_value()) {
+    if (!pending_tick_.has_value()) {
         return std::nullopt;
     }
-    auto snapshot = std::move(pending_snapshot_);
-    pending_snapshot_.reset();
-    return snapshot;
+    auto tick = *pending_tick_;
+    pending_tick_.reset();
+    return tick;
 }
 
 bool UiController::ProcessPendingSnapshot() noexcept {
-    auto pending = TakePendingSnapshot();
-    if (!pending.has_value() || ranking_engine_ == nullptr) {
+    auto pending = TakePendingTick();
+    if (!pending.has_value()) {
         return false;
     }
 
     try {
-        if (!ranking_instance_.has_value() || *ranking_instance_ != pending->instance) {
-            ranking_instance_ = pending->instance;
-            if (!RecreateRankingEngine()) {
-                return false;
-            }
-            ranking_snapshot_.reset();
-        }
-        const auto result = ranking_engine_->PushSnapshot(pending->counters);
-        if (!result.accepted()) {
-            return false;
-        }
-        ranking_snapshot_ = std::make_shared<ranking::RankingSnapshot>(result.snapshot);
-        const auto ranked_count = ranking_snapshot_->applications.size();
-        auto presentation = MonitorPanelEventKind::RankingReadyRows;
-        auto visible_rows = static_cast<std::uint8_t>(std::min<std::size_t>(ranked_count, 255U));
-        if (ranking_snapshot_->status == ranking::RankingStatus::WarmingUp) {
-            presentation = MonitorPanelEventKind::RankingWarming;
-            visible_rows = 0;
-        } else if (ranked_count == 0U) {
-            presentation = MonitorPanelEventKind::RankingReadyIdle;
-            visible_rows = 0;
-        }
-        HandleMonitorPanelEvent({.kind = presentation, .visible_rows = visible_rows});
         const auto generation = snapshot_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
-        floating_window_.SetSnapshot(ranking_snapshot_, generation);
+        floating_window_.SetSnapshot(nullptr, generation);
         return true;
     } catch (...) {
         memory_error_.store(true, std::memory_order_release);
@@ -513,17 +490,23 @@ void UiController::StateChanged(ipc::IpcClientState state) noexcept {
     }
 }
 
-void UiController::SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept {
+void UiController::HelloAckReceived(ipc::HelloAckMessage /*ack*/) noexcept {}
+
+void UiController::TrafficTickReceived(ipc::TrafficTickMessage tick) noexcept {
     try {
         {
             const std::scoped_lock lock{pending_mutex_};
-            pending_snapshot_ = std::move(snapshot);
+            pending_tick_ = tick;
         }
         PostSnapshotMessage();
     } catch (...) {
         memory_error_.store(true, std::memory_order_release);
     }
 }
+
+void UiController::RankingSnapshotReceived(ipc::RankingSnapshotMessage /*snapshot*/) noexcept {}
+
+void UiController::CollectorStatusReceived(ipc::CollectorStatusMessage /*status*/) noexcept {}
 
 void UiController::OnTrayLeftClick() noexcept {
     HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ToggleVisibility});
@@ -783,8 +766,7 @@ bool UiController::StartCollection() noexcept {
     }
 
     try {
-        ipc_client_ = std::make_unique<ipc::IpcClient>(principal.principal, transport_, *this,
-                                                       config_.display.refresh_interval);
+        ipc_client_ = std::make_unique<ipc::IpcClient>(principal.principal, transport_, *this);
     } catch (...) {
         static_cast<void>(collector_process_.Stop());
         memory_error_.store(true, std::memory_order_release);

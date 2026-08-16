@@ -196,6 +196,10 @@ Invoke-QualityPhase -Name 'Test Debug' -LogName 'debug-test' -Action {
     Invoke-Native -FilePath $cmake -ArgumentList $ctestArguments
 }
 
+Invoke-QualityPhase -Name 'Test .NET 10 WPF & Protocol Fixtures' -LogName 'dotnet-test' -Action {
+    Invoke-Native -FilePath 'dotnet' -ArgumentList @('test', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'), '--configuration', 'Debug', '--verbosity', 'minimal')
+}
+
 $tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
 Invoke-QualityPhase -Name 'Configure clang-tidy and Clang Static Analyzer' -LogName 'tidy-configure' -Action {
     Invoke-Native -FilePath $cmake -ArgumentList @(

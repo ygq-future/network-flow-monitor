@@ -14,7 +14,7 @@
 
 namespace nfm::ipc {
 
-inline constexpr std::size_t kMaximumCatalogStringBytes = 131'072U;
+inline constexpr std::size_t kMaximumCatalogStringBytes = 32'768U;
 inline constexpr std::size_t kMaximumSnapshotApplications = 4'096U;
 inline constexpr std::size_t kCatalogPrefixWireSize = 24U;
 inline constexpr std::size_t kCatalogEntryPrefixWireSize = 24U;
@@ -102,7 +102,7 @@ struct SnapshotMessage {
     std::vector<ApplicationCounterWire> applications;
 };
 
-struct CollectorStatusMessage {
+struct LegacyCollectorStatusMessage {
     std::uint64_t uptime_microseconds{};
     collector::CollectorHealth collector_health;
     IpcServerHealth ipc_health;
@@ -148,7 +148,7 @@ struct SnapshotDecodeResult {
 
 struct CollectorStatusDecodeResult {
     SnapshotCodecError error{SnapshotCodecError::None};
-    std::optional<CollectorStatusMessage> message;
+    std::optional<LegacyCollectorStatusMessage> message;
 
     [[nodiscard]] bool ok() const noexcept;
 };
@@ -163,7 +163,8 @@ struct CollectorStatusDecodeResult {
 [[nodiscard]] SnapshotDecodeResult DecodeSnapshot(std::span<const std::byte> payload,
                                                   const SnapshotMessage& previous);
 
-[[nodiscard]] PayloadEncodeResult EncodeCollectorStatus(const CollectorStatusMessage& message);
+[[nodiscard]] PayloadEncodeResult EncodeCollectorStatus(
+    const LegacyCollectorStatusMessage& message);
 [[nodiscard]] CollectorStatusDecodeResult DecodeCollectorStatus(std::span<const std::byte> payload);
 
 } // namespace nfm::ipc

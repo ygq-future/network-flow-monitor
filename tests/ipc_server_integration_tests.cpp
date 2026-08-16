@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,23 +18,16 @@
 namespace {
 
 using namespace std::chrono_literals;
-using nfm::ipc::ApplicationCounterWire;
-using nfm::ipc::ApplicationHandle;
 using nfm::ipc::AuthorizedPrincipal;
-using nfm::ipc::CatalogEntry;
 using nfm::ipc::CollectorEndpointMode;
-using nfm::ipc::CollectorInstanceId;
-using nfm::ipc::EncodeClientHello;
-using nfm::ipc::EncodeSubscribe;
-using nfm::ipc::FrameParseResult;
-using nfm::ipc::FrameView;
+using nfm::ipc::DecodeHelloAck;
+using nfm::ipc::DecodeTrafficTick;
+using nfm::ipc::EncodeHello;
 using nfm::ipc::IpcServer;
-using nfm::ipc::MessageDirection;
 using nfm::ipc::MessageType;
 using nfm::ipc::NamedPipeConnection;
 using nfm::ipc::PipeIoResult;
-using nfm::ipc::PublishedSnapshot;
-using nfm::ipc::SnapshotMessage;
+using nfm::ipc::TrafficTickMessage;
 using nfm::ipc::WindowsPipeTransportFactory;
 
 struct TestContext {
@@ -90,14 +82,6 @@ AuthorizedPrincipal ServicePrincipal() {
             .server_logon_sid = {}};
 }
 
-CollectorInstanceId Instance() {
-    CollectorInstanceId instance;
-    for (std::size_t index = 0U; index < instance.bytes.size(); ++index) {
-        instance.bytes.at(index) = static_cast<std::byte>(index + 1U);
-    }
-    return instance;
-}
-
 template <typename Completion>
 bool WaitOperation(HANDLE completion_event, DWORD timeout, Completion&& complete,
                    PipeIoResult& result) {
@@ -142,37 +126,21 @@ bool ReadWire(NamedPipeConnection& connection, std::vector<std::byte>& wire) {
     }
     wire.assign(parsed_header.required, std::byte{});
     std::ranges::copy(header, wire.begin());
-    auto payload = std::span{wire}.subspan(nfm::ipc::kFrameHeaderSize);
-    result = connection.BeginReadExact(payload);
-    if (!result.ok() && !result.pending) {
-        return false;
-    }
-    if (result.pending && !WaitOperation(
-                              connection.read_event(), 5000U,
-                              [&connection] { return connection.ContinueReadExact(); }, result)) {
-        return false;
+    const auto payload_len = parsed_header.required - nfm::ipc::kFrameHeaderSize;
+    if (payload_len > 0U) {
+        auto payload = std::span{wire}.subspan(nfm::ipc::kFrameHeaderSize);
+        result = connection.BeginReadExact(payload);
+        if (!result.ok() && !result.pending) {
+            return false;
+        }
+        if (result.pending &&
+            !WaitOperation(
+                connection.read_event(), 5000U,
+                [&connection] { return connection.ContinueReadExact(); }, result)) {
+            return false;
+        }
     }
     return nfm::ipc::TryDecodeFrame(wire).status == nfm::ipc::FrameParseStatus::Decoded;
-}
-
-std::shared_ptr<const PublishedSnapshot> Snapshot() {
-    auto result = std::make_shared<PublishedSnapshot>();
-    result->message = SnapshotMessage{
-        .snapshot_sequence = 1U,
-        .required_catalog_sequence = 1U,
-        .uptime_microseconds = 1U,
-        .applications_aggregated_to_other = false,
-        .collector_health = {},
-        .ipc_health = {},
-        .applications = {ApplicationCounterWire{
-            .handle = ApplicationHandle{1U}, .upload_bytes = 1U, .download_bytes = 2U}}};
-    result->latest_changes = {
-        CatalogEntry{.handle = ApplicationHandle{1U},
-                     .metadata_revision = 1U,
-                     .removed = false,
-                     .metadata = {.display_name = "Integration", .icon_key = {}}}};
-    result->full_catalog = result->latest_changes;
-    return result;
 }
 
 void CheckIntegration(TestContext& context) {
@@ -182,7 +150,7 @@ void CheckIntegration(TestContext& context) {
         return;
     }
     WindowsPipeTransportFactory transport;
-    IpcServer server{Instance(), principal, transport};
+    IpcServer server{"cinst_integ", principal, transport};
     context.Check(server.Start().ok(), "real IPC server starts");
     auto client_result = transport.CreateClient(principal);
     context.Check(client_result.ok(), "real IPC client opens owner-scoped pipe");
@@ -191,56 +159,46 @@ void CheckIntegration(TestContext& context) {
         return;
     }
     auto& client = *client_result.connection;
-    const auto hello = EncodeClientHello(
-        {.minimum_version = 1U, .maximum_version = 1U, .requested_refresh = 500ms}, 41U);
+    const auto hello = EncodeHello({.client_pid = static_cast<std::uint32_t>(GetCurrentProcessId()),
+                                    .protocol_version = 1U,
+                                    .client_name = "IntegrationClient"});
     context.Check(WriteWire(client, hello.bytes), "client sends Hello");
 
     std::vector<std::byte> wire;
     const auto first_read = ReadWire(client, wire);
-    context.Check(first_read, "client receives ServerHello");
+    context.Check(first_read, "client receives HelloAck");
     auto parsed = nfm::ipc::TryDecodeFrame(wire);
     if (parsed.frame.has_value()) {
-        const auto decoded = nfm::ipc::DecodeControlMessage(
-            FrameView{.header = parsed.frame->header, .payload = parsed.frame->payload},
-            MessageDirection::ServerToClient);
-        context.Check(decoded.ok() && parsed.frame->header.message_type == MessageType::ServerHello,
-                      "real ServerHello is valid");
-    }
-    context.Check(ReadWire(client, wire), "client receives initial subscription acceptance");
-    parsed = nfm::ipc::TryDecodeFrame(wire);
-    if (parsed.frame.has_value()) {
-        context.Check(parsed.frame->header.message_type == MessageType::SubscriptionAccepted,
-                      "real subscription acceptance is sent");
+        context.Check(parsed.frame->header.message_type == MessageType::HelloAck,
+                      "real HelloAck message type is valid");
+        const auto ack = DecodeHelloAck(parsed.frame->payload);
+        context.Check(ack.ok() && ack.message.has_value() &&
+                          ack.message->collector_instance_id == "cinst_integ",
+                      "HelloAck collector instance id matches");
     }
 
-    context.Check(server.Publish(Snapshot()).ok(), "real server publishes a snapshot");
-    const auto catalog_read = ReadWire(client, wire);
-    context.Check(catalog_read, "client receives catalog before snapshot");
+    const TrafficTickMessage tick{
+        .seq = 4096U,
+        .monotonic_ms = 123456U,
+        .download_bytes_per_sec = 5242880U,
+        .upload_bytes_per_sec = 1048576U,
+    };
+    context.Check(server.PublishTrafficTick(tick).ok(), "server publishes TrafficTick");
+    const auto tick_read = ReadWire(client, wire);
+    context.Check(tick_read, "client receives TrafficTick");
     parsed = nfm::ipc::TryDecodeFrame(wire);
     if (parsed.frame.has_value()) {
-        context.Check(parsed.frame->header.message_type == MessageType::ApplicationCatalog,
-                      "real server sends catalog first");
-    }
-    context.Check(ReadWire(client, wire), "client receives snapshot after catalog");
-    parsed = nfm::ipc::TryDecodeFrame(wire);
-    if (parsed.frame.has_value()) {
-        context.Check(parsed.frame->header.message_type == MessageType::Snapshot,
-                      "real server sends snapshot second");
-    }
-
-    const auto update = EncodeSubscribe({.requested_refresh = 1s}, 42U);
-    context.Check(WriteWire(client, update.bytes), "client sends subscription update");
-    context.Check(ReadWire(client, wire), "client receives subscription update reply");
-    parsed = nfm::ipc::TryDecodeFrame(wire);
-    if (parsed.frame.has_value()) {
-        context.Check(parsed.frame->header.message_type == MessageType::SubscriptionAccepted &&
-                          parsed.frame->header.request_id == 42U,
-                      "real subscription reply echoes request id");
+        context.Check(parsed.frame->header.message_type == MessageType::TrafficTick,
+                      "real server sends TrafficTick");
+        const auto decoded_tick = DecodeTrafficTick(parsed.frame->payload);
+        context.Check(decoded_tick.ok() && decoded_tick.message.has_value() &&
+                          *decoded_tick.message == tick,
+                      "TrafficTick matches published values");
     }
 
     const auto health = server.health();
-    context.Check(health.accepted_connections >= 1U && health.frames_received >= 2U &&
-                      health.frames_sent >= 4U,
+    context.Check(health.accepted_connections >= 1U && health.frames_received >= 1U &&
+                      health.frames_sent >= 2U,
                   "real server records bounded session health");
     context.Check(server.Stop().ok() && server.Stop().ok(), "Stop is idempotent");
     static_cast<void>(client.CancelAndDrain());

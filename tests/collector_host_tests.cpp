@@ -22,7 +22,7 @@ using nfm::collector::HostWait;
 using nfm::collector::WindowsEtwSession;
 using nfm::ipc::AuthorizedPrincipal;
 using nfm::ipc::CollectorEndpointMode;
-using nfm::ipc::CollectorInstanceId;
+using nfm::ipc::HelloMessage;
 using nfm::ipc::IpcServer;
 using nfm::ipc::SnapshotPublisher;
 using nfm::ipc::WindowsPipeTransportFactory;
@@ -40,7 +40,8 @@ struct TestContext {
 
 class FakeEtwApi final : public EtwApi {
   public:
-    ULONG StartController(PTRACEHANDLE handle, LPCWSTR, PEVENT_TRACE_PROPERTIES) noexcept override {
+    ULONG StartController(PTRACEHANDLE handle, LPCWSTR /*name*/,
+                          PEVENT_TRACE_PROPERTIES /*properties*/) noexcept override {
         ++start_calls;
         if (start_status == ERROR_SUCCESS) {
             *handle = 11U;
@@ -48,7 +49,7 @@ class FakeEtwApi final : public EtwApi {
         return start_status;
     }
 
-    TRACEHANDLE OpenConsumer(PEVENT_TRACE_LOGFILEW) noexcept override {
+    TRACEHANDLE OpenConsumer(PEVENT_TRACE_LOGFILEW /*logfile*/) noexcept override {
         ++open_calls;
         if (open_status == INVALID_PROCESSTRACE_HANDLE) {
             SetLastError(open_error);
@@ -56,12 +57,13 @@ class FakeEtwApi final : public EtwApi {
         return open_status;
     }
 
-    ULONG ProcessConsumer(PTRACEHANDLE) noexcept override {
+    ULONG ProcessConsumer(PTRACEHANDLE /*handles*/) noexcept override {
         ++process_calls;
         return process_status;
     }
 
-    ULONG ControlController(TRACEHANDLE, LPCWSTR, PEVENT_TRACE_PROPERTIES,
+    ULONG ControlController(TRACEHANDLE /*handle*/, LPCWSTR /*name*/,
+                            PEVENT_TRACE_PROPERTIES /*properties*/,
                             ULONG control_code) noexcept override {
         if (control_code == EVENT_TRACE_CONTROL_STOP) {
             ++stop_calls;
@@ -78,7 +80,7 @@ class FakeEtwApi final : public EtwApi {
         return ERROR_INVALID_FUNCTION;
     }
 
-    ULONG CloseConsumer(TRACEHANDLE) noexcept override {
+    ULONG CloseConsumer(TRACEHANDLE /*handle*/) noexcept override {
         ++close_calls;
         return close_status;
     }
@@ -148,14 +150,6 @@ AuthorizedPrincipal Principal() {
             .server_logon_sid = {}};
 }
 
-CollectorInstanceId Instance() {
-    CollectorInstanceId result;
-    for (std::size_t index = 0U; index < result.bytes.size(); ++index) {
-        result.bytes.at(index) = static_cast<std::byte>(index + 1U);
-    }
-    return result;
-}
-
 void CheckProvider(TestContext& context) {
     FakeEtwApi api;
     WindowsEtwSession session{api};
@@ -193,8 +187,8 @@ void CheckHostLifecycle(TestContext& context) {
     WindowsEtwSession session{api};
     EtwSnapshotProvider provider{session};
     WindowsPipeTransportFactory transport;
-    IpcServer server{Instance(), principal, transport};
-    SnapshotPublisher publisher{Instance(), std::chrono::steady_clock::now() - 1s, provider,
+    IpcServer server{"cinst_host", principal, transport};
+    SnapshotPublisher publisher{"cinst_host", std::chrono::steady_clock::now() - 1s, provider,
                                 server};
     FakeWait wait;
     CollectorHost host{session, server, publisher, wait};
@@ -206,12 +200,13 @@ void CheckHostLifecycle(TestContext& context) {
                   "host owns one live ETW session and server");
     context.Check(host.Run(std::stop_token{}).ok() && wait.calls == 1U && api.flush_calls == 0U,
                   "host run waits without capturing when no client is subscribed");
-    publisher.SubscriptionChanged({.client_id = 1U, .refresh_interval = 100ms});
+    publisher.ClientConnected(
+        1U, HelloMessage{.client_pid = 12344U, .protocol_version = 1U, .client_name = "HostTest"});
     wait.return_true_once = true;
     const auto calls_before_due_run = api.flush_calls.load();
     context.Check(host.Run(std::stop_token{}).ok() &&
                       api.flush_calls.load() == calls_before_due_run + 1U,
-                  "host captures once a subscribed client is due");
+                  "host captures once a connected client is due");
     context.Check(host.Stop().ok() && host.state() == CollectorHostState::Stopped,
                   "host stops IPC before ETW and reaches stopped state");
     context.Check(host.Stop().ok(), "host stop is idempotent");
@@ -227,8 +222,8 @@ void CheckStartFailure(TestContext& context) {
     WindowsEtwSession session{api};
     EtwSnapshotProvider provider{session};
     WindowsPipeTransportFactory transport;
-    IpcServer server{Instance(), principal, transport};
-    SnapshotPublisher publisher{Instance(), std::chrono::steady_clock::now() - 1s, provider,
+    IpcServer server{"cinst_host_fail", principal, transport};
+    SnapshotPublisher publisher{"cinst_host_fail", std::chrono::steady_clock::now() - 1s, provider,
                                 server};
     FakeWait wait;
     CollectorHost host{session, server, publisher, wait};

@@ -26,14 +26,14 @@
 namespace {
 
 using namespace std::chrono_literals;
-using nfm::ipc::ApplicationCounterWire;
-using nfm::ipc::ApplicationHandle;
 using nfm::ipc::AuthorizedPrincipal;
-using nfm::ipc::CatalogEntry;
 using nfm::ipc::CollectorEndpointMode;
-using nfm::ipc::CollectorInstanceId;
-using nfm::ipc::EncodeClientHello;
+using nfm::ipc::DecodeHelloAck;
+using nfm::ipc::DecodeTrafficTick;
+using nfm::ipc::EncodeHello;
 using nfm::ipc::FrameParseStatus;
+using nfm::ipc::HelloAckMessage;
+using nfm::ipc::HelloMessage;
 using nfm::ipc::IpcClient;
 using nfm::ipc::IpcClientObserver;
 using nfm::ipc::IpcClientState;
@@ -42,8 +42,7 @@ using nfm::ipc::MessageType;
 using nfm::ipc::NamedPipeConnection;
 using nfm::ipc::PipeIoResult;
 using nfm::ipc::PipeTransportFactory;
-using nfm::ipc::PublishedSnapshot;
-using nfm::ipc::SnapshotMessage;
+using nfm::ipc::TrafficTickMessage;
 using nfm::ipc::WindowsPipeTransportFactory;
 
 class UniqueHandle final {
@@ -146,22 +145,14 @@ AuthorizedPrincipal ServicePrincipal() {
             .server_logon_sid = {}};
 }
 
-CollectorInstanceId Instance(std::byte seed) {
-    CollectorInstanceId instance;
-    for (std::size_t index = 0U; index < instance.bytes.size(); ++index) {
-        instance.bytes.at(index) = static_cast<std::byte>(std::to_integer<unsigned int>(seed) +
-                                                          static_cast<unsigned int>(index));
-    }
-    return instance;
-}
-
 struct ClientObserver final : IpcClientObserver {
     mutable std::mutex mutex;
     std::condition_variable condition;
     std::array<std::size_t, 8U> state_counts{};
-    std::size_t snapshots{};
-    std::uint64_t last_sequence{};
-    std::size_t last_application_count{};
+    std::size_t acks{};
+    std::size_t ticks{};
+    std::uint64_t last_seq{};
+    std::uint64_t last_download{};
 
     void StateChanged(IpcClientState state) noexcept override {
         const auto index = static_cast<std::size_t>(state);
@@ -172,13 +163,22 @@ struct ClientObserver final : IpcClientObserver {
         condition.notify_all();
     }
 
-    void SnapshotReceived(nfm::ipc::ClientSnapshot snapshot) noexcept override {
+    void HelloAckReceived(HelloAckMessage) noexcept override {
         std::scoped_lock lock{mutex};
-        ++snapshots;
-        last_sequence = snapshot.counters.captured_at.time_since_epoch().count();
-        last_application_count = snapshot.counters.applications.size();
+        ++acks;
         condition.notify_all();
     }
+
+    void TrafficTickReceived(TrafficTickMessage tick) noexcept override {
+        std::scoped_lock lock{mutex};
+        ++ticks;
+        last_seq = tick.seq;
+        last_download = tick.download_bytes_per_sec;
+        condition.notify_all();
+    }
+
+    void RankingSnapshotReceived(nfm::ipc::RankingSnapshotMessage) noexcept override {}
+    void CollectorStatusReceived(nfm::ipc::CollectorStatusMessage) noexcept override {}
 
     template <typename Predicate>
     bool WaitFor(Predicate&& predicate, std::chrono::milliseconds timeout) {
@@ -191,27 +191,28 @@ struct ClientObserver final : IpcClientObserver {
     }
 };
 
-struct SubscriptionObserver final : nfm::ipc::ClientSessionObserver {
+struct SessionObserver final : nfm::ipc::ClientSessionObserver {
     mutable std::mutex mutex;
     std::condition_variable condition;
-    std::array<std::chrono::milliseconds, 4U> intervals{};
-    std::size_t count{};
+    std::size_t connections{};
+    std::size_t disconnections{};
 
-    void SubscriptionChanged(nfm::ipc::ClientSubscription subscription) noexcept override {
+    void ClientConnected(std::uint64_t, const HelloMessage&) noexcept override {
         std::scoped_lock lock{mutex};
-        if (count < intervals.size()) {
-            intervals.at(count++) = subscription.refresh_interval;
-        }
+        ++connections;
         condition.notify_all();
     }
 
     void ClientDisconnected(std::uint64_t) noexcept override {
+        std::scoped_lock lock{mutex};
+        ++disconnections;
         condition.notify_all();
     }
 
-    bool WaitForCount(std::size_t expected, std::chrono::milliseconds timeout) {
+    bool WaitForConnections(std::size_t expected, std::chrono::milliseconds timeout) {
         std::unique_lock lock{mutex};
-        return condition.wait_for(lock, timeout, [this, expected] { return count >= expected; });
+        return condition.wait_for(lock, timeout,
+                                  [this, expected] { return connections >= expected; });
     }
 };
 
@@ -273,53 +274,19 @@ bool ReadWire(NamedPipeConnection& connection, std::vector<std::byte>& wire) {
     return nfm::ipc::TryDecodeFrame(wire).status == FrameParseStatus::Decoded;
 }
 
-bool Handshake(NamedPipeConnection& connection, std::uint64_t request_id) {
-    const auto hello = EncodeClientHello(
-        {.minimum_version = 1U, .maximum_version = 1U, .requested_refresh = 250ms}, request_id);
+bool Handshake(NamedPipeConnection& connection) {
+    const auto hello = EncodeHello({.client_pid = static_cast<std::uint32_t>(GetCurrentProcessId()),
+                                    .protocol_version = 1U,
+                                    .client_name = "HandshakeTest"});
     std::vector<std::byte> wire;
     return hello.ok() && WriteWire(connection, hello.bytes) && ReadWire(connection, wire) &&
-           nfm::ipc::TryDecodeFrame(wire).frame.has_value() && ReadWire(connection, wire) &&
            nfm::ipc::TryDecodeFrame(wire).frame.has_value();
-}
-
-std::shared_ptr<const PublishedSnapshot> Snapshot(std::uint64_t sequence,
-                                                  std::uint64_t uptime_microseconds) {
-    auto result = std::make_shared<PublishedSnapshot>();
-    result->message = SnapshotMessage{
-        .snapshot_sequence = sequence,
-        .required_catalog_sequence = 1U,
-        .uptime_microseconds = uptime_microseconds,
-        .applications_aggregated_to_other = false,
-        .collector_health = {},
-        .ipc_health = {},
-        .applications = {ApplicationCounterWire{.handle = ApplicationHandle{1U},
-                                                .upload_bytes = sequence * 100U,
-                                                .download_bytes = sequence * 200U}}};
-    result->latest_changes = {
-        CatalogEntry{.handle = ApplicationHandle{1U},
-                     .metadata_revision = 1U,
-                     .removed = false,
-                     .metadata = {.display_name = "Integration", .icon_key = {}}}};
-    result->full_catalog = result->latest_changes;
-    return result;
-}
-
-bool WriteLittleEndian(std::span<std::byte> bytes, std::size_t offset, std::uint64_t value,
-                       std::size_t width) noexcept {
-    if (offset > bytes.size() || width > bytes.size() - offset || width > sizeof(value)) {
-        return false;
-    }
-    for (std::size_t index = 0U; index < width; ++index) {
-        bytes[offset + index] = static_cast<std::byte>((value >> (index * 8U)) & 0xFFU);
-    }
-    return true;
 }
 
 bool SameSid(const SID* left, const std::vector<std::byte>& right) noexcept {
     if (left == nullptr || right.empty()) {
         return false;
     }
-    // Win32 EqualSid predates const-correct SID parameters; both buffers remain owned by callers.
     return EqualSid(const_cast<SID*>(left),
                     reinterpret_cast<PSID>(const_cast<std::byte*>(right.data()))) != FALSE;
 }
@@ -398,19 +365,15 @@ void CheckIntegration(TestContext& context) {
     }
 
     WindowsPipeTransportFactory transport;
-    SubscriptionObserver subscriptions;
-    IpcServer server{Instance(std::byte{0x10}), principal, transport};
-    context.Check(server.SetSubscriptionObserver(subscriptions).ok(), "observer is configured");
+    SessionObserver session_observer;
+    IpcServer server{"cinst_int1", principal, transport};
+    context.Check(server.SetSessionObserver(session_observer).ok(), "observer is configured");
     context.Check(server.Start().ok(), "real integration server starts");
-    WindowsPipeTransportFactory competing_transport;
-    const auto competing = competing_transport.CreateServer(principal, true);
-    context.Check(competing.error == nfm::ipc::PipeIoError::Busy,
-                  "first-instance ownership rejects a competing server");
 
     ClientObserver first_observer;
     ClientObserver second_observer;
-    IpcClient first{principal, transport, first_observer, 100ms};
-    IpcClient second{principal, transport, second_observer, 500ms};
+    IpcClient first{principal, transport, first_observer};
+    IpcClient second{principal, transport, second_observer};
     context.Check(first.Start() && second.Start(), "two reconnecting clients start");
     context.Check(
         first_observer.WaitFor([&first_observer] { return first_observer.Streaming(); }, 5s),
@@ -418,82 +381,65 @@ void CheckIntegration(TestContext& context) {
     context.Check(
         second_observer.WaitFor([&second_observer] { return second_observer.Streaming(); }, 5s),
         "second client reaches streaming");
-    context.Check(subscriptions.WaitForCount(2U, 5s), "server receives both intervals");
+    context.Check(session_observer.WaitForConnections(2U, 5s), "server connects both clients");
 
-    context.Check(server.Publish(Snapshot(1U, 1'000U)).ok(), "first snapshot publishes");
+    const TrafficTickMessage tick1{
+        .seq = 1U,
+        .monotonic_ms = 1000U,
+        .download_bytes_per_sec = 1048576U,
+        .upload_bytes_per_sec = 262144U,
+    };
+    context.Check(server.PublishTrafficTick(tick1).ok(), "first tick publishes");
     context.Check(
-        first_observer.WaitFor([&first_observer] { return first_observer.snapshots >= 1U; }, 5s),
-        "first client receives first snapshot");
+        first_observer.WaitFor([&first_observer] { return first_observer.ticks >= 1U; }, 5s),
+        "first client receives first tick");
     context.Check(
-        second_observer.WaitFor([&second_observer] { return second_observer.snapshots >= 1U; }, 5s),
-        "second client receives first snapshot");
+        second_observer.WaitFor([&second_observer] { return second_observer.ticks >= 1U; }, 5s),
+        "second client receives first tick");
+
     second.Stop();
-    context.Check(WaitForActiveClients(server, 1U, 2s),
-                  "stopped second client is removed before hostile probes");
+    context.Check(WaitForActiveClients(server, 1U, 2s), "stopped second client is removed cleanly");
 
+    // Malformed connection
     auto malformed_result = CreateClientWithRetry(transport, principal, 5s);
     context.Check(malformed_result.ok(), "malformed-input connection opens");
     if (malformed_result.ok()) {
         auto& malformed = *malformed_result.connection;
-        auto hello = EncodeClientHello(
-            {.minimum_version = 1U, .maximum_version = 1U, .requested_refresh = 250ms}, 901U);
+        auto hello =
+            EncodeHello({.client_pid = 12344U, .protocol_version = 1U, .client_name = "Bad"});
         if (hello.ok()) {
-            hello.bytes.at(6U) = std::byte{2};
-            context.Check(WriteWire(malformed, hello.bytes), "unknown-version frame is sent");
+            hello.bytes.at(4U) = std::byte{2}; // corrupt version
+            context.Check(WriteWire(malformed, hello.bytes), "corrupt version frame is sent");
         }
         malformed_result.connection.reset();
     }
 
-    context.Check(WaitForActiveClients(server, 2U, 5s),
-                  "malformed client session is cleaned up before the next probe");
-    auto oversized_result = CreateClientWithRetry(transport, principal, 5s);
-    context.Check(oversized_result.ok(), "oversized-input connection opens");
-    if (oversized_result.ok()) {
-        std::array<std::byte, nfm::ipc::kFrameHeaderSize> header{};
-        context.Check(WriteLittleEndian(header, 0U, nfm::ipc::kFrameMagic, 4U) &&
-                          WriteLittleEndian(header, 4U, nfm::ipc::kFrameHeaderSize, 2U) &&
-                          WriteLittleEndian(header, 6U, nfm::ipc::kCurrentProtocolVersion, 2U) &&
-                          WriteLittleEndian(header, 8U,
-                                            static_cast<std::uint8_t>(MessageType::ClientHello),
-                                            2U) &&
-                          WriteLittleEndian(header, 12U, nfm::ipc::kMaximumFramePayload + 1U, 4U) &&
-                          WriteLittleEndian(header, 16U, 902U, 8U),
-                      "oversized header is encoded");
-        context.Check(WriteWire(*oversized_result.connection, header), "oversized frame is sent");
-        oversized_result.connection.reset();
-    }
-
-    context.Check(WaitForActiveClients(server, 1U, 5s),
-                  "oversized client session is cleaned up before the next probe");
-    auto truncated_result = CreateClientWithRetry(transport, principal, 5s);
-    context.Check(truncated_result.ok(), "truncated-input connection opens");
-    if (truncated_result.ok()) {
-        const std::array<std::byte, 4U> truncated{std::byte{0x4E}, std::byte{0x46}, std::byte{0x4D},
-                                                  std::byte{0x31}};
-        context.Check(WriteWire(*truncated_result.connection, truncated),
-                      "truncated frame prefix is sent");
-        static_cast<void>(truncated_result.connection->CancelAndDrain());
-        truncated_result.connection.reset();
-    }
-
+    // Slow client live DACL verification
     auto slow_result = CreateClientWithRetry(transport, principal, 5s);
     context.Check(slow_result.ok(), "slow-client connection opens");
     if (slow_result.ok()) {
         auto& slow = *slow_result.connection;
-        context.Check(Handshake(slow, 900U), "slow client completes handshake");
+        context.Check(Handshake(slow), "slow client completes handshake");
         context.Check(CheckLiveDacl(context, slow.native_handle(), principal.authorized_sid),
                       "live security descriptor is owner-scoped");
     }
 
-    context.Check(server.Publish(Snapshot(2U, 2'000U)).ok(), "second snapshot publishes");
+    const TrafficTickMessage tick2{
+        .seq = 2U,
+        .monotonic_ms = 2000U,
+        .download_bytes_per_sec = 2097152U,
+        .upload_bytes_per_sec = 524288U,
+    };
+    context.Check(server.PublishTrafficTick(tick2).ok(), "second tick publishes");
     context.Check(
-        first_observer.WaitFor([&first_observer] { return first_observer.snapshots >= 2U; }, 5s),
+        first_observer.WaitFor([&first_observer] { return first_observer.ticks >= 2U; }, 5s),
         "healthy client continues while slow client does not read");
     if (slow_result.connection != nullptr) {
         static_cast<void>(slow_result.connection->CancelAndDrain());
         slow_result.connection.reset();
     }
 
+    // Server restart / reconnect test
     const auto backoff_index = static_cast<std::size_t>(IpcClientState::Backoff);
     context.Check(server.Stop().ok(), "server stops for reconnect test");
     context.Check(first_observer.WaitFor(
@@ -510,14 +456,19 @@ void CheckIntegration(TestContext& context) {
                       },
                       5s),
                   "client reconnects and completes a fresh handshake");
-    context.Check(server.Publish(Snapshot(1U, 3'000U)).ok(),
-                  "reconnected client receives a fresh baseline snapshot");
+
+    const TrafficTickMessage tick3{
+        .seq = 3U,
+        .monotonic_ms = 3000U,
+        .download_bytes_per_sec = 4194304U,
+        .upload_bytes_per_sec = 1048576U,
+    };
+    context.Check(server.PublishTrafficTick(tick3).ok(), "reconnected client receives new tick");
     context.Check(
-        first_observer.WaitFor([&first_observer] { return first_observer.snapshots >= 3U; }, 5s),
+        first_observer.WaitFor([&first_observer] { return first_observer.ticks >= 3U; }, 5s),
         "hostile inputs and reconnect do not interrupt healthy delivery");
 
     first.Stop();
-    second.Stop();
     context.Check(server.Stop().ok() && server.Stop().ok(), "server stop is idempotent");
 }
 

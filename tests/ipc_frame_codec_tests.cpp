@@ -2,15 +2,16 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace {
@@ -32,18 +33,16 @@ class TestContext {
     int failures_{};
 };
 
-using nfm::ipc::ClientHello;
-using nfm::ipc::CollectorInstanceId;
-using nfm::ipc::ControlMessage;
+using nfm::ipc::CollectorStatusMessage;
 using nfm::ipc::FrameParseStatus;
 using nfm::ipc::FrameView;
-using nfm::ipc::MessageDirection;
+using nfm::ipc::HelloAckMessage;
+using nfm::ipc::HelloMessage;
 using nfm::ipc::MessageType;
 using nfm::ipc::ProtocolErrorCode;
-using nfm::ipc::ProtocolErrorMessage;
-using nfm::ipc::ServerHello;
-using nfm::ipc::Subscribe;
-using nfm::ipc::SubscriptionAccepted;
+using nfm::ipc::RankingSnapshotMessage;
+using nfm::ipc::ShutdownRequestMessage;
+using nfm::ipc::TrafficTickMessage;
 
 constexpr std::byte B(std::uint32_t value) noexcept {
     return static_cast<std::byte>(static_cast<std::uint8_t>(value));
@@ -60,126 +59,97 @@ void StoreU32(std::vector<std::byte>& bytes, std::size_t offset, std::uint32_t v
     }
 }
 
-void StoreU64(std::vector<std::byte>& bytes, std::size_t offset, std::uint64_t value) {
-    for (std::size_t index = 0U; index < 8U; ++index) {
-        bytes.at(offset + index) = B(static_cast<std::uint8_t>((value >> (index * 8U)) & 0xFFU));
-    }
-}
-
 std::vector<std::byte> EncodeRaw(MessageType type, std::span<const std::byte> payload,
-                                 std::uint64_t request_id = 1U,
                                  std::uint16_t protocol_version = 1U) {
     auto encoded = nfm::ipc::EncodeFrame(
         FrameView{.header = {.protocol_version = protocol_version,
                              .message_type = type,
-                             .request_id = request_id,
                              .payload_length = static_cast<std::uint32_t>(payload.size())},
                   .payload = payload});
     return std::move(encoded.bytes);
 }
 
-template <typename Message>
-std::optional<Message> DecodeAs(const nfm::ipc::FrameEncodeResult& encoded,
-                                MessageDirection direction, ProtocolErrorCode& error) {
-    const auto parsed = nfm::ipc::TryDecodeFrame(encoded.bytes);
-    if (parsed.status != FrameParseStatus::Decoded || !parsed.frame.has_value()) {
-        error = parsed.error;
-        return std::nullopt;
-    }
-    const auto& owned = *parsed.frame;
-    const auto decoded = nfm::ipc::DecodeControlMessage(
-        FrameView{.header = owned.header, .payload = owned.payload}, direction);
-    error = decoded.error;
-    if (!decoded.message.has_value()) {
-        return std::nullopt;
-    }
-    const auto* const message = std::get_if<Message>(&*decoded.message);
-    return message == nullptr ? std::nullopt : std::optional<Message>{*message};
-}
-
 void CheckHeaderGoldenBytes(TestContext& context) {
-    constexpr std::array<std::byte, 8> payload{B(1U),    B(0U), B(1U), B(0U),
-                                               B(0xF4U), B(1U), B(0U), B(0U)};
+    const std::string payload = "{\"seq\":4096}";
+    const auto payload_bytes = std::as_bytes(std::span{payload});
     const auto encoded = nfm::ipc::EncodeFrame(
         FrameView{.header = {.protocol_version = 1U,
-                             .message_type = MessageType::ClientHello,
-                             .request_id = 1U,
-                             .payload_length = static_cast<std::uint32_t>(payload.size())},
-                  .payload = payload});
-    constexpr std::array<std::byte, 24> expected_header{
-        B('N'), B('F'), B('M'), B('1'), B(24U), B(0U), B(1U), B(0U), B(1U), B(0U), B(0U), B(0U),
-        B(8U),  B(0U),  B(0U),  B(0U),  B(1U),  B(0U), B(0U), B(0U), B(0U), B(0U), B(0U), B(0U),
+                             .message_type = MessageType::TrafficTick,
+                             .payload_length = static_cast<std::uint32_t>(payload_bytes.size())},
+                  .payload = payload_bytes});
+
+    constexpr std::array<std::byte, 12> expected_header{
+        B('N'), B('F'), B('M'), B('1'), // Magic: "NFM1"
+        B(1U),  B(0U),                  // Version: 1
+        B(3U),  B(0U),                  // MessageType: TrafficTick (3)
+        B(12U), B(0U),  B(0U),  B(0U),  // PayloadLength: 12
     };
+
     context.Check(encoded.error == ProtocolErrorCode::None, "golden frame encodes");
-    context.Check(encoded.bytes.size() == expected_header.size() + payload.size(),
-                  "golden frame has exact length");
-    if (encoded.bytes.size() == expected_header.size() + payload.size()) {
+    context.Check(encoded.bytes.size() == expected_header.size() + payload_bytes.size(),
+                  "golden frame has exact 12-byte header + payload length");
+    if (encoded.bytes.size() == expected_header.size() + payload_bytes.size()) {
         context.Check(std::ranges::equal(expected_header,
                                          std::span{encoded.bytes}.first(expected_header.size())),
                       "header offsets and endian match golden bytes");
-        context.Check(
-            std::ranges::equal(payload, std::span{encoded.bytes}.subspan(expected_header.size())),
-            "payload follows exact 24-byte header");
+        context.Check(std::ranges::equal(payload_bytes,
+                                         std::span{encoded.bytes}.subspan(expected_header.size())),
+                      "payload follows exact 12-byte header");
     }
 }
 
 void CheckAllMessageValuesAndBounds(TestContext& context) {
-    constexpr std::array<MessageType, 8> types{
-        MessageType::ClientHello,          MessageType::ServerHello,        MessageType::Subscribe,
-        MessageType::SubscriptionAccepted, MessageType::ApplicationCatalog, MessageType::Snapshot,
-        MessageType::CollectorStatus,      MessageType::ProtocolError,
+    constexpr std::array<MessageType, 6> types{
+        MessageType::Hello,           MessageType::HelloAck,        MessageType::TrafficTick,
+        MessageType::RankingSnapshot, MessageType::CollectorStatus, MessageType::ShutdownRequest,
     };
     for (std::size_t index = 0U; index < types.size(); ++index) {
-        const bool push = types.at(index) == MessageType::ApplicationCatalog ||
-                          types.at(index) == MessageType::Snapshot ||
-                          types.at(index) == MessageType::CollectorStatus;
-        const auto bytes = EncodeRaw(types.at(index), {}, push ? 0U : 1U);
+        const auto bytes = EncodeRaw(types.at(index), {});
         context.Check(bytes.size() == nfm::ipc::kFrameHeaderSize,
                       "known message type encodes as zero-payload frame");
         if (bytes.size() == nfm::ipc::kFrameHeaderSize) {
-            context.Check(std::to_integer<std::uint8_t>(bytes.at(8U)) == index + 1U &&
-                              std::to_integer<std::uint8_t>(bytes.at(9U)) == 0U,
-                          "message enum has exact little-endian wire value");
+            context.Check(std::to_integer<std::uint8_t>(bytes.at(6U)) == index + 1U &&
+                              std::to_integer<std::uint8_t>(bytes.at(7U)) == 0U,
+                          "message enum has exact little-endian wire value at offset 6");
         }
     }
 
-    const auto zero = EncodeRaw(MessageType::Snapshot, {}, 0U);
+    const auto zero = EncodeRaw(MessageType::ShutdownRequest, {});
     const auto zero_decoded = nfm::ipc::TryDecodeFrame(zero);
     context.Check(zero_decoded.status == FrameParseStatus::Decoded &&
                       zero_decoded.consumed == nfm::ipc::kFrameHeaderSize &&
                       zero_decoded.required == nfm::ipc::kFrameHeaderSize,
                   "zero payload round trips with exact counts");
 
-    std::vector<std::byte> maximum(nfm::ipc::kMaximumFramePayload, B(0xA5U));
-    const auto maximum_bytes = EncodeRaw(MessageType::Snapshot, maximum, 0U);
+    std::vector<std::byte> maximum(nfm::ipc::kMaximumFramePayload, B(0x20U)); // spaces
+    const auto maximum_bytes = EncodeRaw(MessageType::ShutdownRequest, maximum);
     context.Check(maximum_bytes.size() ==
                       nfm::ipc::kFrameHeaderSize + nfm::ipc::kMaximumFramePayload,
-                  "exact one MiB payload encodes");
+                  "exact 256 KiB payload encodes");
     const auto maximum_decoded = nfm::ipc::TryDecodeFrame(maximum_bytes);
     context.Check(maximum_decoded.status == FrameParseStatus::Decoded &&
                       maximum_decoded.frame.has_value() &&
                       maximum_decoded.frame->payload == maximum,
-                  "exact one MiB payload decodes without truncation");
+                  "exact 256 KiB payload decodes without truncation");
 
     maximum.push_back(B(0U));
     const auto oversized = nfm::ipc::EncodeFrame(
         FrameView{.header = {.protocol_version = 1U,
-                             .message_type = MessageType::Snapshot,
-                             .request_id = 0U,
+                             .message_type = MessageType::ShutdownRequest,
                              .payload_length = static_cast<std::uint32_t>(maximum.size())},
                   .payload = maximum});
     context.Check(oversized.error == ProtocolErrorCode::PayloadTooLarge && oversized.bytes.empty(),
-                  "payload above one MiB is rejected before allocation");
+                  "payload above 256 KiB is rejected before allocation");
 }
 
 void CheckStreamingParse(TestContext& context) {
-    constexpr std::array<std::byte, 3> payload{B(7U), B(8U), B(9U)};
-    const auto frame = EncodeRaw(MessageType::ProtocolError, payload, 0U);
+    constexpr std::array<std::byte, 5> payload{B('{'), B('}'), B('\n'), B(' '), B(' ')};
+    const auto frame = EncodeRaw(MessageType::ShutdownRequest, payload);
     for (std::size_t length = 0U; length < nfm::ipc::kFrameHeaderSize; ++length) {
         const auto result = nfm::ipc::TryDecodeFrame(std::span{frame}.first(length));
         context.Check(result.status == FrameParseStatus::NeedMoreData && result.consumed == 0U &&
                           result.required == nfm::ipc::kFrameHeaderSize,
-                      "partial header reports exact total requirement");
+                      "partial header reports exact total requirement (12 bytes)");
     }
     const auto partial_payload =
         nfm::ipc::TryDecodeFrame(std::span{frame}.first(nfm::ipc::kFrameHeaderSize + 2U));
@@ -188,7 +158,7 @@ void CheckStreamingParse(TestContext& context) {
                       partial_payload.required == nfm::ipc::kFrameHeaderSize + payload.size(),
                   "partial payload reports exact frame requirement");
 
-    const auto second = EncodeRaw(MessageType::Snapshot, {}, 0U);
+    const auto second = EncodeRaw(MessageType::TrafficTick, {});
     auto concatenated = frame;
     concatenated.insert(concatenated.end(), second.begin(), second.end());
     const auto first_result = nfm::ipc::TryDecodeFrame(concatenated);
@@ -213,14 +183,12 @@ void CheckStreamingParse(TestContext& context) {
 }
 
 void CheckHeaderRejections(TestContext& context) {
-    auto valid = EncodeRaw(MessageType::ClientHello, {}, 1U);
-    auto CheckRejected = [&context, &valid](std::size_t offset, std::uint64_t value,
+    auto valid = EncodeRaw(MessageType::Hello, {});
+    auto CheckRejected = [&context, &valid](std::size_t offset, std::uint32_t value,
                                             ProtocolErrorCode expected, std::string_view name) {
         auto candidate = valid;
-        if (offset == 16U) {
-            StoreU64(candidate, offset, value);
-        } else if (offset == 12U || offset == 0U) {
-            StoreU32(candidate, offset, static_cast<std::uint32_t>(value));
+        if (offset == 8U || offset == 0U) {
+            StoreU32(candidate, offset, value);
         } else {
             StoreU16(candidate, offset, static_cast<std::uint16_t>(value));
         }
@@ -231,198 +199,218 @@ void CheckHeaderRejections(TestContext& context) {
     };
 
     CheckRejected(0U, 0U, ProtocolErrorCode::MalformedHeader, "bad magic rejected");
-    CheckRejected(4U, 23U, ProtocolErrorCode::UnsupportedHeader, "bad header size rejected");
-    CheckRejected(6U, 0U, ProtocolErrorCode::VersionMismatch, "zero version rejected");
-    CheckRejected(8U, 9U, ProtocolErrorCode::UnknownMessageType, "unknown type rejected");
-    CheckRejected(8U, 0x0101U, ProtocolErrorCode::UnknownMessageType,
-                  "wide message type is validated before enum conversion");
-    CheckRejected(10U, 1U, ProtocolErrorCode::InvalidFlags, "nonzero flags rejected");
-    CheckRejected(12U, nfm::ipc::kMaximumFramePayload + 1U, ProtocolErrorCode::PayloadTooLarge,
+    CheckRejected(4U, 0U, ProtocolErrorCode::VersionMismatch, "zero version rejected");
+    CheckRejected(4U, 2U, ProtocolErrorCode::VersionMismatch, "unsupported version rejected");
+    CheckRejected(6U, 0U, ProtocolErrorCode::UnknownMessageType, "zero message type rejected");
+    CheckRejected(6U, 7U, ProtocolErrorCode::UnknownMessageType, "unknown message type rejected");
+    CheckRejected(6U, 0x0100U, ProtocolErrorCode::UnknownMessageType, "wide message type rejected");
+    CheckRejected(8U, nfm::ipc::kMaximumFramePayload + 1U, ProtocolErrorCode::PayloadTooLarge,
                   "oversized declared payload rejected");
-    CheckRejected(16U, 0U, ProtocolErrorCode::UnexpectedMessage,
-                  "client request with zero ID rejected");
-
-    auto push = EncodeRaw(MessageType::Snapshot, {}, 0U);
-    StoreU64(push, 16U, 1U);
-    const auto invalid_push = nfm::ipc::TryDecodeFrame(push);
-    context.Check(invalid_push.status == FrameParseStatus::Rejected &&
-                      invalid_push.error == ProtocolErrorCode::UnexpectedMessage,
-                  "server push with nonzero request ID rejected");
 
     const std::array<std::byte, 1> payload{B(1U)};
     const auto mismatch =
         nfm::ipc::EncodeFrame(FrameView{.header = {.protocol_version = 1U,
-                                                   .message_type = MessageType::ProtocolError,
-                                                   .request_id = 0U,
+                                                   .message_type = MessageType::Hello,
                                                    .payload_length = 0U},
                                         .payload = payload});
     context.Check(mismatch.error == ProtocolErrorCode::MalformedPayload,
                   "encoder rejects declared/actual payload mismatch");
 }
 
-void CheckControlRoundTrips(TestContext& context) {
-    ProtocolErrorCode error{};
-    const ClientHello hello{.minimum_version = 1U,
-                            .maximum_version = 1U,
-                            .requested_refresh = std::chrono::milliseconds{500}};
-    const auto encoded_hello = nfm::ipc::EncodeClientHello(hello, 42U);
-    const auto decoded_hello =
-        DecodeAs<ClientHello>(encoded_hello, MessageDirection::ClientToServer, error);
-    context.Check(error == ProtocolErrorCode::None && decoded_hello.has_value() &&
-                      decoded_hello->minimum_version == 1U &&
-                      decoded_hello->maximum_version == 1U &&
-                      decoded_hello->requested_refresh == std::chrono::milliseconds{500},
-                  "ClientHello round trips exact fields");
-    context.Check(encoded_hello.bytes.size() == 32U &&
-                      std::to_integer<std::uint8_t>(encoded_hello.bytes.at(24U)) == 1U &&
-                      std::to_integer<std::uint8_t>(encoded_hello.bytes.at(28U)) == 0xF4U,
-                  "ClientHello payload uses exact little-endian offsets");
+void CheckJsonMessageEncoders(TestContext& context) {
+    // Hello
+    const HelloMessage hello{
+        .client_pid = 12344U, .protocol_version = 1U, .client_name = "NetworkFlowMonitor.Ui"};
+    const auto encoded_hello = nfm::ipc::EncodeHello(hello);
+    context.Check(encoded_hello.ok(), "Hello encodes to valid JSON frame");
+    const auto decoded_hello = nfm::ipc::DecodeHello(encoded_hello.bytes);
+    context.Check(decoded_hello.ok() && decoded_hello.message.has_value() &&
+                      *decoded_hello.message == hello,
+                  "Hello round trips with exact fields");
 
-    CollectorInstanceId instance{};
-    for (std::size_t index = 0U; index < instance.bytes.size(); ++index) {
-        instance.bytes.at(index) = B(static_cast<std::uint8_t>(index + 1U));
-    }
-    const ServerHello server{.selected_version = 1U,
-                             .maximum_frame_payload = nfm::ipc::kMaximumFramePayload,
-                             .instance = instance};
-    const auto encoded_server = nfm::ipc::EncodeServerHello(server, 42U);
-    const auto decoded_server =
-        DecodeAs<ServerHello>(encoded_server, MessageDirection::ServerToClient, error);
-    context.Check(error == ProtocolErrorCode::None && decoded_server.has_value() &&
-                      decoded_server->selected_version == 1U &&
-                      decoded_server->maximum_frame_payload == nfm::ipc::kMaximumFramePayload &&
-                      decoded_server->instance == instance,
-                  "ServerHello and canonical GUID bytes round trip");
+    // HelloAck
+    const HelloAckMessage hello_ack{
+        .protocol_version = 1U,
+        .collector_instance_id = "cinst_9f8a3c2e1b",
+        .collector_pid = 4588U,
+        .capabilities = {"etw_live_counters", "traffic_tick_4hz", "ranking_snapshot_1hz"}};
+    const auto encoded_hello_ack = nfm::ipc::EncodeHelloAck(hello_ack);
+    context.Check(encoded_hello_ack.ok(), "HelloAck encodes to valid JSON frame");
+    const auto decoded_hello_ack = nfm::ipc::DecodeHelloAck(encoded_hello_ack.bytes);
+    context.Check(decoded_hello_ack.ok() && decoded_hello_ack.message.has_value() &&
+                      *decoded_hello_ack.message == hello_ack,
+                  "HelloAck round trips with exact fields");
 
-    const Subscribe subscribe{.requested_refresh = std::chrono::milliseconds{100}};
-    const auto encoded_subscribe = nfm::ipc::EncodeSubscribe(subscribe, 7U);
-    const auto decoded_subscribe =
-        DecodeAs<Subscribe>(encoded_subscribe, MessageDirection::ClientToServer, error);
-    context.Check(error == ProtocolErrorCode::None && decoded_subscribe.has_value() &&
-                      decoded_subscribe->requested_refresh == std::chrono::milliseconds{100},
-                  "minimum Subscribe interval round trips");
+    // TrafficTick
+    const TrafficTickMessage tick{.seq = 4096U,
+                                  .monotonic_ms = 83928471U,
+                                  .download_bytes_per_sec = 5242880U,
+                                  .upload_bytes_per_sec = 1048576U};
+    const auto encoded_tick = nfm::ipc::EncodeTrafficTick(tick);
+    context.Check(encoded_tick.ok(), "TrafficTick encodes to valid JSON frame");
+    const auto decoded_tick = nfm::ipc::DecodeTrafficTick(encoded_tick.bytes);
+    context.Check(decoded_tick.ok() && decoded_tick.message.has_value() &&
+                      *decoded_tick.message == tick,
+                  "TrafficTick round trips with exact fields");
 
-    const SubscriptionAccepted accepted{.effective_refresh = std::chrono::milliseconds{5000}};
-    const auto encoded_accepted = nfm::ipc::EncodeSubscriptionAccepted(accepted, 7U);
-    const auto decoded_accepted =
-        DecodeAs<SubscriptionAccepted>(encoded_accepted, MessageDirection::ServerToClient, error);
-    context.Check(error == ProtocolErrorCode::None && decoded_accepted.has_value() &&
-                      decoded_accepted->effective_refresh == std::chrono::milliseconds{5000},
-                  "maximum accepted subscription interval round trips");
+    // RankingSnapshot
+    const RankingSnapshotMessage snapshot{
+        .seq = 1024U,
+        .monotonic_ms = 83928471U,
+        .status = "Ready",
+        .total_rate = {.download_bytes_per_sec = 5242880U, .upload_bytes_per_sec = 1048576U},
+        .applications = {
+            {.id = "app_chrome",
+             .executable_path = R"(C:\Program Files\Google\Chrome\Application\chrome.exe)",
+             .display_name = "Google Chrome",
+             .icon_key = R"(C:\Program Files\Google\Chrome\Application\chrome.exe)",
+             .download_bytes_per_sec = 4194304U,
+             .upload_bytes_per_sec = 838860U}}};
+    const auto encoded_snapshot = nfm::ipc::EncodeRankingSnapshot(snapshot);
+    context.Check(encoded_snapshot.ok(), "RankingSnapshot encodes to valid JSON frame");
+    const auto decoded_snapshot = nfm::ipc::DecodeRankingSnapshot(encoded_snapshot.bytes);
+    context.Check(decoded_snapshot.ok() && decoded_snapshot.message.has_value() &&
+                      *decoded_snapshot.message == snapshot,
+                  "RankingSnapshot round trips with exact fields");
 
-    const ProtocolErrorMessage protocol_error{
-        .code = ProtocolErrorCode::VersionMismatch,
-        .retry_disposition = 0U,
-        .server_minimum_version = 1U,
-        .server_maximum_version = 1U,
-        .win32_error = 5U,
+    // CollectorStatus
+    const CollectorStatusMessage status{
+        .monotonic_ms = 83928471U,
+        .etw_session_active = true,
+        .dropped_packets = 0U,
+        .active_pids = 42U,
     };
-    const auto encoded_error = nfm::ipc::EncodeProtocolError(protocol_error, 42U);
-    const auto decoded_error =
-        DecodeAs<ProtocolErrorMessage>(encoded_error, MessageDirection::ServerToClient, error);
-    context.Check(
-        error == ProtocolErrorCode::None && decoded_error.has_value() &&
-            decoded_error->code == ProtocolErrorCode::VersionMismatch &&
-            decoded_error->retry_disposition == 0U && decoded_error->server_minimum_version == 1U &&
-            decoded_error->server_maximum_version == 1U && decoded_error->win32_error == 5U,
-        "12-byte ProtocolError payload round trips");
-    context.Check(encoded_error.bytes.size() == nfm::ipc::kFrameHeaderSize + 12U,
-                  "ProtocolError has exact payload size");
+    const auto encoded_status = nfm::ipc::EncodeCollectorStatus(status);
+    context.Check(encoded_status.ok(), "CollectorStatus encodes to valid JSON frame");
+    const auto decoded_status = nfm::ipc::DecodeCollectorStatus(encoded_status.bytes);
+    context.Check(decoded_status.ok() && decoded_status.message.has_value() &&
+                      *decoded_status.message == status,
+                  "CollectorStatus round trips with exact fields");
+
+    // ShutdownRequest
+    const ShutdownRequestMessage shutdown{.reason = "ui_exit"};
+    const auto encoded_shutdown = nfm::ipc::EncodeShutdownRequest(shutdown);
+    context.Check(encoded_shutdown.ok(), "ShutdownRequest encodes to valid JSON frame");
+    const auto decoded_shutdown = nfm::ipc::DecodeShutdownRequest(encoded_shutdown.bytes);
+    context.Check(decoded_shutdown.ok() && decoded_shutdown.message.has_value() &&
+                      *decoded_shutdown.message == shutdown,
+                  "ShutdownRequest round trips with exact fields");
 }
 
-void CheckControlValidation(TestContext& context) {
-    const auto invalid_order =
-        nfm::ipc::EncodeClientHello({.minimum_version = 2U,
-                                     .maximum_version = 1U,
-                                     .requested_refresh = std::chrono::milliseconds{500}},
-                                    1U);
-    context.Check(invalid_order.error == ProtocolErrorCode::VersionMismatch,
-                  "descending Hello range rejected");
-    const auto invalid_refresh =
-        nfm::ipc::EncodeSubscribe({.requested_refresh = std::chrono::milliseconds{99}}, 1U);
-    context.Check(invalid_refresh.error == ProtocolErrorCode::InvalidSubscription,
-                  "subscription below config minimum rejected");
-    const auto invalid_request = nfm::ipc::EncodeSubscriptionAccepted(
-        {.effective_refresh = std::chrono::milliseconds{500}}, 0U);
-    context.Check(invalid_request.error == ProtocolErrorCode::UnexpectedMessage,
-                  "reply requires echoed nonzero request ID");
+std::vector<std::byte> HexToBytes(std::string_view hex) {
+    std::vector<std::byte> bytes;
+    bytes.reserve(hex.size() / 2U);
+    for (std::size_t i = 0U; i + 1U < hex.size(); i += 2U) {
+        const auto high = hex.at(i);
+        const auto low = hex.at(i + 1U);
+        auto HexVal = [](char c) -> std::uint8_t {
+            if (c >= '0' && c <= '9') {
+                return static_cast<std::uint8_t>(c - '0');
+            }
+            if (c >= 'a' && c <= 'f') {
+                return static_cast<std::uint8_t>(c - 'a' + 10);
+            }
+            if (c >= 'A' && c <= 'F') {
+                return static_cast<std::uint8_t>(c - 'A' + 10);
+            }
+            return 0U;
+        };
+        bytes.push_back(static_cast<std::byte>((HexVal(high) << 4U) | HexVal(low)));
+    }
+    return bytes;
+}
 
-    constexpr std::array<std::byte, 8> hello_payload{B(1U),    B(0U), B(1U), B(0U),
-                                                     B(0xF4U), B(1U), B(0U), B(0U)};
-    const auto hello_frame = EncodeRaw(MessageType::ClientHello, hello_payload, 1U);
-    const auto parsed = nfm::ipc::TryDecodeFrame(hello_frame);
-    context.Check(parsed.frame.has_value(), "direction test frame parses");
-    if (parsed.frame.has_value()) {
-        const auto wrong_direction = nfm::ipc::DecodeControlMessage(
-            {.header = parsed.frame->header, .payload = parsed.frame->payload},
-            MessageDirection::ServerToClient);
-        context.Check(wrong_direction.error == ProtocolErrorCode::UnexpectedMessage,
-                      "client-only control message rejected in server direction");
+void CheckFixturesLoadedAndValidated(TestContext& context) {
+    std::filesystem::path fixture_path;
+    auto current = std::filesystem::current_path();
+    for (int depth = 0; depth < 6; ++depth) {
+        auto candidate = current / "tests" / "fixtures" / "framing_vectors.json";
+        if (std::filesystem::exists(candidate)) {
+            fixture_path = candidate;
+            break;
+        }
+        if (current.has_parent_path() && current != current.parent_path()) {
+            current = current.parent_path();
+        } else {
+            break;
+        }
+    }
+    if (fixture_path.empty()) {
+        context.Check(false, "tests/fixtures/framing_vectors.json exists and is reachable");
+        return;
     }
 
-    auto bad_server_payload = std::vector<std::byte>(24U, B(0U));
-    StoreU16(bad_server_payload, 0U, 1U);
-    StoreU16(bad_server_payload, 2U, 1U);
-    StoreU32(bad_server_payload, 4U, nfm::ipc::kMaximumFramePayload);
-    const auto bad_server_frame = EncodeRaw(MessageType::ServerHello, bad_server_payload, 1U);
-    const auto parsed_server = nfm::ipc::TryDecodeFrame(bad_server_frame);
-    if (parsed_server.frame.has_value()) {
-        const auto reserved = nfm::ipc::DecodeControlMessage(
-            {.header = parsed_server.frame->header, .payload = parsed_server.frame->payload},
-            MessageDirection::ServerToClient);
-        context.Check(reserved.error == ProtocolErrorCode::MalformedPayload,
-                      "nonzero ServerHello reserved field rejected");
-    } else {
-        context.Check(false, "reserved-field test frame parses");
+    std::ifstream file(fixture_path, std::ios::binary);
+    context.Check(file.is_open(), "framing_vectors.json opened");
+    if (!file.is_open()) {
+        return;
     }
 
-    auto malformed_error_payload = std::vector<std::byte>(12U, B(0U));
-    StoreU16(malformed_error_payload, 0U,
-             static_cast<std::uint16_t>(ProtocolErrorCode::InternalFailure));
-    malformed_error_payload.at(2U) = B(3U);
-    StoreU16(malformed_error_payload, 4U, 1U);
-    StoreU16(malformed_error_payload, 6U, 1U);
-    const auto malformed_error_frame =
-        EncodeRaw(MessageType::ProtocolError, malformed_error_payload, 0U);
-    const auto parsed_error = nfm::ipc::TryDecodeFrame(malformed_error_frame);
-    if (parsed_error.frame.has_value()) {
-        const auto invalid_retry = nfm::ipc::DecodeControlMessage(
-            {.header = parsed_error.frame->header, .payload = parsed_error.frame->payload},
-            MessageDirection::ClientToServer);
-        context.Check(invalid_retry.error == ProtocolErrorCode::MalformedPayload,
-                      "unknown retry disposition rejected");
-    } else {
-        context.Check(false, "retry-disposition test frame parses");
-    }
+    const std::string content((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
+    context.Check(!content.empty(), "framing_vectors.json is non-empty");
 
-    StoreU16(malformed_error_payload, 0U, 0x0101U);
-    malformed_error_payload.at(2U) = B(0U);
-    const auto wide_error_frame =
-        EncodeRaw(MessageType::ProtocolError, malformed_error_payload, 0U);
-    const auto parsed_wide_error = nfm::ipc::TryDecodeFrame(wide_error_frame);
-    if (parsed_wide_error.frame.has_value()) {
-        const auto invalid_code =
-            nfm::ipc::DecodeControlMessage({.header = parsed_wide_error.frame->header,
-                                            .payload = parsed_wide_error.frame->payload},
-                                           MessageDirection::ServerToClient);
-        context.Check(invalid_code.error == ProtocolErrorCode::MalformedPayload,
-                      "wide protocol error code is validated before enum conversion");
-    } else {
-        context.Check(false, "wide protocol-error-code test frame parses");
-    }
+    // Test message fixture files
+    const auto fixture_dir = fixture_path.parent_path() / "messages";
+    auto ReadMessageFile = [&](const std::string& filename) -> std::string {
+        std::ifstream msg_file(fixture_dir / filename, std::ios::binary);
+        if (!msg_file.is_open()) {
+            return {};
+        }
+        return {(std::istreambuf_iterator<char>(msg_file)), std::istreambuf_iterator<char>()};
+    };
 
-    const std::array<std::byte, 1> wrong_length{B(0U)};
-    const auto wrong_length_frame = EncodeRaw(MessageType::Subscribe, wrong_length, 1U);
-    const auto parsed_length = nfm::ipc::TryDecodeFrame(wrong_length_frame);
-    if (parsed_length.frame.has_value()) {
-        const auto wrong_length_result = nfm::ipc::DecodeControlMessage(
-            {.header = parsed_length.frame->header, .payload = parsed_length.frame->payload},
-            MessageDirection::ClientToServer);
-        context.Check(wrong_length_result.error == ProtocolErrorCode::MalformedPayload,
-                      "control payload requires exact length");
-    } else {
-        context.Check(false, "wrong-length test frame parses");
-    }
+    const auto hello_json = ReadMessageFile("hello.json");
+    context.Check(!hello_json.empty(), "hello.json fixture loaded");
+    const auto hello_decoded = nfm::ipc::DecodeHello(std::as_bytes(std::span{hello_json}));
+    context.Check(hello_decoded.ok() && hello_decoded.message.has_value() &&
+                      hello_decoded.message->client_pid == 12344U &&
+                      hello_decoded.message->client_name == "NetworkFlowMonitor.Ui",
+                  "hello.json fixture decodes accurately");
+
+    const auto hello_ack_json = ReadMessageFile("hello_ack.json");
+    context.Check(!hello_ack_json.empty(), "hello_ack.json fixture loaded");
+    const auto hello_ack_decoded =
+        nfm::ipc::DecodeHelloAck(std::as_bytes(std::span{hello_ack_json}));
+    context.Check(hello_ack_decoded.ok() && hello_ack_decoded.message.has_value() &&
+                      hello_ack_decoded.message->collector_instance_id == "cinst_9f8a3c2e1b" &&
+                      hello_ack_decoded.message->capabilities.size() == 3U,
+                  "hello_ack.json fixture decodes accurately");
+
+    const auto tick_json = ReadMessageFile("traffic_tick.json");
+    context.Check(!tick_json.empty(), "traffic_tick.json fixture loaded");
+    const auto tick_decoded = nfm::ipc::DecodeTrafficTick(std::as_bytes(std::span{tick_json}));
+    context.Check(tick_decoded.ok() && tick_decoded.message.has_value() &&
+                      tick_decoded.message->seq == 4096U &&
+                      tick_decoded.message->download_bytes_per_sec == 5242880U,
+                  "traffic_tick.json fixture decodes accurately");
+
+    const auto snapshot_json = ReadMessageFile("ranking_snapshot.json");
+    context.Check(!snapshot_json.empty(), "ranking_snapshot.json fixture loaded");
+    const auto snapshot_decoded =
+        nfm::ipc::DecodeRankingSnapshot(std::as_bytes(std::span{snapshot_json}));
+    context.Check(snapshot_decoded.ok() && snapshot_decoded.message.has_value() &&
+                      snapshot_decoded.message->seq == 1024U &&
+                      snapshot_decoded.message->applications.size() == 1U &&
+                      snapshot_decoded.message->applications.front().id == "app_chrome",
+                  "ranking_snapshot.json fixture decodes accurately");
+
+    const auto status_json = ReadMessageFile("collector_status.json");
+    context.Check(!status_json.empty(), "collector_status.json fixture loaded");
+    const auto status_decoded =
+        nfm::ipc::DecodeCollectorStatus(std::as_bytes(std::span{status_json}));
+    context.Check(status_decoded.ok() && status_decoded.message.has_value() &&
+                      status_decoded.message->etw_session_active &&
+                      status_decoded.message->active_pids == 42U,
+                  "collector_status.json fixture decodes accurately");
+
+    const auto shutdown_json = ReadMessageFile("shutdown_request.json");
+    context.Check(!shutdown_json.empty(), "shutdown_request.json fixture loaded");
+    const auto shutdown_decoded =
+        nfm::ipc::DecodeShutdownRequest(std::as_bytes(std::span{shutdown_json}));
+    context.Check(shutdown_decoded.ok() && shutdown_decoded.message.has_value() &&
+                      shutdown_decoded.message->reason == "ui_exit",
+                  "shutdown_request.json fixture decodes accurately");
 }
 
 } // namespace
@@ -433,7 +421,7 @@ int main() {
     CheckAllMessageValuesAndBounds(context);
     CheckStreamingParse(context);
     CheckHeaderRejections(context);
-    CheckControlRoundTrips(context);
-    CheckControlValidation(context);
+    CheckJsonMessageEncoders(context);
+    CheckFixturesLoadedAndValidated(context);
     return context.failures();
 }

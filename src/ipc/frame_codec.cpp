@@ -1,28 +1,41 @@
 #include "network_flow_monitor/ipc/frame_codec.h"
 
-#include "network_flow_monitor/config/app_config.h"
-
+#include "yyjson.h"
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
-#include <type_traits>
+#include <memory>
+#include <string_view>
 #include <utility>
 
 namespace nfm::ipc {
 namespace {
 
 constexpr std::size_t kMagicOffset = 0U;
-constexpr std::size_t kHeaderSizeOffset = 4U;
-constexpr std::size_t kProtocolVersionOffset = 6U;
-constexpr std::size_t kMessageTypeOffset = 8U;
-constexpr std::size_t kFlagsOffset = 10U;
-constexpr std::size_t kPayloadLengthOffset = 12U;
-constexpr std::size_t kRequestIdOffset = 16U;
+constexpr std::size_t kProtocolVersionOffset = 4U;
+constexpr std::size_t kMessageTypeOffset = 6U;
+constexpr std::size_t kPayloadLengthOffset = 8U;
 
-constexpr std::size_t kClientHelloPayloadSize = 8U;
-constexpr std::size_t kServerHelloPayloadSize = 24U;
-constexpr std::size_t kSubscriptionPayloadSize = 4U;
-constexpr std::size_t kProtocolErrorPayloadSize = 12U;
-static_assert(std::numeric_limits<std::size_t>::max() - kFrameHeaderSize >= kMaximumFramePayload);
+struct JsonDocumentDeleter {
+    void operator()(yyjson_doc* document) const noexcept {
+        yyjson_doc_free(document);
+    }
+};
+using UniqueJsonDocument = std::unique_ptr<yyjson_doc, JsonDocumentDeleter>;
+
+struct MutableDocumentDeleter {
+    void operator()(yyjson_mut_doc* document) const noexcept {
+        yyjson_mut_doc_free(document);
+    }
+};
+using UniqueMutableDocument = std::unique_ptr<yyjson_mut_doc, MutableDocumentDeleter>;
+
+struct JsonBufferDeleter {
+    void operator()(char* buffer) const noexcept {
+        std::free(buffer); // NOLINT(cppcoreguidelines-no-malloc)
+    }
+};
+using UniqueJsonBuffer = std::unique_ptr<char, JsonBufferDeleter>;
 
 void AppendU16(std::vector<std::byte>& output, std::uint16_t value) {
     output.push_back(static_cast<std::byte>(value & 0xFFU));
@@ -31,12 +44,6 @@ void AppendU16(std::vector<std::byte>& output, std::uint16_t value) {
 
 void AppendU32(std::vector<std::byte>& output, std::uint32_t value) {
     for (std::size_t index = 0U; index < 4U; ++index) {
-        output.push_back(static_cast<std::byte>((value >> (index * 8U)) & 0xFFU));
-    }
-}
-
-void AppendU64(std::vector<std::byte>& output, std::uint64_t value) {
-    for (std::size_t index = 0U; index < 8U; ++index) {
         output.push_back(static_cast<std::byte>((value >> (index * 8U)) & 0xFFU));
     }
 }
@@ -59,190 +66,58 @@ std::uint32_t ReadU32(std::span<const std::byte> input, std::size_t offset) noex
     return value;
 }
 
-std::uint64_t ReadU64(std::span<const std::byte> input, std::size_t offset) noexcept {
-    std::uint64_t value = 0U;
-    std::size_t shift = 0U;
-    for (const auto byte : input.subspan(offset, 8U)) {
-        value |= static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(byte)) << shift;
-        shift += 8U;
-    }
-    return value;
+bool IsKnownMessageTypeValue(std::uint16_t value) noexcept {
+    return value >= static_cast<std::uint16_t>(MessageType::Hello) &&
+           value <= static_cast<std::uint16_t>(MessageType::ShutdownRequest);
 }
 
 bool IsKnownMessageType(MessageType type) noexcept {
-    switch (type) {
-    case MessageType::ClientHello:
-    case MessageType::ServerHello:
-    case MessageType::Subscribe:
-    case MessageType::SubscriptionAccepted:
-    case MessageType::ApplicationCatalog:
-    case MessageType::Snapshot:
-    case MessageType::CollectorStatus:
-    case MessageType::ProtocolError:
-        return true;
-    }
-    return false;
+    return IsKnownMessageTypeValue(static_cast<std::uint16_t>(type));
 }
 
-bool IsKnownMessageTypeValue(std::uint16_t value) noexcept {
-    return value >= static_cast<std::uint16_t>(MessageType::ClientHello) &&
-           value <= static_cast<std::uint16_t>(MessageType::ProtocolError);
+std::span<const std::byte> ExtractPayload(std::span<const std::byte> input) noexcept {
+    if (input.size() >= kFrameHeaderSize && ReadU32(input, kMagicOffset) == kFrameMagic) {
+        const auto payload_length = ReadU32(input, kPayloadLengthOffset);
+        if (input.size() >= kFrameHeaderSize + payload_length) {
+            return input.subspan(kFrameHeaderSize, payload_length);
+        }
+    }
+    return input;
 }
 
-bool IsKnownProtocolError(ProtocolErrorCode code) noexcept {
-    return code >= ProtocolErrorCode::MalformedHeader && code <= ProtocolErrorCode::InternalFailure;
+std::string_view JsonString(yyjson_val* value) noexcept {
+    if (value == nullptr || !yyjson_is_str(value)) {
+        return {};
+    }
+    return {yyjson_get_str(value), yyjson_get_len(value)};
 }
 
-bool IsKnownProtocolErrorValue(std::uint16_t value) noexcept {
-    return value >= static_cast<std::uint16_t>(ProtocolErrorCode::MalformedHeader) &&
-           value <= static_cast<std::uint16_t>(ProtocolErrorCode::InternalFailure);
-}
-
-bool HasValidRequestId(MessageType type, std::uint64_t request_id) noexcept {
-    switch (type) {
-    case MessageType::ClientHello:
-    case MessageType::ServerHello:
-    case MessageType::Subscribe:
-    case MessageType::SubscriptionAccepted:
-        return request_id != 0U;
-    case MessageType::ApplicationCatalog:
-    case MessageType::Snapshot:
-    case MessageType::CollectorStatus:
-        return request_id == 0U;
-    case MessageType::ProtocolError:
-        return true;
+FrameEncodeResult MakeFrameFromDoc(MessageType type, yyjson_mut_doc* doc) {
+    std::size_t len{};
+    const UniqueJsonBuffer buffer{yyjson_mut_write(doc, YYJSON_WRITE_NOFLAG, &len)};
+    if (!buffer) {
+        return {.error = ProtocolErrorCode::InternalFailure};
     }
-    return false;
-}
-
-bool IsAllowedDirection(MessageType type, MessageDirection direction) noexcept {
-    if (type == MessageType::ProtocolError) {
-        return true;
+    if (len > kMaximumFramePayload) {
+        return {.error = ProtocolErrorCode::PayloadTooLarge};
     }
-    if (direction == MessageDirection::ClientToServer) {
-        return type == MessageType::ClientHello || type == MessageType::Subscribe;
-    }
-    return type == MessageType::ServerHello || type == MessageType::SubscriptionAccepted;
-}
-
-bool IsValidRefresh(std::chrono::milliseconds value) noexcept {
-    return value >= config::kMinimumRefreshInterval && value <= config::kMaximumRefreshInterval;
-}
-
-bool IsValidVersionRange(std::uint16_t minimum, std::uint16_t maximum) noexcept {
-    return minimum != 0U && maximum != 0U && minimum <= maximum;
-}
-
-FrameEncodeResult MakeControlFrame(MessageType type, std::uint16_t protocol_version,
-                                   std::uint64_t request_id, std::vector<std::byte> payload) {
-    const auto payload_length = static_cast<std::uint32_t>(payload.size());
-    return EncodeFrame(FrameView{.header = {.protocol_version = protocol_version,
-                                            .message_type = type,
-                                            .request_id = request_id,
-                                            .payload_length = payload_length},
-                                 .payload = payload});
-}
-
-ControlDecodeResult RejectControl(ProtocolErrorCode error) {
-    return {.error = error};
-}
-
-ControlDecodeResult DecodeClientHello(FrameView frame) {
-    if (frame.payload.size() != kClientHelloPayloadSize) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
-    }
-    const auto minimum = ReadU16(frame.payload, 0U);
-    const auto maximum = ReadU16(frame.payload, 2U);
-    const auto refresh =
-        std::chrono::milliseconds{static_cast<std::int64_t>(ReadU32(frame.payload, 4U))};
-    if (!IsValidVersionRange(minimum, maximum) || frame.header.protocol_version != maximum) {
-        return RejectControl(ProtocolErrorCode::VersionMismatch);
-    }
-    if (!IsValidRefresh(refresh)) {
-        return RejectControl(ProtocolErrorCode::InvalidSubscription);
-    }
-    return {.message = ClientHello{.minimum_version = minimum,
-                                   .maximum_version = maximum,
-                                   .requested_refresh = refresh}};
-}
-
-ControlDecodeResult DecodeServerHello(FrameView frame) {
-    if (frame.payload.size() != kServerHelloPayloadSize) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
-    }
-    const auto selected = ReadU16(frame.payload, 0U);
-    if (selected != kCurrentProtocolVersion || frame.header.protocol_version != selected) {
-        return RejectControl(ProtocolErrorCode::VersionMismatch);
-    }
-    if (ReadU16(frame.payload, 2U) != 0U || ReadU32(frame.payload, 4U) != kMaximumFramePayload) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
-    }
-    CollectorInstanceId instance;
-    std::ranges::copy(frame.payload.subspan(8U, instance.bytes.size()), instance.bytes.begin());
-    return {.message = ServerHello{.selected_version = selected,
-                                   .maximum_frame_payload = kMaximumFramePayload,
-                                   .instance = instance}};
-}
-
-template <typename Message> ControlDecodeResult DecodeRefreshMessage(FrameView frame) {
-    if (frame.payload.size() != kSubscriptionPayloadSize ||
-        frame.header.protocol_version != kCurrentProtocolVersion) {
-        return RejectControl(frame.header.protocol_version != kCurrentProtocolVersion
-                                 ? ProtocolErrorCode::VersionMismatch
-                                 : ProtocolErrorCode::MalformedPayload);
-    }
-    const auto refresh =
-        std::chrono::milliseconds{static_cast<std::int64_t>(ReadU32(frame.payload, 0U))};
-    if (!IsValidRefresh(refresh)) {
-        return RejectControl(ProtocolErrorCode::InvalidSubscription);
-    }
-    if constexpr (std::is_same_v<Message, Subscribe>) {
-        return {.message = Subscribe{.requested_refresh = refresh}};
-    } else {
-        return {.message = SubscriptionAccepted{.effective_refresh = refresh}};
-    }
-}
-
-ControlDecodeResult DecodeProtocolError(FrameView frame) {
-    if (frame.payload.size() != kProtocolErrorPayloadSize) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
-    }
-    const auto code_value = ReadU16(frame.payload, 0U);
-    const auto retry = std::to_integer<std::uint8_t>(frame.payload.subspan(2U, 1U).front());
-    const auto minimum = ReadU16(frame.payload, 4U);
-    const auto maximum = ReadU16(frame.payload, 6U);
-    if (!IsKnownProtocolErrorValue(code_value) || retry > 2U ||
-        frame.payload.subspan(3U, 1U).front() != std::byte{0} ||
-        !IsValidVersionRange(minimum, maximum)) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
-    }
-    const auto code = static_cast<ProtocolErrorCode>(static_cast<std::uint8_t>(code_value));
-    return {.message = ProtocolErrorMessage{.code = code,
-                                            .retry_disposition = retry,
-                                            .server_minimum_version = minimum,
-                                            .server_maximum_version = maximum,
-                                            .win32_error = ReadU32(frame.payload, 8U)}};
+    const auto payload_bytes = std::as_bytes(std::span{buffer.get(), len});
+    return EncodeFrame(FrameView{
+        .header = {.protocol_version = kCurrentProtocolVersion,
+                   .message_type = type,
+                   .payload_length = static_cast<std::uint32_t>(len)},
+        .payload = payload_bytes,
+    });
 }
 
 } // namespace
 
-bool FrameEncodeResult::ok() const noexcept {
-    return error == ProtocolErrorCode::None;
-}
-
-bool ControlDecodeResult::ok() const noexcept {
-    return error == ProtocolErrorCode::None && message.has_value();
-}
-
 FrameEncodeResult EncodeFrame(FrameView frame) {
-    if (frame.header.protocol_version == 0U) {
+    if (frame.header.protocol_version != kCurrentProtocolVersion) {
         return {.error = ProtocolErrorCode::VersionMismatch};
     }
     if (!IsKnownMessageType(frame.header.message_type)) {
         return {.error = ProtocolErrorCode::UnknownMessageType};
-    }
-    if (!HasValidRequestId(frame.header.message_type, frame.header.request_id)) {
-        return {.error = ProtocolErrorCode::UnexpectedMessage};
     }
     if (frame.payload.size() != frame.header.payload_length) {
         return {.error = ProtocolErrorCode::MalformedPayload};
@@ -254,12 +129,9 @@ FrameEncodeResult EncodeFrame(FrameView frame) {
     FrameEncodeResult result;
     result.bytes.reserve(kFrameHeaderSize + frame.payload.size());
     AppendU32(result.bytes, kFrameMagic);
-    AppendU16(result.bytes, kFrameHeaderSize);
     AppendU16(result.bytes, frame.header.protocol_version);
     AppendU16(result.bytes, static_cast<std::uint16_t>(frame.header.message_type));
-    AppendU16(result.bytes, 0U);
     AppendU32(result.bytes, frame.header.payload_length);
-    AppendU64(result.bytes, frame.header.request_id);
     result.bytes.insert(result.bytes.end(), frame.payload.begin(), frame.payload.end());
     return result;
 }
@@ -271,12 +143,8 @@ FrameParseResult TryDecodeFrame(std::span<const std::byte> bytes) {
     if (ReadU32(bytes, kMagicOffset) != kFrameMagic) {
         return {.status = FrameParseStatus::Rejected, .error = ProtocolErrorCode::MalformedHeader};
     }
-    if (ReadU16(bytes, kHeaderSizeOffset) != kFrameHeaderSize) {
-        return {.status = FrameParseStatus::Rejected,
-                .error = ProtocolErrorCode::UnsupportedHeader};
-    }
     const auto protocol_version = ReadU16(bytes, kProtocolVersionOffset);
-    if (protocol_version == 0U) {
+    if (protocol_version != kCurrentProtocolVersion) {
         return {.status = FrameParseStatus::Rejected, .error = ProtocolErrorCode::VersionMismatch};
     }
     const auto message_type_value = ReadU16(bytes, kMessageTypeOffset);
@@ -284,19 +152,10 @@ FrameParseResult TryDecodeFrame(std::span<const std::byte> bytes) {
         return {.status = FrameParseStatus::Rejected,
                 .error = ProtocolErrorCode::UnknownMessageType};
     }
-    const auto message_type =
-        static_cast<MessageType>(static_cast<std::uint8_t>(message_type_value));
-    if (ReadU16(bytes, kFlagsOffset) != 0U) {
-        return {.status = FrameParseStatus::Rejected, .error = ProtocolErrorCode::InvalidFlags};
-    }
+    const auto message_type = static_cast<MessageType>(message_type_value);
     const auto payload_length = ReadU32(bytes, kPayloadLengthOffset);
     if (payload_length > kMaximumFramePayload) {
         return {.status = FrameParseStatus::Rejected, .error = ProtocolErrorCode::PayloadTooLarge};
-    }
-    const auto request_id = ReadU64(bytes, kRequestIdOffset);
-    if (!HasValidRequestId(message_type, request_id)) {
-        return {.status = FrameParseStatus::Rejected,
-                .error = ProtocolErrorCode::UnexpectedMessage};
     }
     const auto required = kFrameHeaderSize + static_cast<std::size_t>(payload_length);
     if (bytes.size() < required) {
@@ -307,7 +166,6 @@ FrameParseResult TryDecodeFrame(std::span<const std::byte> bytes) {
     OwnedFrame frame{
         .header = {.protocol_version = protocol_version,
                    .message_type = message_type,
-                   .request_id = request_id,
                    .payload_length = payload_length},
         .payload = std::vector<std::byte>{payload.begin(), payload.end()},
     };
@@ -317,105 +175,350 @@ FrameParseResult TryDecodeFrame(std::span<const std::byte> bytes) {
             .frame = std::move(frame)};
 }
 
-FrameEncodeResult EncodeClientHello(const ClientHello& message, std::uint64_t request_id) {
-    if (!IsValidVersionRange(message.minimum_version, message.maximum_version)) {
-        return {.error = ProtocolErrorCode::VersionMismatch};
+FrameEncodeResult EncodeHello(const HelloMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
     }
-    if (!IsValidRefresh(message.requested_refresh)) {
-        return {.error = ProtocolErrorCode::InvalidSubscription};
-    }
-    std::vector<std::byte> payload;
-    payload.reserve(kClientHelloPayloadSize);
-    AppendU16(payload, message.minimum_version);
-    AppendU16(payload, message.maximum_version);
-    AppendU32(payload, static_cast<std::uint32_t>(message.requested_refresh.count()));
-    return MakeControlFrame(MessageType::ClientHello, message.maximum_version, request_id,
-                            std::move(payload));
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_uint(doc.get(), root, "client_pid", message.client_pid);
+    yyjson_mut_obj_add_uint(doc.get(), root, "protocol_version", message.protocol_version);
+    yyjson_mut_obj_add_strn(doc.get(), root, "client_name", message.client_name.data(),
+                            message.client_name.size());
+
+    return MakeFrameFromDoc(MessageType::Hello, doc.get());
 }
 
-FrameEncodeResult EncodeServerHello(const ServerHello& message, std::uint64_t request_id) {
-    if (message.selected_version != kCurrentProtocolVersion) {
-        return {.error = ProtocolErrorCode::VersionMismatch};
-    }
-    if (message.maximum_frame_payload != kMaximumFramePayload) {
+MessageDecodeResult<HelloMessage> DecodeHello(std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
         return {.error = ProtocolErrorCode::MalformedPayload};
     }
-    std::vector<std::byte> payload;
-    payload.reserve(kServerHelloPayloadSize);
-    AppendU16(payload, message.selected_version);
-    AppendU16(payload, 0U);
-    AppendU32(payload, message.maximum_frame_payload);
-    payload.insert(payload.end(), message.instance.bytes.begin(), message.instance.bytes.end());
-    return MakeControlFrame(MessageType::ServerHello, message.selected_version, request_id,
-                            std::move(payload));
-}
-
-FrameEncodeResult EncodeSubscribe(const Subscribe& message, std::uint64_t request_id) {
-    if (!IsValidRefresh(message.requested_refresh)) {
-        return {.error = ProtocolErrorCode::InvalidSubscription};
-    }
-    std::vector<std::byte> payload;
-    payload.reserve(kSubscriptionPayloadSize);
-    AppendU32(payload, static_cast<std::uint32_t>(message.requested_refresh.count()));
-    return MakeControlFrame(MessageType::Subscribe, kCurrentProtocolVersion, request_id,
-                            std::move(payload));
-}
-
-FrameEncodeResult EncodeSubscriptionAccepted(const SubscriptionAccepted& message,
-                                             std::uint64_t request_id) {
-    if (!IsValidRefresh(message.effective_refresh)) {
-        return {.error = ProtocolErrorCode::InvalidSubscription};
-    }
-    std::vector<std::byte> payload;
-    payload.reserve(kSubscriptionPayloadSize);
-    AppendU32(payload, static_cast<std::uint32_t>(message.effective_refresh.count()));
-    return MakeControlFrame(MessageType::SubscriptionAccepted, kCurrentProtocolVersion, request_id,
-                            std::move(payload));
-}
-
-FrameEncodeResult EncodeProtocolError(const ProtocolErrorMessage& message,
-                                      std::uint64_t request_id) {
-    if (!IsKnownProtocolError(message.code) || message.retry_disposition > 2U ||
-        !IsValidVersionRange(message.server_minimum_version, message.server_maximum_version)) {
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
         return {.error = ProtocolErrorCode::MalformedPayload};
     }
-    std::vector<std::byte> payload;
-    payload.reserve(kProtocolErrorPayloadSize);
-    AppendU16(payload, static_cast<std::uint16_t>(message.code));
-    payload.push_back(static_cast<std::byte>(message.retry_disposition));
-    payload.push_back(std::byte{0});
-    AppendU16(payload, message.server_minimum_version);
-    AppendU16(payload, message.server_maximum_version);
-    AppendU32(payload, message.win32_error);
-    return MakeControlFrame(MessageType::ProtocolError, kCurrentProtocolVersion, request_id,
-                            std::move(payload));
+
+    auto* pid_val = yyjson_obj_get(root, "client_pid");
+    auto* ver_val = yyjson_obj_get(root, "protocol_version");
+    auto* name_val = yyjson_obj_get(root, "client_name");
+
+    if (!yyjson_is_uint(pid_val) || !yyjson_is_uint(ver_val) || !yyjson_is_str(name_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    HelloMessage msg{
+        .client_pid = static_cast<std::uint32_t>(yyjson_get_uint(pid_val)),
+        .protocol_version = static_cast<std::uint16_t>(yyjson_get_uint(ver_val)),
+        .client_name = std::string(JsonString(name_val)),
+    };
+    return {.message = std::move(msg)};
 }
 
-ControlDecodeResult DecodeControlMessage(FrameView frame, MessageDirection expected_direction) {
-    if (frame.payload.size() != frame.header.payload_length) {
-        return RejectControl(ProtocolErrorCode::MalformedPayload);
+FrameEncodeResult EncodeHelloAck(const HelloAckMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
     }
-    if (!HasValidRequestId(frame.header.message_type, frame.header.request_id) ||
-        !IsAllowedDirection(frame.header.message_type, expected_direction)) {
-        return RejectControl(ProtocolErrorCode::UnexpectedMessage);
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_uint(doc.get(), root, "protocol_version", message.protocol_version);
+    yyjson_mut_obj_add_strn(doc.get(), root, "collector_instance_id",
+                            message.collector_instance_id.data(),
+                            message.collector_instance_id.size());
+    yyjson_mut_obj_add_uint(doc.get(), root, "collector_pid", message.collector_pid);
+
+    auto* caps = yyjson_mut_obj_add_arr(doc.get(), root, "capabilities");
+    for (const auto& cap : message.capabilities) {
+        yyjson_mut_arr_add_strn(doc.get(), caps, cap.data(), cap.size());
     }
-    switch (frame.header.message_type) {
-    case MessageType::ClientHello:
-        return DecodeClientHello(frame);
-    case MessageType::ServerHello:
-        return DecodeServerHello(frame);
-    case MessageType::Subscribe:
-        return DecodeRefreshMessage<Subscribe>(frame);
-    case MessageType::SubscriptionAccepted:
-        return DecodeRefreshMessage<SubscriptionAccepted>(frame);
-    case MessageType::ProtocolError:
-        return DecodeProtocolError(frame);
-    case MessageType::ApplicationCatalog:
-    case MessageType::Snapshot:
-    case MessageType::CollectorStatus:
-        return RejectControl(ProtocolErrorCode::UnexpectedMessage);
+
+    return MakeFrameFromDoc(MessageType::HelloAck, doc.get());
+}
+
+MessageDecodeResult<HelloAckMessage> DecodeHelloAck(std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
     }
-    return RejectControl(ProtocolErrorCode::UnknownMessageType);
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* ver_val = yyjson_obj_get(root, "protocol_version");
+    auto* inst_val = yyjson_obj_get(root, "collector_instance_id");
+    auto* pid_val = yyjson_obj_get(root, "collector_pid");
+    auto* caps_val = yyjson_obj_get(root, "capabilities");
+
+    if (!yyjson_is_uint(ver_val) || !yyjson_is_str(inst_val) || !yyjson_is_uint(pid_val) ||
+        !yyjson_is_arr(caps_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    HelloAckMessage msg{
+        .protocol_version = static_cast<std::uint16_t>(yyjson_get_uint(ver_val)),
+        .collector_instance_id = std::string(JsonString(inst_val)),
+        .collector_pid = static_cast<std::uint32_t>(yyjson_get_uint(pid_val)),
+    };
+
+    const auto max_caps = yyjson_arr_size(caps_val);
+    for (size_t idx = 0; idx < max_caps; ++idx) {
+        auto* cap_item = yyjson_arr_get(caps_val, idx);
+        if (yyjson_is_str(cap_item)) {
+            msg.capabilities.emplace_back(JsonString(cap_item));
+        }
+    }
+
+    return {.message = std::move(msg)};
+}
+
+FrameEncodeResult EncodeTrafficTick(const TrafficTickMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
+    }
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_uint(doc.get(), root, "seq", message.seq);
+    yyjson_mut_obj_add_uint(doc.get(), root, "monotonic_ms", message.monotonic_ms);
+    yyjson_mut_obj_add_uint(doc.get(), root, "download_bytes_per_sec",
+                            message.download_bytes_per_sec);
+    yyjson_mut_obj_add_uint(doc.get(), root, "upload_bytes_per_sec", message.upload_bytes_per_sec);
+
+    return MakeFrameFromDoc(MessageType::TrafficTick, doc.get());
+}
+
+MessageDecodeResult<TrafficTickMessage> DecodeTrafficTick(
+    std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* seq_val = yyjson_obj_get(root, "seq");
+    auto* mono_val = yyjson_obj_get(root, "monotonic_ms");
+    auto* dl_val = yyjson_obj_get(root, "download_bytes_per_sec");
+    auto* ul_val = yyjson_obj_get(root, "upload_bytes_per_sec");
+
+    if (!yyjson_is_uint(seq_val) || !yyjson_is_uint(mono_val) || !yyjson_is_uint(dl_val) ||
+        !yyjson_is_uint(ul_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    TrafficTickMessage msg{
+        .seq = yyjson_get_uint(seq_val),
+        .monotonic_ms = yyjson_get_uint(mono_val),
+        .download_bytes_per_sec = yyjson_get_uint(dl_val),
+        .upload_bytes_per_sec = yyjson_get_uint(ul_val),
+    };
+    return {.message = msg};
+}
+
+FrameEncodeResult EncodeRankingSnapshot(const RankingSnapshotMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
+    }
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_uint(doc.get(), root, "seq", message.seq);
+    yyjson_mut_obj_add_uint(doc.get(), root, "monotonic_ms", message.monotonic_ms);
+    yyjson_mut_obj_add_strn(doc.get(), root, "status", message.status.data(),
+                            message.status.size());
+
+    auto* total_rate = yyjson_mut_obj_add_obj(doc.get(), root, "total_rate");
+    yyjson_mut_obj_add_uint(doc.get(), total_rate, "download_bytes_per_sec",
+                            message.total_rate.download_bytes_per_sec);
+    yyjson_mut_obj_add_uint(doc.get(), total_rate, "upload_bytes_per_sec",
+                            message.total_rate.upload_bytes_per_sec);
+
+    auto* apps = yyjson_mut_obj_add_arr(doc.get(), root, "applications");
+    for (const auto& app : message.applications) {
+        auto* item = yyjson_mut_arr_add_obj(doc.get(), apps);
+        yyjson_mut_obj_add_strn(doc.get(), item, "id", app.id.data(), app.id.size());
+        yyjson_mut_obj_add_strn(doc.get(), item, "executable_path", app.executable_path.data(),
+                                app.executable_path.size());
+        yyjson_mut_obj_add_strn(doc.get(), item, "display_name", app.display_name.data(),
+                                app.display_name.size());
+        yyjson_mut_obj_add_strn(doc.get(), item, "icon_key", app.icon_key.data(),
+                                app.icon_key.size());
+        yyjson_mut_obj_add_uint(doc.get(), item, "download_bytes_per_sec",
+                                app.download_bytes_per_sec);
+        yyjson_mut_obj_add_uint(doc.get(), item, "upload_bytes_per_sec", app.upload_bytes_per_sec);
+    }
+
+    return MakeFrameFromDoc(MessageType::RankingSnapshot, doc.get());
+}
+
+MessageDecodeResult<RankingSnapshotMessage> DecodeRankingSnapshot(
+    std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* seq_val = yyjson_obj_get(root, "seq");
+    auto* mono_val = yyjson_obj_get(root, "monotonic_ms");
+    auto* status_val = yyjson_obj_get(root, "status");
+    auto* total_rate_val = yyjson_obj_get(root, "total_rate");
+    auto* apps_val = yyjson_obj_get(root, "applications");
+
+    if (!yyjson_is_uint(seq_val) || !yyjson_is_uint(mono_val) || !yyjson_is_str(status_val) ||
+        !yyjson_is_obj(total_rate_val) || !yyjson_is_arr(apps_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* dl_total = yyjson_obj_get(total_rate_val, "download_bytes_per_sec");
+    auto* ul_total = yyjson_obj_get(total_rate_val, "upload_bytes_per_sec");
+    if (!yyjson_is_uint(dl_total) || !yyjson_is_uint(ul_total)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    RankingSnapshotMessage msg{
+        .seq = yyjson_get_uint(seq_val),
+        .monotonic_ms = yyjson_get_uint(mono_val),
+        .status = std::string(JsonString(status_val)),
+        .total_rate = {.download_bytes_per_sec = yyjson_get_uint(dl_total),
+                       .upload_bytes_per_sec = yyjson_get_uint(ul_total)},
+    };
+
+    const auto max_apps = yyjson_arr_size(apps_val);
+    for (size_t idx = 0; idx < max_apps; ++idx) {
+        auto* item = yyjson_arr_get(apps_val, idx);
+        if (!yyjson_is_obj(item)) {
+            continue;
+        }
+        auto* id = yyjson_obj_get(item, "id");
+        auto* exec = yyjson_obj_get(item, "executable_path");
+        auto* name = yyjson_obj_get(item, "display_name");
+        auto* icon = yyjson_obj_get(item, "icon_key");
+        auto* dl = yyjson_obj_get(item, "download_bytes_per_sec");
+        auto* ul = yyjson_obj_get(item, "upload_bytes_per_sec");
+        if (yyjson_is_str(id) && yyjson_is_str(exec) && yyjson_is_str(name) &&
+            yyjson_is_str(icon) && yyjson_is_uint(dl) && yyjson_is_uint(ul)) {
+            msg.applications.push_back({
+                .id = std::string(JsonString(id)),
+                .executable_path = std::string(JsonString(exec)),
+                .display_name = std::string(JsonString(name)),
+                .icon_key = std::string(JsonString(icon)),
+                .download_bytes_per_sec = yyjson_get_uint(dl),
+                .upload_bytes_per_sec = yyjson_get_uint(ul),
+            });
+        }
+    }
+
+    return {.message = std::move(msg)};
+}
+
+FrameEncodeResult EncodeCollectorStatus(const CollectorStatusMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
+    }
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_uint(doc.get(), root, "monotonic_ms", message.monotonic_ms);
+    yyjson_mut_obj_add_bool(doc.get(), root, "etw_session_active", message.etw_session_active);
+    yyjson_mut_obj_add_uint(doc.get(), root, "dropped_packets", message.dropped_packets);
+    yyjson_mut_obj_add_uint(doc.get(), root, "active_pids", message.active_pids);
+
+    return MakeFrameFromDoc(MessageType::CollectorStatus, doc.get());
+}
+
+MessageDecodeResult<CollectorStatusMessage> DecodeCollectorStatus(
+    std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* mono_val = yyjson_obj_get(root, "monotonic_ms");
+    auto* etw_val = yyjson_obj_get(root, "etw_session_active");
+    auto* dropped_val = yyjson_obj_get(root, "dropped_packets");
+    auto* pids_val = yyjson_obj_get(root, "active_pids");
+
+    if (!yyjson_is_uint(mono_val) || !yyjson_is_bool(etw_val) || !yyjson_is_uint(dropped_val) ||
+        !yyjson_is_uint(pids_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    CollectorStatusMessage msg{
+        .monotonic_ms = yyjson_get_uint(mono_val),
+        .etw_session_active = yyjson_get_bool(etw_val),
+        .dropped_packets = yyjson_get_uint(dropped_val),
+        .active_pids = static_cast<std::uint32_t>(yyjson_get_uint(pids_val)),
+    };
+    return {.message = msg};
+}
+
+FrameEncodeResult EncodeShutdownRequest(const ShutdownRequestMessage& message) {
+    const UniqueMutableDocument doc{yyjson_mut_doc_new(nullptr)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::InternalFailure};
+    }
+    auto* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_strn(doc.get(), root, "reason", message.reason.data(),
+                            message.reason.size());
+
+    return MakeFrameFromDoc(MessageType::ShutdownRequest, doc.get());
+}
+
+MessageDecodeResult<ShutdownRequestMessage> DecodeShutdownRequest(
+    std::span<const std::byte> payload_or_frame) {
+    const auto payload = ExtractPayload(payload_or_frame);
+    if (payload.empty()) {
+        return {.message = ShutdownRequestMessage{}};
+    }
+    const UniqueJsonDocument doc{yyjson_read(reinterpret_cast<const char*>(payload.data()),
+                                             payload.size(), YYJSON_READ_NOFLAG)};
+    if (!doc) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    auto* reason_val = yyjson_obj_get(root, "reason");
+    if (!yyjson_is_str(reason_val)) {
+        return {.error = ProtocolErrorCode::MalformedPayload};
+    }
+
+    ShutdownRequestMessage msg{
+        .reason = std::string(JsonString(reason_val)),
+    };
+    return {.message = std::move(msg)};
 }
 
 } // namespace nfm::ipc

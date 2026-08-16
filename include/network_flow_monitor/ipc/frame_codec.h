@@ -8,17 +8,29 @@ namespace nfm::ipc {
 [[nodiscard]] FrameEncodeResult EncodeFrame(FrameView frame);
 [[nodiscard]] FrameParseResult TryDecodeFrame(std::span<const std::byte> bytes);
 
-[[nodiscard]] FrameEncodeResult EncodeClientHello(const ClientHello& message,
-                                                  std::uint64_t request_id);
-[[nodiscard]] FrameEncodeResult EncodeServerHello(const ServerHello& message,
-                                                  std::uint64_t request_id);
-[[nodiscard]] FrameEncodeResult EncodeSubscribe(const Subscribe& message, std::uint64_t request_id);
-[[nodiscard]] FrameEncodeResult EncodeSubscriptionAccepted(const SubscriptionAccepted& message,
-                                                           std::uint64_t request_id);
-[[nodiscard]] FrameEncodeResult EncodeProtocolError(const ProtocolErrorMessage& message,
-                                                    std::uint64_t request_id);
-[[nodiscard]] ControlDecodeResult DecodeControlMessage(FrameView frame,
-                                                       MessageDirection expected_direction);
+[[nodiscard]] FrameEncodeResult EncodeHello(const HelloMessage& message);
+[[nodiscard]] MessageDecodeResult<HelloMessage> DecodeHello(
+    std::span<const std::byte> payload_or_frame);
+
+[[nodiscard]] FrameEncodeResult EncodeHelloAck(const HelloAckMessage& message);
+[[nodiscard]] MessageDecodeResult<HelloAckMessage> DecodeHelloAck(
+    std::span<const std::byte> payload_or_frame);
+
+[[nodiscard]] FrameEncodeResult EncodeTrafficTick(const TrafficTickMessage& message);
+[[nodiscard]] MessageDecodeResult<TrafficTickMessage> DecodeTrafficTick(
+    std::span<const std::byte> payload_or_frame);
+
+[[nodiscard]] FrameEncodeResult EncodeRankingSnapshot(const RankingSnapshotMessage& message);
+[[nodiscard]] MessageDecodeResult<RankingSnapshotMessage> DecodeRankingSnapshot(
+    std::span<const std::byte> payload_or_frame);
+
+[[nodiscard]] FrameEncodeResult EncodeCollectorStatus(const CollectorStatusMessage& message);
+[[nodiscard]] MessageDecodeResult<CollectorStatusMessage> DecodeCollectorStatus(
+    std::span<const std::byte> payload_or_frame);
+
+[[nodiscard]] FrameEncodeResult EncodeShutdownRequest(const ShutdownRequestMessage& message);
+[[nodiscard]] MessageDecodeResult<ShutdownRequestMessage> DecodeShutdownRequest(
+    std::span<const std::byte> payload_or_frame);
 
 } // namespace nfm::ipc
 

@@ -48,7 +48,7 @@ class UiController final : public ipc::IpcClientObserver,
     void Shutdown() noexcept;
     void AttachMessageWindow(HWND window) noexcept;
     [[nodiscard]] bool ProcessPendingSnapshot() noexcept;
-    [[nodiscard]] std::optional<ipc::ClientSnapshot> TakePendingSnapshot() noexcept;
+    [[nodiscard]] std::optional<ipc::TrafficTickMessage> TakePendingTick() noexcept;
     [[nodiscard]] bool UpdateRankingOptions(std::uint8_t top_n,
                                             std::chrono::milliseconds window) noexcept;
 
@@ -74,7 +74,10 @@ class UiController final : public ipc::IpcClientObserver,
         return floating_window_.hit_test_hwnd();
     }
     void StateChanged(ipc::IpcClientState state) noexcept override;
-    void SnapshotReceived(ipc::ClientSnapshot snapshot) noexcept override;
+    void HelloAckReceived(ipc::HelloAckMessage ack) noexcept override;
+    void TrafficTickReceived(ipc::TrafficTickMessage tick) noexcept override;
+    void RankingSnapshotReceived(ipc::RankingSnapshotMessage snapshot) noexcept override;
+    void CollectorStatusReceived(ipc::CollectorStatusMessage status) noexcept override;
 
     void OnTrayLeftClick() noexcept override;
     void OnTrayRightClick() noexcept override;
@@ -140,14 +143,15 @@ class UiController final : public ipc::IpcClientObserver,
     TrayController tray_controller_;
     std::unique_ptr<ipc::IpcClient> ipc_client_;
     std::unique_ptr<ranking::RankingEngine> ranking_engine_;
-    std::optional<ipc::CollectorInstanceId> ranking_instance_;
+    std::optional<std::string> ranking_instance_;
     std::shared_ptr<const ranking::RankingSnapshot> ranking_snapshot_;
     std::atomic<ipc::IpcClientState> ipc_state_{ipc::IpcClientState::Disconnected};
     std::atomic<InteractionState> overlay_state_{InteractionState::Hidden};
     std::atomic<std::uint64_t> snapshot_generation_;
     std::atomic<bool> memory_error_;
     std::mutex pending_mutex_;
-    std::optional<ipc::ClientSnapshot> pending_snapshot_;
+    std::optional<ipc::TrafficTickMessage> pending_tick_;
+    std::optional<ipc::RankingSnapshotMessage> pending_snapshot_;
     bool pending_message_posted_{};
     HWND message_window_{};
     bool started_{};

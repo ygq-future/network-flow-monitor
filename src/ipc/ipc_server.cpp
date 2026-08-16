@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <limits>
 #include <ranges>
 #include <thread>
 #include <utility>
@@ -48,7 +47,7 @@ class KernelHandle final {
 };
 
 KernelHandle MakeEvent(std::uint32_t& error) noexcept {
-    const auto event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    auto* const event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (event == nullptr) {
         error = GetLastError();
     } else {
@@ -65,19 +64,6 @@ IpcServerResult ServerError(IpcServerError error, std::uint32_t win32_error = ER
     return {.error = error, .win32_error = win32_error};
 }
 
-OwnedFrame MakeFrame(MessageType type, std::vector<std::byte> payload) {
-    return OwnedFrame{.header = {.protocol_version = kCurrentProtocolVersion,
-                                 .message_type = type,
-                                 .request_id = 0U,
-                                 .payload_length = static_cast<std::uint32_t>(payload.size())},
-                      .payload = std::move(payload)};
-}
-
-bool IsValidCatalogSequence(const PublishedSnapshot& snapshot) noexcept {
-    return snapshot.message.required_catalog_sequence != 0U &&
-           snapshot.message.snapshot_sequence != 0U;
-}
-
 } // namespace
 
 bool IpcServerResult::ok() const noexcept {
@@ -88,43 +74,21 @@ bool ClientSessionResult::ok() const noexcept {
     return error == ClientSessionError::None;
 }
 
-ClientSessionProtocol::ClientSessionProtocol(std::uint64_t client_id, CollectorInstanceId instance)
-    : client_id_{client_id}, instance_{instance} {}
+ClientSessionProtocol::ClientSessionProtocol(std::uint64_t client_id,
+                                             std::string collector_instance_id)
+    : client_id_{client_id}, collector_instance_id_{std::move(collector_instance_id)} {}
 
-ClientSessionResult ClientSessionProtocol::ProtocolFailure(ProtocolErrorCode error,
-                                                           std::uint64_t request_id) noexcept {
-    if (!protocol_error_sent_) {
-        ProtocolErrorMessage message{.code = error,
-                                     .retry_disposition = 0U,
-                                     .server_minimum_version = kCurrentProtocolVersion,
-                                     .server_maximum_version = kCurrentProtocolVersion,
-                                     .win32_error = 0U};
-        auto encoded = EncodeProtocolError(message, request_id);
-        if (!encoded.ok()) {
-            state_ = ClientSessionState::Closed;
-            return {.error = ClientSessionError::InternalFailure, .protocol_error = encoded.error};
-        }
-        const auto queued = QueueWireFrame(std::move(encoded.bytes));
-        if (!queued.ok()) {
-            state_ = ClientSessionState::Closed;
-            return queued;
-        }
-        protocol_error_sent_ = true;
+ClientSessionResult ClientSessionProtocol::QueueEncodedFrame(FrameEncodeResult encoded) noexcept {
+    if (!encoded.ok()) {
+        return {.error = ClientSessionError::InternalFailure, .protocol_error = encoded.error};
     }
-    state_ = ClientSessionState::Closing;
-    return {.error = ClientSessionError::Protocol, .protocol_error = error};
-}
-
-ClientSessionResult ClientSessionProtocol::QueueWireFrame(std::vector<std::byte> wire) noexcept {
-    auto parsed = TryDecodeFrame(wire);
+    auto parsed = TryDecodeFrame(encoded.bytes);
     if (parsed.status != FrameParseStatus::Decoded || !parsed.frame.has_value()) {
         return {.error = ClientSessionError::InternalFailure,
                 .protocol_error = ProtocolErrorCode::MalformedPayload};
     }
     try {
-        queued_frames_.push_back(QueuedFrame{.frame = std::move(*parsed.frame),
-                                             .catalog_sequence = 0U,
-                                             .final_catalog_chunk = false});
+        queued_frames_.push_back(std::move(*parsed.frame));
         return {};
     } catch (...) {
         return {.error = ClientSessionError::InternalFailure,
@@ -132,201 +96,99 @@ ClientSessionResult ClientSessionProtocol::QueueWireFrame(std::vector<std::byte>
     }
 }
 
-ClientSessionResult ClientSessionProtocol::QueueEncodedFrame(
-    MessageType type, std::vector<std::byte> payload) noexcept {
-    if (payload.size() > kMaximumFramePayload) {
-        return {.error = ClientSessionError::InvalidSnapshot,
-                .protocol_error = ProtocolErrorCode::PayloadTooLarge};
-    }
+ClientSessionResult ClientSessionProtocol::Receive(FrameView frame, bool authorized,
+                                                   std::uint32_t actual_client_pid) noexcept {
     try {
-        queued_frames_.push_back(QueuedFrame{.frame = MakeFrame(type, std::move(payload)),
-                                             .catalog_sequence = 0U,
-                                             .final_catalog_chunk = false});
-        return {};
-    } catch (...) {
-        return {.error = ClientSessionError::InternalFailure,
-                .protocol_error = ProtocolErrorCode::InternalFailure};
-    }
-}
+        if (state_ == ClientSessionState::Closing || state_ == ClientSessionState::Closed) {
+            return {.error = ClientSessionError::InvalidState,
+                    .protocol_error = ProtocolErrorCode::UnexpectedMessage};
+        }
 
-ClientSessionResult ClientSessionProtocol::Receive(FrameView frame, bool authorized) noexcept {
-    if (state_ == ClientSessionState::Closing || state_ == ClientSessionState::Closed) {
-        return {.error = ClientSessionError::InvalidState,
-                .protocol_error = ProtocolErrorCode::UnexpectedMessage};
-    }
-    const auto decoded = DecodeControlMessage(frame, MessageDirection::ClientToServer);
-    if (!decoded.ok()) {
-        return ProtocolFailure(decoded.error, frame.header.request_id);
-    }
+        if (state_ == ClientSessionState::AwaitingHello) {
+            if (frame.header.message_type != MessageType::Hello) {
+                state_ = ClientSessionState::Closing;
+                return {.error = ClientSessionError::Protocol,
+                        .protocol_error = ProtocolErrorCode::UnexpectedMessage};
+            }
+            if (!authorized) {
+                state_ = ClientSessionState::Closing;
+                return {.error = ClientSessionError::Unauthorized,
+                        .protocol_error = ProtocolErrorCode::Unauthorized};
+            }
 
-    if (const auto* hello = std::get_if<ClientHello>(&*decoded.message)) {
-        if (state_ != ClientSessionState::AwaitingHello) {
-            return ProtocolFailure(ProtocolErrorCode::UnexpectedMessage, frame.header.request_id);
-        }
-        if (!authorized) {
-            return ProtocolFailure(ProtocolErrorCode::Unauthorized, frame.header.request_id);
-        }
-        if (hello->minimum_version > kCurrentProtocolVersion ||
-            hello->maximum_version < kCurrentProtocolVersion) {
-            return ProtocolFailure(ProtocolErrorCode::VersionMismatch, frame.header.request_id);
-        }
-        try {
-            const ServerHello server_hello{.selected_version = kCurrentProtocolVersion,
-                                           .maximum_frame_payload = kMaximumFramePayload,
-                                           .instance = instance_};
-            auto encoded_hello = EncodeServerHello(server_hello, frame.header.request_id);
-            auto encoded_subscription = EncodeSubscriptionAccepted(
-                SubscriptionAccepted{.effective_refresh = hello->requested_refresh},
-                frame.header.request_id);
-            if (!encoded_hello.ok() || !encoded_subscription.ok()) {
-                state_ = ClientSessionState::Closed;
-                return {.error = ClientSessionError::InternalFailure,
-                        .protocol_error = ProtocolErrorCode::InternalFailure};
+            const auto decoded = DecodeHello(frame.payload);
+            if (!decoded.ok() || !decoded.message.has_value()) {
+                state_ = ClientSessionState::Closing;
+                return {.error = ClientSessionError::Protocol, .protocol_error = decoded.error};
             }
-            const auto hello_queued = QueueWireFrame(std::move(encoded_hello.bytes));
-            const auto subscription_queued = QueueWireFrame(std::move(encoded_subscription.bytes));
-            if (!hello_queued.ok() || !subscription_queued.ok()) {
-                state_ = ClientSessionState::Closed;
-                return {.error = ClientSessionError::InternalFailure,
-                        .protocol_error = ProtocolErrorCode::InternalFailure};
+            if (decoded.message->protocol_version != kCurrentProtocolVersion) {
+                state_ = ClientSessionState::Closing;
+                return {.error = ClientSessionError::Protocol,
+                        .protocol_error = ProtocolErrorCode::VersionMismatch};
             }
-            refresh_interval_ = hello->requested_refresh;
+            if (actual_client_pid != 0U && decoded.message->client_pid != actual_client_pid) {
+                state_ = ClientSessionState::Closing;
+                return {.error = ClientSessionError::Unauthorized,
+                        .protocol_error = ProtocolErrorCode::Unauthorized};
+            }
+
+            hello_message_ = *decoded.message;
+            const HelloAckMessage ack{
+                .protocol_version = kCurrentProtocolVersion,
+                .collector_instance_id = collector_instance_id_,
+                .collector_pid = static_cast<std::uint32_t>(GetCurrentProcessId()),
+                .capabilities = {"etw_live_counters", "traffic_tick_4hz", "ranking_snapshot_1hz"}};
+
+            const auto encoded_ack = EncodeHelloAck(ack);
+            const auto queue_res = QueueEncodedFrame(encoded_ack);
+            if (!queue_res.ok()) {
+                state_ = ClientSessionState::Closed;
+                return queue_res;
+            }
+
             state_ = ClientSessionState::Streaming;
             return {};
-        } catch (...) {
-            state_ = ClientSessionState::Closed;
-            return {.error = ClientSessionError::InternalFailure,
-                    .protocol_error = ProtocolErrorCode::InternalFailure};
         }
-    }
 
-    if (const auto* subscribe = std::get_if<Subscribe>(&*decoded.message)) {
-        if (state_ != ClientSessionState::Streaming) {
-            return ProtocolFailure(ProtocolErrorCode::UnexpectedMessage, frame.header.request_id);
-        }
-        try {
-            auto encoded = EncodeSubscriptionAccepted(
-                SubscriptionAccepted{.effective_refresh = subscribe->requested_refresh},
-                frame.header.request_id);
-            if (!encoded.ok()) {
-                state_ = ClientSessionState::Closed;
-                return {.error = ClientSessionError::InternalFailure,
-                        .protocol_error = ProtocolErrorCode::InternalFailure};
+        if (state_ == ClientSessionState::Streaming) {
+            if (frame.header.message_type == MessageType::ShutdownRequest) {
+                state_ = ClientSessionState::Closing;
+                return {};
             }
-            refresh_interval_ = subscribe->requested_refresh;
-            return QueueWireFrame(std::move(encoded.bytes));
-        } catch (...) {
-            state_ = ClientSessionState::Closed;
-            return {.error = ClientSessionError::InternalFailure,
-                    .protocol_error = ProtocolErrorCode::InternalFailure};
-        }
-    }
-    return ProtocolFailure(ProtocolErrorCode::UnexpectedMessage, frame.header.request_id);
-}
-
-ClientSessionResult ClientSessionProtocol::BuildSnapshotFrames(
-    const PublishedSnapshot& snapshot) noexcept {
-    if (!IsValidCatalogSequence(snapshot) ||
-        snapshot.message.required_catalog_sequence < known_catalog_sequence_) {
-        return {.error = ClientSessionError::InvalidSnapshot,
-                .protocol_error = ProtocolErrorCode::CatalogOutOfOrder};
-    }
-
-    try {
-        std::deque<QueuedFrame> candidate;
-        const auto sequence = snapshot.message.required_catalog_sequence;
-        if (sequence != known_catalog_sequence_) {
-            const bool full_baseline =
-                known_catalog_sequence_ == 0U || sequence != known_catalog_sequence_ + 1U;
-            const auto& entries = full_baseline ? snapshot.full_catalog : snapshot.latest_changes;
-            const auto catalog = EncodeCatalog(sequence, full_baseline, entries);
-            if (!catalog.ok() || catalog.payloads.empty()) {
-                return {.error = ClientSessionError::InvalidSnapshot,
-                        .protocol_error = ProtocolErrorCode::CatalogOutOfOrder};
-            }
-            for (std::size_t index = 0U; index < catalog.payloads.size(); ++index) {
-                candidate.push_back(QueuedFrame{
-                    .frame = MakeFrame(MessageType::ApplicationCatalog, catalog.payloads.at(index)),
-                    .catalog_sequence = sequence,
-                    .final_catalog_chunk = index + 1U == catalog.payloads.size()});
-            }
+            return {.error = ClientSessionError::Protocol,
+                    .protocol_error = ProtocolErrorCode::UnexpectedMessage};
         }
 
-        const auto encoded_snapshot = EncodeSnapshot(snapshot.message);
-        if (!encoded_snapshot.ok()) {
-            return {.error = ClientSessionError::InvalidSnapshot,
-                    .protocol_error = ProtocolErrorCode::MalformedPayload};
-        }
-        candidate.push_back(
-            QueuedFrame{.frame = MakeFrame(MessageType::Snapshot, encoded_snapshot.payload),
-                        .catalog_sequence = 0U,
-                        .final_catalog_chunk = false});
-        for (auto& item : candidate) {
-            queued_frames_.push_back(std::move(item));
-        }
-        return {};
+        return {.error = ClientSessionError::InvalidState,
+                .protocol_error = ProtocolErrorCode::UnexpectedMessage};
     } catch (...) {
         return {.error = ClientSessionError::InternalFailure,
                 .protocol_error = ProtocolErrorCode::InternalFailure};
     }
 }
 
-ClientSessionResult ClientSessionProtocol::BuildStatusFrame(
+ClientSessionResult ClientSessionProtocol::QueueTrafficTick(
+    const TrafficTickMessage& tick) noexcept {
+    if (state_ != ClientSessionState::Streaming) {
+        return {.error = ClientSessionError::InvalidState};
+    }
+    return QueueEncodedFrame(EncodeTrafficTick(tick));
+}
+
+ClientSessionResult ClientSessionProtocol::QueueRankingSnapshot(
+    const RankingSnapshotMessage& snapshot) noexcept {
+    if (state_ != ClientSessionState::Streaming) {
+        return {.error = ClientSessionError::InvalidState};
+    }
+    return QueueEncodedFrame(EncodeRankingSnapshot(snapshot));
+}
+
+ClientSessionResult ClientSessionProtocol::QueueCollectorStatus(
     const CollectorStatusMessage& status) noexcept {
-    try {
-        auto encoded = EncodeCollectorStatus(status);
-        if (!encoded.ok()) {
-            return {.error = ClientSessionError::InvalidSnapshot,
-                    .protocol_error = ProtocolErrorCode::MalformedPayload};
-        }
-        return QueueEncodedFrame(MessageType::CollectorStatus, std::move(encoded.payload));
-    } catch (...) {
-        return {.error = ClientSessionError::InternalFailure,
-                .protocol_error = ProtocolErrorCode::InternalFailure};
+    if (state_ != ClientSessionState::Streaming) {
+        return {.error = ClientSessionError::InvalidState};
     }
-}
-
-ClientSessionResult ClientSessionProtocol::QueueSnapshot(
-    const std::shared_ptr<const PublishedSnapshot>& snapshot) noexcept {
-    if (state_ != ClientSessionState::Streaming || snapshot == nullptr) {
-        return {.error = ClientSessionError::InvalidState,
-                .protocol_error = ProtocolErrorCode::UnexpectedMessage};
-    }
-    if (active_frame_.has_value() || !queued_frames_.empty() || pending_snapshot_ != nullptr) {
-        try {
-            if (active_frame_.has_value()) {
-                std::erase_if(queued_frames_, [](const QueuedFrame& item) {
-                    return item.frame.header.message_type == MessageType::ApplicationCatalog ||
-                           item.frame.header.message_type == MessageType::Snapshot;
-                });
-            }
-            pending_snapshot_ = snapshot;
-            return {};
-        } catch (...) {
-            return {.error = ClientSessionError::InternalFailure,
-                    .protocol_error = ProtocolErrorCode::InternalFailure};
-        }
-    }
-    return BuildSnapshotFrames(*snapshot);
-}
-
-ClientSessionResult ClientSessionProtocol::QueueStatus(
-    const std::shared_ptr<const CollectorStatusMessage>& status) noexcept {
-    if (state_ != ClientSessionState::Streaming || status == nullptr) {
-        return {.error = ClientSessionError::InvalidState,
-                .protocol_error = ProtocolErrorCode::UnexpectedMessage};
-    }
-    if (active_frame_.has_value() || !queued_frames_.empty() || pending_snapshot_ != nullptr ||
-        pending_status_ != nullptr) {
-        try {
-            pending_status_ = status;
-            return {};
-        } catch (...) {
-            return {.error = ClientSessionError::InternalFailure,
-                    .protocol_error = ProtocolErrorCode::InternalFailure};
-        }
-    }
-    return BuildStatusFrame(*status);
+    return QueueEncodedFrame(EncodeCollectorStatus(status));
 }
 
 ClientSessionState ClientSessionProtocol::state() const noexcept {
@@ -337,24 +199,21 @@ std::uint64_t ClientSessionProtocol::client_id() const noexcept {
     return client_id_;
 }
 
-std::chrono::milliseconds ClientSessionProtocol::refresh_interval() const noexcept {
-    return refresh_interval_;
+const HelloMessage& ClientSessionProtocol::hello_message() const noexcept {
+    return hello_message_;
 }
 
 const OwnedFrame* ClientSessionProtocol::StartNextFrame() noexcept {
     if (active_frame_.has_value()) {
-        return &active_frame_->frame;
+        return &*active_frame_;
     }
     if (queued_frames_.empty()) {
-        PromotePendingSnapshot();
-        if (queued_frames_.empty()) {
-            return nullptr;
-        }
+        return nullptr;
     }
     try {
         active_frame_.emplace(std::move(queued_frames_.front()));
         queued_frames_.pop_front();
-        return &active_frame_->frame;
+        return &*active_frame_;
     } catch (...) {
         state_ = ClientSessionState::Closing;
         return nullptr;
@@ -362,34 +221,13 @@ const OwnedFrame* ClientSessionProtocol::StartNextFrame() noexcept {
 }
 
 const OwnedFrame* ClientSessionProtocol::active_frame() const noexcept {
-    return active_frame_.has_value() ? &active_frame_->frame : nullptr;
-}
-
-void ClientSessionProtocol::PromotePendingSnapshot() noexcept {
-    if (pending_snapshot_ != nullptr) {
-        auto snapshot = std::move(pending_snapshot_);
-        const auto result = BuildSnapshotFrames(*snapshot);
-        if (!result.ok()) {
-            state_ = ClientSessionState::Closing;
-        }
-        return;
-    }
-    if (pending_status_ != nullptr) {
-        auto status = std::move(pending_status_);
-        const auto result = BuildStatusFrame(*status);
-        if (!result.ok()) {
-            state_ = ClientSessionState::Closing;
-        }
-    }
+    return active_frame_.has_value() ? &*active_frame_ : nullptr;
 }
 
 ClientSessionResult ClientSessionProtocol::CompleteActiveFrame() noexcept {
     if (!active_frame_.has_value()) {
         return {.error = ClientSessionError::InvalidState,
                 .protocol_error = ProtocolErrorCode::UnexpectedMessage};
-    }
-    if (active_frame_->final_catalog_chunk) {
-        known_catalog_sequence_ = active_frame_->catalog_sequence;
     }
     active_frame_.reset();
     return {};
@@ -398,8 +236,6 @@ ClientSessionResult ClientSessionProtocol::CompleteActiveFrame() noexcept {
 void ClientSessionProtocol::Close() noexcept {
     active_frame_.reset();
     queued_frames_.clear();
-    pending_snapshot_.reset();
-    pending_status_.reset();
     state_ = ClientSessionState::Closed;
 }
 
@@ -414,7 +250,7 @@ class IpcServer::Impl final {
         Session(Impl& owner_in, std::uint64_t id,
                 std::unique_ptr<NamedPipeConnection> connection_in)
             : owner{&owner_in}, id{id}, connection{std::move(connection_in)},
-              protocol{id, owner_in.instance} {}
+              protocol{id, owner_in.collector_instance_id} {}
 
         Impl* owner;
         std::uint64_t id;
@@ -424,12 +260,14 @@ class IpcServer::Impl final {
         KernelHandle wake_event;
         std::thread thread;
         std::atomic_bool finished{false};
+        bool connected_callback_sent{};
         bool disconnected_callback_sent{};
     };
 
-    Impl(CollectorInstanceId instance_in, AuthorizedPrincipal principal_in,
+    Impl(std::string collector_instance_id_in, AuthorizedPrincipal principal_in,
          PipeTransportFactory& factory_in, ClientAuthorizer* authorizer_in)
-        : instance{instance_in}, principal{std::move(principal_in)}, factory{&factory_in},
+        : collector_instance_id{std::move(collector_instance_id_in)},
+          principal{std::move(principal_in)}, factory{&factory_in},
           authorizer{authorizer_in != nullptr ? authorizer_in : &default_authorizer} {
         health.state = IpcServerState::Stopped;
     }
@@ -442,7 +280,7 @@ class IpcServer::Impl final {
     Impl(Impl&&) = delete;
     Impl& operator=(Impl&&) = delete;
 
-    CollectorInstanceId instance;
+    std::string collector_instance_id;
     AuthorizedPrincipal principal;
     PipeTransportFactory* factory;
     WindowsClientAuthorizer default_authorizer;
@@ -499,14 +337,15 @@ class IpcServer::Impl final {
         health.bytes_received += bytes;
     }
 
-    void NotifySubscription(std::uint64_t id, std::chrono::milliseconds refresh) noexcept {
+    void NotifyConnected(Session& session, const HelloMessage& hello) noexcept {
         ClientSessionObserver* target{};
         {
             std::scoped_lock lock{mutex};
+            session.connected_callback_sent = true;
             target = observer;
         }
         if (target != nullptr) {
-            target->SubscriptionChanged({.client_id = id, .refresh_interval = refresh});
+            target->ClientConnected(session.id, hello);
         }
     }
 
@@ -702,43 +541,42 @@ class IpcServer::Impl final {
                             break;
                         }
                         RecordSessionFrameReceived(bytes.size());
+
+                        ULONG client_pid{};
                         if (!got_hello) {
                             const auto identity =
                                 authorizer->Verify(session->connection->native_handle(), principal);
                             authorized = identity.authorized();
+                            if (GetNamedPipeClientProcessId(session->connection->native_handle(),
+                                                            &client_pid) == FALSE) {
+                                client_pid = 0U;
+                            }
                         }
-                        ClientSessionState previous_state;
-                        ClientSessionState current_state;
-                        std::chrono::milliseconds previous_refresh{};
-                        std::chrono::milliseconds current_refresh{};
+
                         ClientSessionResult received;
+                        HelloMessage hello_info;
                         {
                             std::scoped_lock protocol_lock{session->protocol_mutex};
-                            previous_state = session->protocol.state();
-                            previous_refresh = session->protocol.refresh_interval();
                             received = session->protocol.Receive(
                                 FrameView{.header = decoded.frame->header,
                                           .payload = decoded.frame->payload},
-                                authorized);
-                            current_state = session->protocol.state();
-                            current_refresh = session->protocol.refresh_interval();
+                                authorized, client_pid);
+                            hello_info = session->protocol.hello_message();
                         }
-                        if (received.ok() && current_state == ClientSessionState::Streaming &&
-                            (previous_state != current_state ||
-                             previous_refresh != current_refresh)) {
-                            NotifySubscription(session->id, current_refresh);
-                        }
-                        if (!received.ok() &&
-                            received.error == ClientSessionError::InternalFailure) {
-                            SetFailure(IpcServerError::InternalFailure, ERROR_NOT_ENOUGH_MEMORY);
-                        } else if (!received.ok()) {
+                        if (!received.ok()) {
                             RecordSessionProtocolFailure();
+                            break;
                         }
-                        got_hello =
-                            got_hello || previous_state == ClientSessionState::AwaitingHello;
+
+                        if (!got_hello) {
+                            got_hello = true;
+                            NotifyConnected(*session, hello_info);
+                        }
+
                         const auto sent = SendQueuedFrames(*session);
-                        if (!sent.ok() || current_state == ClientSessionState::Closing ||
-                            current_state == ClientSessionState::Closed) {
+                        if (!sent.ok() ||
+                            session->protocol.state() == ClientSessionState::Closing ||
+                            session->protocol.state() == ClientSessionState::Closed) {
                             if (!sent.ok()) {
                                 RecordSessionIoFailure(sent);
                             }
@@ -815,40 +653,43 @@ class IpcServer::Impl final {
                     break;
                 }
                 RecordSessionFrameReceived(bytes.size());
+
+                ULONG client_pid{};
                 if (!got_hello) {
                     const auto identity =
                         authorizer->Verify(session->connection->native_handle(), principal);
                     authorized = identity.authorized();
+                    if (GetNamedPipeClientProcessId(session->connection->native_handle(),
+                                                    &client_pid) == FALSE) {
+                        client_pid = 0U;
+                    }
                 }
-                ClientSessionState previous_state;
-                ClientSessionState current_state;
-                std::chrono::milliseconds previous_refresh{};
-                std::chrono::milliseconds current_refresh{};
+
                 ClientSessionResult received;
+                HelloMessage hello_info;
                 {
                     std::scoped_lock protocol_lock{session->protocol_mutex};
-                    previous_state = session->protocol.state();
-                    previous_refresh = session->protocol.refresh_interval();
                     received =
                         session->protocol.Receive(FrameView{.header = decoded.frame->header,
                                                             .payload = decoded.frame->payload},
-                                                  authorized);
-                    current_state = session->protocol.state();
-                    current_refresh = session->protocol.refresh_interval();
+                                                  authorized, client_pid);
+                    hello_info = session->protocol.hello_message();
                 }
-                if (received.ok() && current_state == ClientSessionState::Streaming &&
-                    (previous_state != current_state || previous_refresh != current_refresh)) {
-                    NotifySubscription(session->id, current_refresh);
+                if (!received.ok()) {
+                    RecordSessionProtocolFailure();
+                    break;
                 }
-                got_hello = got_hello || previous_state == ClientSessionState::AwaitingHello;
+
+                if (!got_hello) {
+                    got_hello = true;
+                    NotifyConnected(*session, hello_info);
+                }
+
                 const auto sent = SendQueuedFrames(*session);
-                if (!sent.ok() || current_state == ClientSessionState::Closing ||
-                    current_state == ClientSessionState::Closed) {
+                if (!sent.ok() || session->protocol.state() == ClientSessionState::Closing ||
+                    session->protocol.state() == ClientSessionState::Closed) {
                     if (!sent.ok()) {
                         RecordSessionIoFailure(sent);
-                    } else if (current_state == ClientSessionState::Closing ||
-                               current_state == ClientSessionState::Closed) {
-                        RecordSessionProtocolFailure();
                     }
                     break;
                 }
@@ -871,40 +712,6 @@ class IpcServer::Impl final {
             NotifyDisconnected(*session);
             session->finished.store(true);
         }
-    }
-
-    void RejectBusy(std::unique_ptr<NamedPipeConnection> connection) noexcept {
-        if (connection == nullptr) {
-            return;
-        }
-        const auto encoded = EncodeProtocolError(
-            ProtocolErrorMessage{.code = ProtocolErrorCode::ServerBusy,
-                                 .retry_disposition = 1U,
-                                 .server_minimum_version = kCurrentProtocolVersion,
-                                 .server_maximum_version = kCurrentProtocolVersion,
-                                 .win32_error = ERROR_PIPE_BUSY},
-            0U);
-        if (encoded.ok()) {
-            const auto wire = EncodeFrame(FrameView{
-                .header = {.protocol_version = kCurrentProtocolVersion,
-                           .message_type = MessageType::ProtocolError,
-                           .request_id = 0U,
-                           .payload_length = static_cast<std::uint32_t>(encoded.bytes.size())},
-                .payload = encoded.bytes});
-            if (wire.ok()) {
-                auto result = connection->BeginWriteAll(wire.bytes);
-                if (result.pending) {
-                    const std::array handles{stop_event.get(), connection->write_event()};
-                    if (IsWaitSuccess(WaitForMultipleObjects(static_cast<DWORD>(handles.size()),
-                                                             handles.data(), FALSE, 1000U),
-                                      1U)) {
-                        result = connection->ContinueWriteAll();
-                    }
-                }
-                static_cast<void>(result);
-            }
-        }
-        static_cast<void>(connection->CancelAndDrain());
     }
 
     void ReapFinishedSessions() noexcept {
@@ -1021,7 +828,7 @@ class IpcServer::Impl final {
                 }
                 if (busy) {
                     auto connection = std::exchange(pending, nullptr);
-                    RejectBusy(std::move(connection));
+                    static_cast<void>(connection->CancelAndDrain());
                 } else if (session != nullptr) {
                     session->thread = std::thread([this, session] { SessionLoop(session); });
                 }
@@ -1073,10 +880,7 @@ class IpcServer::Impl final {
 
     std::unique_ptr<NamedPipeConnection> initial_connection;
 
-    IpcServerResult PublishSnapshot(const std::shared_ptr<const PublishedSnapshot>& snapshot) {
-        if (snapshot == nullptr || !IsValidCatalogSequence(*snapshot)) {
-            return ServerError(IpcServerError::InvalidSnapshot);
-        }
+    IpcServerResult PublishTrafficTick(const TrafficTickMessage& tick) {
         std::vector<std::shared_ptr<Session>> current;
         {
             std::scoped_lock lock{mutex};
@@ -1085,42 +889,48 @@ class IpcServer::Impl final {
                 return ServerError(IpcServerError::AlreadyRunning);
             }
             for (const auto& session : sessions) {
-                if (session == nullptr || session->finished.load()) {
-                    continue;
-                }
-                const bool selected =
-                    snapshot->recipient_client_ids.empty() ||
-                    std::ranges::find(snapshot->recipient_client_ids, session->id) !=
-                        snapshot->recipient_client_ids.end();
-                if (selected) {
+                if (session != nullptr && !session->finished.load()) {
                     current.push_back(session);
                 }
             }
-            ++health.snapshots_captured;
+            ++health.ticks_published;
         }
         for (const auto& session : current) {
-            ClientSessionResult queued;
             {
                 std::scoped_lock protocol_lock{session->protocol_mutex};
-                queued = session->protocol.QueueSnapshot(snapshot);
-            }
-            if (!queued.ok()) {
-                return ServerError(IpcServerError::InvalidSnapshot);
+                static_cast<void>(session->protocol.QueueTrafficTick(tick));
             }
             SignalSession(*session);
-        }
-        {
-            std::scoped_lock lock{mutex};
-            ++health.snapshots_published;
         }
         return {};
     }
 
-    IpcServerResult PublishCollectorStatus(
-        const std::shared_ptr<const CollectorStatusMessage>& status) {
-        if (status == nullptr) {
-            return ServerError(IpcServerError::InvalidSnapshot);
+    IpcServerResult PublishRankingSnapshot(const RankingSnapshotMessage& snapshot) {
+        std::vector<std::shared_ptr<Session>> current;
+        {
+            std::scoped_lock lock{mutex};
+            if (health.state != IpcServerState::Running &&
+                health.state != IpcServerState::Degraded) {
+                return ServerError(IpcServerError::AlreadyRunning);
+            }
+            for (const auto& session : sessions) {
+                if (session != nullptr && !session->finished.load()) {
+                    current.push_back(session);
+                }
+            }
+            ++health.snapshots_published;
         }
+        for (const auto& session : current) {
+            {
+                std::scoped_lock protocol_lock{session->protocol_mutex};
+                static_cast<void>(session->protocol.QueueRankingSnapshot(snapshot));
+            }
+            SignalSession(*session);
+        }
+        return {};
+    }
+
+    IpcServerResult PublishCollectorStatus(const CollectorStatusMessage& status) {
         std::vector<std::shared_ptr<Session>> current;
         {
             std::scoped_lock lock{mutex};
@@ -1135,13 +945,9 @@ class IpcServer::Impl final {
             }
         }
         for (const auto& session : current) {
-            ClientSessionResult queued;
             {
                 std::scoped_lock protocol_lock{session->protocol_mutex};
-                queued = session->protocol.QueueStatus(status);
-            }
-            if (!queued.ok()) {
-                return ServerError(IpcServerError::InvalidSnapshot);
+                static_cast<void>(session->protocol.QueueCollectorStatus(status));
             }
             SignalSession(*session);
         }
@@ -1189,18 +995,19 @@ class IpcServer::Impl final {
     }
 };
 
-IpcServer::IpcServer(CollectorInstanceId instance, AuthorizedPrincipal principal,
+IpcServer::IpcServer(std::string collector_instance_id, AuthorizedPrincipal principal,
                      PipeTransportFactory& transport_factory)
-    : impl_{std::make_unique<Impl>(instance, std::move(principal), transport_factory, nullptr)} {}
+    : impl_{std::make_unique<Impl>(std::move(collector_instance_id), std::move(principal),
+                                   transport_factory, nullptr)} {}
 
-IpcServer::IpcServer(CollectorInstanceId instance, AuthorizedPrincipal principal,
+IpcServer::IpcServer(std::string collector_instance_id, AuthorizedPrincipal principal,
                      PipeTransportFactory& transport_factory, ClientAuthorizer& authorizer)
-    : impl_{
-          std::make_unique<Impl>(instance, std::move(principal), transport_factory, &authorizer)} {}
+    : impl_{std::make_unique<Impl>(std::move(collector_instance_id), std::move(principal),
+                                   transport_factory, &authorizer)} {}
 
 IpcServer::~IpcServer() = default;
 
-IpcServerResult IpcServer::SetSubscriptionObserver(ClientSessionObserver& observer) noexcept {
+IpcServerResult IpcServer::SetSessionObserver(ClientSessionObserver& observer) noexcept {
     return impl_->SetObserver(observer);
 }
 
@@ -1208,17 +1015,15 @@ IpcServerResult IpcServer::Start() {
     return impl_->Start();
 }
 
-IpcServerResult IpcServer::Publish(
-    std::shared_ptr<const PublishedSnapshot>
-        snapshot) { // NOLINT(performance-unnecessary-value-param): public sink API owns the shared
-                    // snapshot reference.
-    return impl_->PublishSnapshot(snapshot);
+IpcServerResult IpcServer::PublishTrafficTick(const TrafficTickMessage& tick) {
+    return impl_->PublishTrafficTick(tick);
 }
 
-IpcServerResult IpcServer::PublishStatus(
-    std::shared_ptr<const CollectorStatusMessage>
-        status) { // NOLINT(performance-unnecessary-value-param): public sink API owns the shared
-                  // status reference.
+IpcServerResult IpcServer::PublishRankingSnapshot(const RankingSnapshotMessage& snapshot) {
+    return impl_->PublishRankingSnapshot(snapshot);
+}
+
+IpcServerResult IpcServer::PublishCollectorStatus(const CollectorStatusMessage& status) {
     return impl_->PublishCollectorStatus(status);
 }
 

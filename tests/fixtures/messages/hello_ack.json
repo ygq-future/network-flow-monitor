@@ -1,0 +1,10 @@
+{
+  "protocol_version": 1,
+  "collector_instance_id": "cinst_9f8a3c2e1b",
+  "collector_pid": 4588,
+  "capabilities": [
+    "etw_live_counters",
+    "traffic_tick_4hz",
+    "ranking_snapshot_1hz"
+  ]
+}

@@ -199,20 +199,16 @@ CollectorPrincipalResult BuildCollectorPrincipal(ipc::CollectorEndpointMode mode
     return {.source_error = ERROR_INVALID_PARAMETER};
 }
 
-ipc::CollectorInstanceId CreateCollectorInstanceId() noexcept {
-    ipc::CollectorInstanceId instance;
+std::string CreateCollectorInstanceId() {
     LARGE_INTEGER performance_counter{};
     ::QueryPerformanceCounter(&performance_counter);
     FILETIME system_time{};
     ::GetSystemTimeAsFileTime(&system_time);
-    const std::array<std::uint64_t, 2U> values{
-        static_cast<std::uint64_t>(performance_counter.QuadPart) ^
-            (static_cast<std::uint64_t>(::GetCurrentProcessId()) << 32U),
-        (static_cast<std::uint64_t>(system_time.dwHighDateTime) << 32U) |
-            static_cast<std::uint64_t>(system_time.dwLowDateTime)};
-    static_assert(sizeof(values) == sizeof(instance.bytes));
-    std::memcpy(instance.bytes.data(), values.data(), sizeof(values));
-    return instance;
+    const auto part1 = static_cast<std::uint32_t>(performance_counter.QuadPart);
+    const auto part2 = static_cast<std::uint32_t>(system_time.dwLowDateTime);
+    std::array<char, 32> buffer{};
+    static_cast<void>(std::snprintf(buffer.data(), buffer.size(), "cinst_%08x%08x", part1, part2));
+    return std::string{buffer.data()};
 }
 
 CollectorRuntime::CollectorRuntime(ipc::CollectorEndpointMode mode)

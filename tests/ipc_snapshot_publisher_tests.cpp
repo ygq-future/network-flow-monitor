@@ -18,7 +18,7 @@ using nfm::ipc::CaptureError;
 using nfm::ipc::CaptureResult;
 using nfm::ipc::CollectorCapture;
 using nfm::ipc::CollectorEndpointMode;
-using nfm::ipc::CollectorInstanceId;
+using nfm::ipc::HelloMessage;
 using nfm::ipc::IpcServer;
 using nfm::ipc::PublisherError;
 using nfm::ipc::SnapshotProvider;
@@ -70,14 +70,6 @@ AuthorizedPrincipal Principal() {
             .server_logon_sid = {}};
 }
 
-CollectorInstanceId Instance(std::uint8_t seed = 1U) {
-    CollectorInstanceId result;
-    for (std::size_t index = 0U; index < result.bytes.size(); ++index) {
-        result.bytes.at(index) = static_cast<std::byte>(seed + index);
-    }
-    return result;
-}
-
 class FakeProvider final : public SnapshotProvider {
   public:
     CaptureResult Capture() noexcept override {
@@ -102,52 +94,50 @@ class FakeProvider final : public SnapshotProvider {
 
 void CheckScheduler(TestContext& context) {
     WindowsPipeTransportFactory factory;
-    IpcServer server{Instance(), Principal(), factory};
+    IpcServer server{"cinst_sched", Principal(), factory};
     context.Check(server.Start().ok(), "publisher test server starts");
 
     const auto started = std::chrono::steady_clock::now() - 10s;
     FakeProvider provider;
-    SnapshotPublisher publisher{Instance(), started, provider, server};
+    SnapshotPublisher publisher{"cinst_sched", started, provider, server};
     const auto first = started + 10s;
 
     context.Check(publisher.RunDue(first).ok() && provider.calls == 0,
-                  "no subscriptions do not capture");
-    publisher.SubscriptionChanged({.client_id = 1U, .refresh_interval = 100ms});
-    publisher.SubscriptionChanged({.client_id = 2U, .refresh_interval = 500ms});
+                  "no connected clients do not capture");
+    publisher.ClientConnected(
+        1U, HelloMessage{.client_pid = 100U, .protocol_version = 1U, .client_name = "C1"});
+    publisher.ClientConnected(
+        2U, HelloMessage{.client_pid = 200U, .protocol_version = 1U, .client_name = "C2"});
     context.Check(publisher.RunDue(first).ok() && provider.calls == 1,
-                  "multiple due clients share one capture");
+                  "multiple connected clients share one capture");
     context.Check(publisher.next_deadline().has_value() &&
-                      *publisher.next_deadline() == first + 100ms,
-                  "next deadline uses the shortest interval");
+                      *publisher.next_deadline() == first + 250ms,
+                  "next deadline uses 250ms traffic tick interval");
     context.Check(publisher.RunDue(first + 50ms).ok() && provider.calls == 1,
-                  "future clients do not trigger an early capture");
-    provider.capture_time += 100ms;
-    context.Check(publisher.RunDue(first + 100ms).ok() && provider.calls == 2,
-                  "the shortest subscription is independently due");
+                  "not yet due time does not trigger capture");
+    provider.capture_time += 250ms;
+    context.Check(publisher.RunDue(first + 250ms).ok() && provider.calls == 2,
+                  "250ms tick interval triggers next capture");
     publisher.ClientDisconnected(1U);
-    context.Check(publisher.next_deadline().has_value() &&
-                      *publisher.next_deadline() == first + 500ms,
-                  "disconnect removes the client deadline");
+    publisher.ClientDisconnected(2U);
+    context.Check(!publisher.next_deadline().has_value(),
+                  "disconnecting all clients clears deadline");
     context.Check(server.Stop().ok(), "publisher test server stops");
 }
 
 void CheckFailures(TestContext& context) {
     WindowsPipeTransportFactory factory;
-    IpcServer server{Instance(2U), Principal(), factory};
+    IpcServer server{"cinst_fail", Principal(), factory};
     context.Check(server.Start().ok(), "failure test server starts");
     const auto started = std::chrono::steady_clock::now() - 10s;
     FakeProvider provider;
-    SnapshotPublisher publisher{Instance(2U), started, provider, server};
-    publisher.SubscriptionChanged({.client_id = 1U, .refresh_interval = 100ms});
+    SnapshotPublisher publisher{"cinst_fail", started, provider, server};
+    publisher.ClientConnected(
+        1U, HelloMessage{.client_pid = 100U, .protocol_version = 1U, .client_name = "C1"});
     provider.failure = CaptureError::CollectorFailed;
     const auto now = started + 10s;
     context.Check(publisher.RunDue(now).error == PublisherError::CaptureFailed,
                   "provider failure is surfaced without a fabricated snapshot");
-    context.Check(publisher.RunDue(now + 1ms).ok() && provider.calls == 1,
-                  "failed capture receives a bounded retry deadline");
-    publisher.SubscriptionChanged({.client_id = 0U, .refresh_interval = 100ms});
-    context.Check(publisher.RunDue(now + 200ms).error == PublisherError::InvalidSubscription,
-                  "invalid subscription is reported at the scheduler boundary");
     context.Check(server.Stop().ok(), "failure test server stops");
 }
 

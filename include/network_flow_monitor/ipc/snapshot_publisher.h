@@ -2,7 +2,6 @@
 #define NETWORK_FLOW_MONITOR_IPC_SNAPSHOT_PUBLISHER_H
 
 #include "network_flow_monitor/collector/collector_health.h"
-#include "network_flow_monitor/ipc/application_catalog.h"
 #include "network_flow_monitor/ipc/ipc_server.h"
 #include "network_flow_monitor/ranking/counter_types.h"
 
@@ -11,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string>
 #include <unordered_map>
 
 namespace nfm::ipc {
@@ -67,7 +67,7 @@ class SnapshotProvider {
 
 class SnapshotPublisher final : public ClientSessionObserver {
   public:
-    SnapshotPublisher(CollectorInstanceId instance,
+    SnapshotPublisher(std::string collector_instance_id,
                       std::chrono::steady_clock::time_point instance_started_at,
                       SnapshotProvider& provider, IpcServer& server);
     ~SnapshotPublisher() override = default;
@@ -76,7 +76,7 @@ class SnapshotPublisher final : public ClientSessionObserver {
     SnapshotPublisher(SnapshotPublisher&&) = delete;
     SnapshotPublisher& operator=(SnapshotPublisher&&) = delete;
 
-    void SubscriptionChanged(ClientSubscription subscription) noexcept override;
+    void ClientConnected(std::uint64_t client_id, const HelloMessage& hello) noexcept override;
     void ClientDisconnected(std::uint64_t client_id) noexcept override;
 
     [[nodiscard]] PublisherResult RunDue(std::chrono::steady_clock::time_point now) noexcept;
@@ -84,31 +84,18 @@ class SnapshotPublisher final : public ClientSessionObserver {
         const noexcept;
 
   private:
-    struct SubscriptionState {
-        std::chrono::milliseconds refresh_interval{};
-        std::optional<std::chrono::steady_clock::time_point> next_deadline;
-    };
-
-    [[nodiscard]] static bool IsDue(const SubscriptionState& subscription,
-                                    std::chrono::steady_clock::time_point now) noexcept;
-    [[nodiscard]] static bool IsValidSubscription(const ClientSubscription& subscription) noexcept;
-    [[nodiscard]] static std::uint64_t UptimeMicroseconds(
+    [[nodiscard]] static std::uint64_t MonotonicMs(
         std::chrono::steady_clock::time_point now,
         std::chrono::steady_clock::time_point started_at) noexcept;
-    [[nodiscard]] PublisherResult PublishStatus(const CollectorCapture& capture,
-                                                std::chrono::steady_clock::time_point now) noexcept;
-    void ScheduleRetry(std::chrono::steady_clock::time_point now) noexcept;
-    void ScheduleCompleted(std::chrono::steady_clock::time_point now,
-                           std::span<const std::uint64_t> due_clients) noexcept;
 
-    CollectorInstanceId instance_;
+    std::string collector_instance_id_;
     std::chrono::steady_clock::time_point instance_started_at_;
     SnapshotProvider* provider_;
     IpcServer* server_;
-    ApplicationCatalog catalog_;
-    std::unordered_map<std::uint64_t, SubscriptionState> subscriptions_;
-    std::optional<std::chrono::steady_clock::time_point> last_run_;
-    std::optional<std::chrono::steady_clock::time_point> last_capture_;
+    std::unordered_map<std::uint64_t, HelloMessage> connected_clients_;
+    std::optional<std::chrono::steady_clock::time_point> last_tick_run_;
+    std::optional<std::chrono::steady_clock::time_point> last_snapshot_run_;
+    std::uint64_t tick_sequence_{};
     std::uint64_t snapshot_sequence_{};
     PublisherError pending_error_{PublisherError::None};
     mutable std::mutex mutex_;

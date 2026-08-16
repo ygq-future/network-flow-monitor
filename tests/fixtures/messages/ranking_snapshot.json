@@ -1,0 +1,19 @@
+{
+  "seq": 1024,
+  "monotonic_ms": 83928471,
+  "status": "Ready",
+  "total_rate": {
+    "download_bytes_per_sec": 5242880,
+    "upload_bytes_per_sec": 1048576
+  },
+  "applications": [
+    {
+      "id": "app_chrome",
+      "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "display_name": "Google Chrome",
+      "icon_key": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "download_bytes_per_sec": 4194304,
+      "upload_bytes_per_sec": 838860
+    }
+  ]
+}

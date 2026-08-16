@@ -697,7 +697,7 @@ SnapshotDecodeResult DecodeSnapshot(std::span<const std::byte> payload,
     return DecodeSnapshotInternal(payload, &previous);
 }
 
-PayloadEncodeResult EncodeCollectorStatus(const CollectorStatusMessage& message) {
+PayloadEncodeResult EncodeCollectorStatus(const LegacyCollectorStatusMessage& message) {
     if (message.uptime_microseconds == 0U || !IsValidCollectorHealth(message.collector_health) ||
         !IsValidIpcHealth(message.ipc_health)) {
         return {.error = SnapshotCodecError::MalformedPayload};
@@ -715,7 +715,7 @@ CollectorStatusDecodeResult DecodeCollectorStatus(std::span<const std::byte> pay
         return {.error = SnapshotCodecError::MalformedPayload};
     }
     Cursor cursor{payload};
-    CollectorStatusMessage candidate;
+    LegacyCollectorStatusMessage candidate;
     if (!cursor.ReadU64(candidate.uptime_microseconds) || candidate.uptime_microseconds == 0U ||
         !DecodeCollectorHealth(cursor, candidate.collector_health) ||
         !DecodeIpcHealth(cursor, candidate.ipc_health) || !cursor.at_end()) {

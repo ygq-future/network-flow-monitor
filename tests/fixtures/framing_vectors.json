@@ -1,0 +1,71 @@
+{
+  "magic_bytes_ascii": "NFM1",
+  "magic_bytes_hex": "4E464D31",
+  "header_size_bytes": 12,
+  "max_payload_length_bytes": 262144,
+  "current_protocol_version": 1,
+  "message_types": {
+    "hello": 1,
+    "hello_ack": 2,
+    "traffic_tick": 3,
+    "ranking_snapshot": 4,
+    "collector_status": 5,
+    "shutdown_request": 6
+  },
+  "vectors": [
+    {
+      "name": "valid_traffic_tick_wire_sample",
+      "valid": true,
+      "header": {
+        "magic": "NFM1",
+        "version": 1,
+        "message_type": 3,
+        "payload_length": 100
+      },
+      "payload_json": "{\"seq\":4096,\"monotonic_ms\":83928471,\"download_bytes_per_sec\":5242880,\"upload_bytes_per_sec\":1048576}",
+      "hex_encoded_wire": "4E464D3101000300640000007B22736571223A343039362C226D6F6E6F746F6E69635F6D73223A38333932383437312C22646F776E6C6F61645F62797465735F7065725F736563223A353234323838302C2275706C6F61645F62797465735F7065725F736563223A313034383537367D"
+    },
+    {
+      "name": "valid_empty_payload_frame",
+      "valid": true,
+      "header": {
+        "magic": "NFM1",
+        "version": 1,
+        "message_type": 6,
+        "payload_length": 0
+      },
+      "payload_json": "",
+      "hex_encoded_wire": "4E464D310100060000000000"
+    },
+    {
+      "name": "bad_magic_rejection",
+      "valid": false,
+      "expected_error": "MalformedHeader",
+      "hex_encoded_wire": "585858580100030000000000"
+    },
+    {
+      "name": "unsupported_version_rejection",
+      "valid": false,
+      "expected_error": "VersionMismatch",
+      "hex_encoded_wire": "4E464D310200030000000000"
+    },
+    {
+      "name": "zero_version_rejection",
+      "valid": false,
+      "expected_error": "VersionMismatch",
+      "hex_encoded_wire": "4E464D310000030000000000"
+    },
+    {
+      "name": "unknown_message_type_rejection",
+      "valid": false,
+      "expected_error": "UnknownMessageType",
+      "hex_encoded_wire": "4E464D310100FF0000000000"
+    },
+    {
+      "name": "payload_too_large_rejection",
+      "valid": false,
+      "expected_error": "PayloadTooLarge",
+      "hex_encoded_wire": "4E464D310100030001000400"
+    }
+  ]
+}

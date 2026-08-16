@@ -18,8 +18,8 @@ int g_process_token{};
 constexpr auto kTestMessageWindowClass = L"NfmUiControllerTestMessageWindow";
 
 using nfm::config::DefaultAppConfig;
-using nfm::ipc::ClientSnapshot;
 using nfm::ipc::IpcClientState;
+using nfm::ipc::TrafficTickMessage;
 using nfm::ui::CollectorProcess;
 using nfm::ui::ShellExecuteApi;
 using nfm::ui::UiController;
@@ -148,12 +148,6 @@ struct TestContext {
     }
 };
 
-ClientSnapshot MakeSnapshot(std::uint8_t instance_byte) {
-    ClientSnapshot snapshot;
-    snapshot.instance.bytes[0] = static_cast<std::byte>(instance_byte);
-    return snapshot;
-}
-
 void CheckCollectorProcess(TestContext& context) {
     FakeShellExecuteApi api;
     // Probe reports "still running", and the collector then exits gracefully on stop.
@@ -212,12 +206,12 @@ void CheckCollectorLaunchFailure(TestContext& context) {
 void CheckControllerBridge(TestContext& context) {
     auto config = DefaultAppConfig();
     UiController controller{nullptr, config};
-    controller.SnapshotReceived(MakeSnapshot(1U));
-    controller.SnapshotReceived(MakeSnapshot(2U));
-    const auto pending = controller.TakePendingSnapshot();
-    context.Check(pending.has_value() && pending->instance.bytes[0] == std::byte{2},
-                  "snapshot queue coalesces to newest value");
-    context.Check(!controller.TakePendingSnapshot().has_value(), "snapshot queue drains once");
+    controller.TrafficTickReceived(TrafficTickMessage{.seq = 1U, .download_bytes_per_sec = 100U});
+    controller.TrafficTickReceived(TrafficTickMessage{.seq = 2U, .download_bytes_per_sec = 200U});
+    const auto pending = controller.TakePendingTick();
+    context.Check(pending.has_value() && pending->seq == 2U,
+                  "tick queue coalesces to newest value");
+    context.Check(!controller.TakePendingTick().has_value(), "tick queue drains once");
     controller.StateChanged(IpcClientState::Streaming);
     context.Check(controller.ipc_state() == IpcClientState::Streaming,
                   "streaming state reaches controller");
@@ -229,12 +223,12 @@ void CheckControllerBridge(TestContext& context) {
                   "reconnect clears overlay");
     context.Check(controller.UpdateRankingOptions(3U, std::chrono::milliseconds{1000}),
                   "ranking options update succeeds");
-    controller.SnapshotReceived(MakeSnapshot(3U));
+    controller.TrafficTickReceived(TrafficTickMessage{.seq = 3U, .download_bytes_per_sec = 300U});
     context.Check(controller.ProcessPendingSnapshot() && controller.snapshot_generation() == 1U,
-                  "first collector instance produces a ranking snapshot");
-    controller.SnapshotReceived(MakeSnapshot(4U));
+                  "tick produces a snapshot generation update");
+    controller.TrafficTickReceived(TrafficTickMessage{.seq = 4U, .download_bytes_per_sec = 400U});
     context.Check(controller.ProcessPendingSnapshot() && controller.snapshot_generation() == 2U,
-                  "new collector instance resets stale ranking history");
+                  "new tick produces a second generation update");
 }
 
 void CheckMonitorPanelRuntimeBridge(TestContext& context) {

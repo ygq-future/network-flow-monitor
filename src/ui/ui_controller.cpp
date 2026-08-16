@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <dwmapi.h>
 #include <filesystem>
 #include <limits>
 #include <shellapi.h>
@@ -20,6 +21,7 @@ namespace nfm::ui {
 namespace {
 
 constexpr auto kUiMessageWindowClass = std::to_array(L"NetworkFlowMonitor.UiMessageWindow");
+constexpr UINT kTopmostPolicyPollMilliseconds = 250U;
 
 [[nodiscard]] std::filesystem::path DefaultSettingsPath() {
     std::wstring executable(32'768U, L'\0');
@@ -119,6 +121,7 @@ BOOL CALLBACK AddMonitor(HMONITOR monitor, [[maybe_unused]] HDC device_context,
             .show_upload = config.display.show_upload,
             .show_download = config.display.show_download,
             .opacity_percent = config.floating.opacity_percent,
+            .blur_strength_percent = config.floating.blur_strength_percent,
             .top_n = config.ranking.top_n};
 }
 
@@ -232,6 +235,11 @@ bool UiController::Start() noexcept {
     if (!collection_started) {
         MarkCollectionDisconnected();
     }
+    ApplyTopmostPolicy();
+    if (message_window_ != nullptr) {
+        static_cast<void>(::SetTimer(message_window_, kUiTopmostPolicyTimerId,
+                                     kTopmostPolicyPollMilliseconds, nullptr));
+    }
     started_ = true;
     return true;
 }
@@ -274,6 +282,7 @@ int UiController::Run(bool smoke_test) noexcept {
 void UiController::Shutdown() noexcept {
     if (message_window_ != nullptr) {
         static_cast<void>(::KillTimer(message_window_, kUiMonitorPanelTimerId));
+        static_cast<void>(::KillTimer(message_window_, kUiTopmostPolicyTimerId));
     }
     floating_window_.Destroy();
     tray_controller_.Shutdown();
@@ -303,6 +312,53 @@ void UiController::ApplyAppearance() noexcept {
     } catch (...) {
         memory_error_.store(true, std::memory_order_release);
     }
+}
+
+ForegroundWindowState UiController::QueryForegroundWindowState() const noexcept {
+    ForegroundWindowState state;
+    auto* const foreground = ::GetForegroundWindow();
+    if (foreground == nullptr) {
+        return state;
+    }
+    state.present = true;
+    state.visible = ::IsWindowVisible(foreground) != FALSE;
+    state.minimized = ::IsIconic(foreground) != FALSE;
+    state.shell_window = foreground == ::GetShellWindow();
+    DWORD process_id{};
+    static_cast<void>(::GetWindowThreadProcessId(foreground, &process_id));
+    state.belongs_to_current_process = process_id == ::GetCurrentProcessId();
+
+    RECT bounds{};
+    if (FAILED(::DwmGetWindowAttribute(foreground, DWMWA_EXTENDED_FRAME_BOUNDS, &bounds,
+                                       sizeof(bounds)))) {
+        static_cast<void>(::GetWindowRect(foreground, &bounds));
+    }
+    state.bounds = {
+        .left = bounds.left, .top = bounds.top, .right = bounds.right, .bottom = bounds.bottom};
+    auto* const monitor = ::MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO information{.cbSize = sizeof(information)};
+    if (monitor != nullptr && ::GetMonitorInfoW(monitor, &information) != FALSE) {
+        state.monitor_bounds = {.left = information.rcMonitor.left,
+                                .top = information.rcMonitor.top,
+                                .right = information.rcMonitor.right,
+                                .bottom = information.rcMonitor.bottom};
+    }
+    return state;
+}
+
+void UiController::ApplyTopmostPolicy() noexcept {
+    auto* const window = floating_window_.hwnd();
+    if (window == nullptr) {
+        return;
+    }
+    const auto topmost = ShouldStayTopmost(config_.floating.yield_topmost_when_fullscreen,
+                                           QueryForegroundWindowState());
+    const auto currently_topmost = (::GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    if (topmost == currently_topmost) {
+        return;
+    }
+    static_cast<void>(::SetWindowPos(window, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE));
 }
 
 void UiController::OnSystemAppearanceChanged() noexcept {
@@ -541,13 +597,22 @@ void UiController::OnTrayRetryCollector() noexcept {
     }
 }
 
+void UiController::OnTrayPinToggle() noexcept {
+    HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::PinTogglePressed});
+}
+
 void UiController::OnTrayExit() noexcept {
     ::PostQuitMessage(0);
 }
 
 void UiController::OnWindowContextMenu() noexcept {
     HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ContextMenuOpened});
-    const auto menu_owner = floating_window_.hwnd();
+    // Suspend the topmost-policy timer while the context menu is shown. TrackPopupMenu
+    // runs a modal message loop that dispatches WM_TIMER, so the 250 ms policy poll
+    // would re-raise the panel to TOPMOST and cover the menu.
+    if (message_window_ != nullptr) {
+        static_cast<void>(::KillTimer(message_window_, kUiTopmostPolicyTimerId));
+    }
     const auto lower = [](HWND window) noexcept {
         if (window != nullptr) {
             static_cast<void>(::SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0,
@@ -556,15 +621,12 @@ void UiController::OnWindowContextMenu() noexcept {
     };
     lower(floating_window_.hwnd());
     lower(floating_window_.hit_test_hwnd());
-    static_cast<void>(tray_controller_.ShowContextMenu(menu_owner));
-    const auto raise = [](HWND window) noexcept {
-        if (window != nullptr) {
-            static_cast<void>(::SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
-                                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE));
-        }
-    };
-    raise(floating_window_.hwnd());
-    raise(floating_window_.hit_test_hwnd());
+    static_cast<void>(tray_controller_.ShowContextMenu(message_window_));
+    if (message_window_ != nullptr) {
+        static_cast<void>(::SetTimer(message_window_, kUiTopmostPolicyTimerId,
+                                     kTopmostPolicyPollMilliseconds, nullptr));
+    }
+    ApplyTopmostPolicy();
     POINT cursor{};
     static_cast<void>(::GetCursorPos(&cursor));
     HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::ContextMenuClosed,
@@ -639,8 +701,8 @@ void UiController::ApplyMonitorPanelTransition(MonitorPanelTransition transition
     floating_window_.SetMonitorPanelPresentation(monitor_panel_state_.surface, capsule,
                                                  transition.target_bounds, transition.hit_bounds,
                                                  transition.viewport);
-    floating_window_.SetMonitorPanelControls(monitor_panel_state_.pin_preference,
-                                             config_.floating.auto_hide_enabled);
+    tray_controller_.SetPinState(monitor_panel_state_.pin_preference,
+                                 config_.floating.auto_hide_enabled);
     floating_window_.Reposition(transition.target_bounds);
     floating_window_.Show();
     if (monitor_panel_state_.deadline != previous_deadline) {
@@ -803,6 +865,7 @@ SettingsSaveResult UiController::SaveSettings(const config::AppConfig& value) no
     config_ = value;
     floating_window_.SetDisplayOptions(WindowOptionsFromConfig(config_));
     ApplyAppearance();
+    ApplyTopmostPolicy();
     if (reconnect) {
         StopCollection();
         if (!StartCollection()) {
@@ -922,6 +985,10 @@ LRESULT CALLBACK UiController::MessageWindowProc(HWND window, UINT message, WPAR
     }
     if (message == WM_TIMER && wparam == kUiMonitorPanelTimerId) {
         controller->HandleMonitorPanelEvent({.kind = MonitorPanelEventKind::HoverDeadline});
+        return 0;
+    }
+    if (message == WM_TIMER && wparam == kUiTopmostPolicyTimerId) {
+        controller->ApplyTopmostPolicy();
         return 0;
     }
     if (message == kTrayCallbackMessage) {

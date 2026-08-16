@@ -72,6 +72,8 @@ class SettingsWindow final {
         kAuthorizeCollector,
         kLanguage,
         kTheme,
+        kBlurStrength,
+        kYieldTopmostWhenFullscreen,
     };
 
     [[nodiscard]] bool CreateSettingsWindow(HWND owner) noexcept;
@@ -101,6 +103,7 @@ class SettingsWindow final {
     HWND auto_hide_delay_{};
     HWND capsule_height_{};
     HWND opacity_{};
+    HWND blur_strength_{};
     HWND speed_unit_{};
     HWND collector_mode_{};
     HWND service_start_type_{};
@@ -108,6 +111,7 @@ class SettingsWindow final {
     HWND show_upload_{};
     HWND show_download_{};
     HWND auto_hide_{};
+    HWND yield_topmost_when_fullscreen_{};
     HWND ui_at_login_{};
     HWND language_{};
     HWND theme_{};

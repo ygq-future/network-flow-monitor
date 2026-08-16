@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <string_view>
 #include <strsafe.h>
@@ -34,12 +35,12 @@ class RenderResources final {
 
     [[nodiscard]] bool initialized() const noexcept {
         return d2d_factory_ != nullptr && dwrite_factory_ != nullptr && text_format_ != nullptr &&
-               row_name_format_ != nullptr && rate_format_ != nullptr && icon_format_ != nullptr;
+               row_name_format_ != nullptr && rate_format_ != nullptr;
     }
     [[nodiscard]] HRESULT last_error() const noexcept {
         return last_error_;
     }
-    [[nodiscard]] ID2D1Factory* d2d_factory() const noexcept {
+    [[nodiscard]] ID2D1Factory1* d2d_factory() const noexcept {
         return d2d_factory_.Get();
     }
     [[nodiscard]] IDWriteFactory* dwrite_factory() const noexcept {
@@ -54,9 +55,6 @@ class RenderResources final {
     [[nodiscard]] IDWriteTextFormat* rate_format() const noexcept {
         return rate_format_.Get();
     }
-    [[nodiscard]] IDWriteTextFormat* icon_format() const noexcept {
-        return icon_format_.Get();
-    }
 
     // Builds a right-aligned, tabular-numeral layout for a rate string so that
     // changing values keep a stable fixed-width column. Returns null on failure.
@@ -70,13 +68,12 @@ class RenderResources final {
     [[nodiscard]] static DrawResult ClassifyEndDraw(HRESULT result) noexcept;
 
   private:
-    Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
+    Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> text_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> row_name_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> rate_format_;
     Microsoft::WRL::ComPtr<IDWriteTypography> rate_typography_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_format_;
     HRESULT last_error_{S_OK};
 };
 

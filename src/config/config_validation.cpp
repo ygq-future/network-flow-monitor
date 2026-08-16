@@ -113,6 +113,9 @@ ConfigValidationResult ValidateAppConfig(const AppConfig& config) {
                           kMaximumAutoHideDelay, "floating.auto_hide_delay_ms");
     AddRangeIssueIfNeeded(result, config.floating.opacity_percent, kMinimumOpacityPercent,
                           kMaximumOpacityPercent, "floating.opacity_percent");
+    AddRangeIssueIfNeeded(result, config.floating.blur_strength_percent,
+                          kMinimumBlurStrengthPercent, kMaximumBlurStrengthPercent,
+                          "floating.blur_strength_percent");
     AddRangeIssueIfNeeded(result, config.floating.capsule_width_dip, kMinimumCapsuleWidthDip,
                           kMaximumCapsuleWidthDip, "floating.capsule_width_dip");
     AddRangeIssueIfNeeded(result, config.floating.capsule_height_dip, kMinimumCapsuleHeightDip,

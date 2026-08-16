@@ -20,7 +20,7 @@ bool RenderResources::Initialize() noexcept {
     Reset();
     const D2D1_FACTORY_OPTIONS options{};
     auto result =
-        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), &options,
+        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), &options,
                           reinterpret_cast<void**>(d2d_factory_.GetAddressOf()));
     if (FAILED(result)) {
         last_error_ = result;
@@ -54,9 +54,9 @@ bool RenderResources::Initialize() noexcept {
         return false;
     }
     Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
-    DWRITE_TRIMMING trimming{.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER,
-                             .delimiter = 0U,
-                             .delimiterCount = 0U};
+    const DWRITE_TRIMMING trimming{.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                                   .delimiter = 0U,
+                                   .delimiterCount = 0U};
     result = dwrite_factory_->CreateEllipsisTrimmingSign(row_name_format_.Get(),
                                                          ellipsis.GetAddressOf());
     if (FAILED(result) || FAILED(row_name_format_->SetTrimming(&trimming, ellipsis.Get()))) {
@@ -83,25 +83,11 @@ bool RenderResources::Initialize() noexcept {
         return false;
     }
 
-    // Segoe Fluent Icons ships with Windows 11 and provides the Pin/Unpin/Pinned
-    // glyphs used by the monitor-panel Pin button. DirectWrite substitutes a
-    // readable fallback on systems where the family is absent.
-    result = dwrite_factory_->CreateTextFormat(
-        L"Segoe Fluent Icons", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, 16.0F, L"", icon_format_.GetAddressOf());
-    if (FAILED(result) || FAILED(icon_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER)) ||
-        FAILED(icon_format_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER))) {
-        last_error_ = FAILED(result) ? result : E_FAIL;
-        Reset();
-        return false;
-    }
-
     last_error_ = S_OK;
     return true;
 }
 
 void RenderResources::Reset() noexcept {
-    icon_format_.Reset();
     rate_typography_.Reset();
     rate_format_.Reset();
     row_name_format_.Reset();
@@ -119,9 +105,8 @@ Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> RenderResources::CreateHwndRenderT
 
     const auto width = static_cast<UINT>(pixel_size.width);
     const auto height = static_cast<UINT>(pixel_size.height);
-    // Premultiplied alpha lets the cleared background tint stay translucent so the
-    // DWM Acrylic system backdrop shows through, while opaque text/icon content keeps
-    // full coverage on top of it.
+    // Windows 11 24H2 can preserve this premultiplied alpha in the HWND redirection bitmap.
+    // DWM then composes Acrylic below the tint while opaque content remains fully covered.
     const auto properties = D2D1::RenderTargetProperties(
         D2D1_RENDER_TARGET_TYPE_DEFAULT,
         D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED));

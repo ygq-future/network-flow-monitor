@@ -13,7 +13,7 @@ namespace {
 
 constexpr wchar_t kSettingsClassName[] = L"NetworkFlowMonitor.SettingsWindow";
 constexpr int kWindowWidth = 600;
-constexpr int kWindowHeight = 748;
+constexpr int kWindowHeight = 798;
 constexpr int kLabelX = 20;
 constexpr int kControlX = 270;
 constexpr int kControlWidth = 250;
@@ -213,6 +213,9 @@ bool SettingsWindow::CreateControls() noexcept {
     opacity_ = CreateEdit(window_, instance_, kOpacity, y);
     CreateLabel(window_, instance_, L"Opacity (%)", y);
     y += kRowHeight;
+    blur_strength_ = CreateEdit(window_, instance_, kBlurStrength, y);
+    CreateLabel(window_, instance_, L"Glass blur strength (%)", y);
+    y += kRowHeight;
 
     speed_unit_ = CreateCombo(window_, instance_, kSpeedUnit, y);
     CreateLabel(window_, instance_, L"Speed unit", y);
@@ -257,6 +260,10 @@ bool SettingsWindow::CreateControls() noexcept {
     y += kRowHeight;
     auto_hide_ = CreateCheck(window_, instance_, kAutoHide, L"Enable edge auto-hide", y);
     y += kRowHeight;
+    yield_topmost_when_fullscreen_ =
+        CreateCheck(window_, instance_, kYieldTopmostWhenFullscreen,
+                    L"Let full-screen apps appear above the monitor", y);
+    y += kRowHeight;
     ui_at_login_ = CreateCheck(window_, instance_, kUiAtLogin, L"Start UI at login", y);
     y += kRowHeight + 8;
 
@@ -279,11 +286,28 @@ bool SettingsWindow::CreateControls() noexcept {
                        SWP_NOACTIVATE | SWP_NOZORDER);
     }
 
-    const std::array<HWND, 20> controls{
-        top_n_,          ranking_window_,     refresh_interval_, hover_delay_, dismiss_delay_,
-        capsule_width_,  auto_hide_delay_,    capsule_height_,   opacity_,     speed_unit_,
-        collector_mode_, service_start_type_, log_level_,        language_,    theme_,
-        show_upload_,    show_download_,      auto_hide_,        ui_at_login_, service_status_};
+    const std::array<HWND, 22> controls{top_n_,
+                                        ranking_window_,
+                                        refresh_interval_,
+                                        hover_delay_,
+                                        dismiss_delay_,
+                                        capsule_width_,
+                                        auto_hide_delay_,
+                                        capsule_height_,
+                                        opacity_,
+                                        blur_strength_,
+                                        speed_unit_,
+                                        collector_mode_,
+                                        service_start_type_,
+                                        log_level_,
+                                        language_,
+                                        theme_,
+                                        show_upload_,
+                                        show_download_,
+                                        auto_hide_,
+                                        yield_topmost_when_fullscreen_,
+                                        ui_at_login_,
+                                        service_status_};
     for (const auto control : controls) {
         static_cast<void>(
             ::SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE));
@@ -320,6 +344,7 @@ void SettingsWindow::PopulateControls(const config::AppConfig& value) noexcept {
         set_number(auto_hide_delay_, value.floating.auto_hide_delay.count());
         set_number(capsule_height_, value.floating.capsule_height_dip);
         set_number(opacity_, value.floating.opacity_percent);
+        set_number(blur_strength_, value.floating.blur_strength_percent);
         static_cast<void>(::SendMessageW(speed_unit_, CB_SETCURSEL,
                                          static_cast<WPARAM>(value.display.speed_unit), 0));
         static_cast<void>(::SendMessageW(collector_mode_, CB_SETCURSEL,
@@ -335,6 +360,7 @@ void SettingsWindow::PopulateControls(const config::AppConfig& value) noexcept {
         SetChecked(show_upload_, value.display.show_upload);
         SetChecked(show_download_, value.display.show_download);
         SetChecked(auto_hide_, value.floating.auto_hide_enabled);
+        SetChecked(yield_topmost_when_fullscreen_, value.floating.yield_topmost_when_fullscreen);
         SetChecked(ui_at_login_, value.startup.ui_at_login);
     } catch (...) {
         ShowError(L"Settings", L"The settings controls could not be populated.");
@@ -351,6 +377,7 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     std::uint32_t auto_hide_delay{};
     std::uint32_t capsule_height{};
     std::uint32_t opacity{};
+    std::uint32_t blur_strength{};
     if (!ReadUnsigned(top_n_, config::kMinimumTopN, config::kMaximumTopN, top_n) ||
         !ReadUnsigned(
             ranking_window_, static_cast<std::uint32_t>(config::kMinimumRankingWindow.count()),
@@ -374,7 +401,9 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
                       static_cast<std::uint32_t>(config::kMaximumCapsuleHeightDip),
                       capsule_height) ||
         !ReadUnsigned(opacity_, config::kMinimumOpacityPercent, config::kMaximumOpacityPercent,
-                      opacity)) {
+                      opacity) ||
+        !ReadUnsigned(blur_strength_, config::kMinimumBlurStrengthPercent,
+                      config::kMaximumBlurStrengthPercent, blur_strength)) {
         return false;
     }
     const auto speed_unit = ::SendMessageW(speed_unit_, CB_GETCURSEL, 0, 0);
@@ -402,6 +431,8 @@ bool SettingsWindow::ReadControls(config::AppConfig& value) const noexcept {
     value.floating.auto_hide_delay = std::chrono::milliseconds{auto_hide_delay};
     value.floating.capsule_height_dip = static_cast<std::int32_t>(capsule_height);
     value.floating.opacity_percent = static_cast<std::uint8_t>(opacity);
+    value.floating.blur_strength_percent = static_cast<std::uint8_t>(blur_strength);
+    value.floating.yield_topmost_when_fullscreen = IsChecked(yield_topmost_when_fullscreen_);
     value.startup.ui_at_login = IsChecked(ui_at_login_);
     value.collector.preferred_mode = static_cast<config::CollectorMode>(collector_mode);
     value.service.start_type = static_cast<config::ServiceStartType>(start_type);

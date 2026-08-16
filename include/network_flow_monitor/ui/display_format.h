@@ -15,6 +15,7 @@ struct WindowDisplayOptions {
     bool show_upload{true};
     bool show_download{true};
     std::uint8_t opacity_percent{92U};
+    std::uint8_t blur_strength_percent{60U};
     std::uint8_t top_n{5U};
 
     bool operator==(const WindowDisplayOptions&) const = default;

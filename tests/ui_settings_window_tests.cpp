@@ -37,6 +37,8 @@ int main() {
     original.appearance.language = nfm::config::LanguageMode::SimplifiedChinese;
     original.appearance.theme = nfm::config::ThemeMode::Dark;
     original.floating.nfm_pinned = true;
+    original.floating.blur_strength_percent = 73U;
+    original.floating.yield_topmost_when_fullscreen = false;
     original.floating.anchor_monitor_id[0] = 'X';
     original.floating.anchor_side = nfm::config::DockSide::Left;
     original.floating.anchor_vertical_offset_dip = 123;
@@ -53,6 +55,9 @@ int main() {
     ::SendMessageW(window.hwnd(), WM_COMMAND, MAKEWPARAM(kSaveControlId, BN_CLICKED), 0);
     if (host.saved.appearance != original.appearance ||
         host.saved.floating.nfm_pinned != original.floating.nfm_pinned ||
+        host.saved.floating.blur_strength_percent != original.floating.blur_strength_percent ||
+        host.saved.floating.yield_topmost_when_fullscreen !=
+            original.floating.yield_topmost_when_fullscreen ||
         host.saved.floating.anchor_monitor_id != original.floating.anchor_monitor_id ||
         host.saved.floating.anchor_side != original.floating.anchor_side ||
         host.saved.floating.anchor_vertical_offset_dip !=

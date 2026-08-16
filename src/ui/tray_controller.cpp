@@ -3,6 +3,7 @@
 #include "network_flow_monitor/ui/resources.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iterator>
 #include <strsafe.h>
@@ -32,10 +33,43 @@ class ProcessIcon final {
 
 } // namespace
 
+const std::array<std::uint32_t, kNetworkFlowMonitorIconPixelCount>&
+NetworkFlowMonitorIconPixels() noexcept {
+    static const auto pixels = [] {
+        std::array<std::uint32_t, kNetworkFlowMonitorIconPixelCount> result{};
+        for (std::uint32_t y = 0; y < kNetworkFlowMonitorIconSize; ++y) {
+            for (std::uint32_t x = 0; x < kNetworkFlowMonitorIconSize; ++x) {
+                const auto dx = static_cast<std::int32_t>(x) - 16;
+                const auto dy = static_cast<std::int32_t>(y) - 16;
+                const auto distance = dx * dx + dy * dy;
+                std::uint32_t color = 0U;
+                if (distance <= 225) {
+                    color = distance >= 196 ? 0xFF1E3A8AU : 0xFF2563EBU;
+                }
+
+                const auto up_arrow =
+                    (x >= 13U && x <= 18U && y >= 8U && y <= 21U) ||
+                    (y >= 8U && y <= 12U && x >= 10U && x <= 21U && (x <= 13U || x >= 18U));
+                const auto down_arrow =
+                    (x >= 15U && x <= 20U && y >= 12U && y <= 24U) ||
+                    (y >= 20U && y <= 24U && x >= 12U && x <= 23U && (x <= 15U || x >= 20U));
+                if (up_arrow) {
+                    color = 0xFFF8FAFCU;
+                } else if (down_arrow) {
+                    color = 0xFF34D399U;
+                }
+                result[(static_cast<std::size_t>(y) * kNetworkFlowMonitorIconSize) + x] = color;
+            }
+        }
+        return result;
+    }();
+    return pixels;
+}
+
 HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept {
     static_cast<void>(instance);
 
-    constexpr int kSize = 32;
+    constexpr auto kSize = static_cast<int>(kNetworkFlowMonitorIconSize);
     BITMAPINFO bitmap_info{};
     bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bitmap_info.bmiHeader.biWidth = kSize;
@@ -54,33 +88,8 @@ HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept {
         return nullptr;
     }
 
-    auto* const pixels = static_cast<std::uint32_t*>(raw_pixels);
-    for (int y = 0; y < kSize; ++y) {
-        for (int x = 0; x < kSize; ++x) {
-            const auto dx = x - 16;
-            const auto dy = y - 16;
-            const auto distance = dx * dx + dy * dy;
-            std::uint32_t color = 0U;
-            if (distance <= 225) {
-                color = 0xFF2563EBU;
-                if (distance >= 196) {
-                    color = 0xFF1E3A8AU;
-                }
-            }
-
-            const auto up_arrow = (x >= 13 && x <= 18 && y >= 8 && y <= 21) ||
-                                  (y >= 8 && y <= 12 && x >= 10 && x <= 21 && (x <= 13 || x >= 18));
-            const auto down_arrow =
-                (x >= 15 && x <= 20 && y >= 12 && y <= 24) ||
-                (y >= 20 && y <= 24 && x >= 12 && x <= 23 && (x <= 15 || x >= 20));
-            if (up_arrow) {
-                color = 0xFFF8FAFCU;
-            } else if (down_arrow) {
-                color = 0xFF34D399U;
-            }
-            pixels[(y * kSize) + x] = color;
-        }
-    }
+    std::copy(NetworkFlowMonitorIconPixels().begin(), NetworkFlowMonitorIconPixels().end(),
+              static_cast<std::uint32_t*>(raw_pixels));
 
     const auto mask_bitmap = ::CreateBitmap(kSize, kSize, 1U, 1U, nullptr);
     if (mask_bitmap == nullptr) {
@@ -230,6 +239,15 @@ bool TrayController::ShowContextMenu(HWND owner_override) noexcept {
     const auto open_added =
         api_->AppendMenu(menu, MF_STRING, kOpenCommand,
                          ResourceCString(ResourceKey::MenuShowHideMonitor, options_.language));
+    auto pin_flags = MF_STRING;
+    if (pinned_) {
+        pin_flags |= MF_CHECKED;
+    }
+    if (!pin_enabled_) {
+        pin_flags |= MF_GRAYED;
+    }
+    const auto pin_added = api_->AppendMenu(menu, pin_flags, kPinCommand,
+                                            ResourceCString(ResourceKey::Pin, options_.language));
     const auto retry_added =
         api_->AppendMenu(menu, MF_STRING, kRetryCollectorCommand,
                          ResourceCString(ResourceKey::MenuRetryCollector, options_.language));
@@ -238,7 +256,7 @@ bool TrayController::ShowContextMenu(HWND owner_override) noexcept {
                          ResourceCString(ResourceKey::MenuSettings, options_.language));
     const auto exit_added = api_->AppendMenu(
         menu, MF_STRING, kExitCommand, ResourceCString(ResourceKey::MenuExit, options_.language));
-    if (!open_added || !retry_added || !settings_added || !exit_added) {
+    if (!open_added || !pin_added || !retry_added || !settings_added || !exit_added) {
         static_cast<void>(api_->DestroyMenu(menu));
         return false;
     }
@@ -268,6 +286,11 @@ void TrayController::RouteMenuCommand(UINT command) noexcept {
         break;
     case kOpenCommand:
         callbacks_->OnTrayLeftClick();
+        break;
+    case kPinCommand:
+        if (pin_enabled_) {
+            callbacks_->OnTrayPinToggle();
+        }
         break;
     case kExitCommand:
         callbacks_->OnTrayExit();

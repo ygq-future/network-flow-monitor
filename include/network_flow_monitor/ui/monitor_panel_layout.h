@@ -10,7 +10,10 @@ namespace nfm::ui {
 // acceptance thresholds. The panel uses one compact fixed design width; there
 // is no user-configurable width and no reserved column for untruncated names.
 struct MonitorPanelLayout final {
-    static constexpr std::int32_t kWidthDip = 400;
+    static constexpr std::int32_t kWidthDip = 340;
+    static constexpr std::int32_t kIconLeftDip = 12;
+    static constexpr std::int32_t kIconSizeDip = 16;
+    static constexpr std::int32_t kIconTextGapDip = 8;
     static constexpr std::int32_t kHeaderRowDip = 36;
     static constexpr std::int32_t kRowDip = 28;
     static constexpr std::int32_t kVerticalPaddingDip = 5;

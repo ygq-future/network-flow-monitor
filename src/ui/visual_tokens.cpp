@@ -32,7 +32,8 @@ VisualTokens ResolveVisualTokens(ResolvedTheme theme, bool high_contrast) noexce
                         .text = palette.text,
                         .accent = palette.accent,
                         .border = palette.border,
-                        .dark = high_contrast || theme == ResolvedTheme::Dark};
+                        .dark = high_contrast || theme == ResolvedTheme::Dark,
+                        .transparency_enabled = !high_contrast};
 }
 
 std::chrono::milliseconds MotionDuration(std::chrono::milliseconds token,

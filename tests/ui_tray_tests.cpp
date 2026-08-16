@@ -4,7 +4,9 @@
 #include <windows.h>
 
 #include <iostream>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -31,6 +33,9 @@ struct FakeTrayApi final : TrayApi {
     HWND track_menu_owner{};
     HWND posted_window{};
     UINT posted_message{};
+    std::vector<UINT> menu_flags;
+    std::vector<UINT_PTR> menu_commands;
+    std::vector<std::wstring> menu_text;
 
     bool ShellNotifyIcon(DWORD action, NOTIFYICONDATAW&) noexcept override {
         if (action == NIM_ADD) {
@@ -49,7 +54,11 @@ struct FakeTrayApi final : TrayApi {
         return reinterpret_cast<HMENU>(this);
     }
 
-    bool AppendMenu(HMENU, UINT, UINT_PTR, LPCWSTR) noexcept override {
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): signature mirrors TrayApi/AppendMenuW.
+    bool AppendMenu(HMENU, UINT flags, UINT_PTR command, LPCWSTR text) noexcept override {
+        menu_flags.push_back(flags);
+        menu_commands.push_back(command);
+        menu_text.emplace_back(text);
         return true;
     }
 
@@ -91,6 +100,7 @@ struct FakeCallbacks final : TrayCallbacks {
     int settings_commands{};
     int exit_commands{};
     int retry_commands{};
+    int pin_commands{};
 
     void OnTrayLeftClick() noexcept override {
         ++left_clicks;
@@ -106,6 +116,9 @@ struct FakeCallbacks final : TrayCallbacks {
     }
     void OnTrayRetryCollector() noexcept override {
         ++retry_commands;
+    }
+    void OnTrayPinToggle() noexcept override {
+        ++pin_commands;
     }
     void OnTrayExit() noexcept override {
         ++exit_commands;
@@ -176,6 +189,22 @@ void CheckTrayMenu(TestContext& context) {
                       api.posted_window == surface_owner && api.posted_message == WM_NULL,
                   "application menus use the clicked visible surface as foreground owner and "
                   "complete with the documented benign message");
+
+    api.menu_command = TrayController::kPinCommand;
+    controller.SetPinState(false, true);
+    context.Check(controller.ShowContextMenu(surface_owner), "pin context menu shown");
+    context.Check(callbacks.pin_commands == 1, "pin command routes to the visibility preference");
+    context.Check(api.menu_commands.size() >= 6U &&
+                      api.menu_commands.at(api.menu_commands.size() - 4U) ==
+                          TrayController::kPinCommand,
+                  "pin is the first action after show/hide in the shared context menu");
+
+    api.menu_command = 0U;
+    controller.SetPinState(true, false);
+    context.Check(controller.ShowContextMenu(surface_owner), "disabled pin context menu shown");
+    context.Check(!api.menu_flags.empty() && (api.menu_flags.at(api.menu_flags.size() - 4U) &
+                                              (MF_CHECKED | MF_GRAYED)) == (MF_CHECKED | MF_GRAYED),
+                  "disabled auto-hide keeps the saved pin preference checked but unavailable");
 
     api.menu_command = TrayController::kRetryCollectorCommand;
     context.Check(controller.ShowContextMenu(surface_owner), "retry context menu shown");

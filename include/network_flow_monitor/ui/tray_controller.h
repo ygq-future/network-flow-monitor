@@ -5,6 +5,8 @@
 
 #include <windows.h>
 
+#include <array>
+#include <cstdint>
 #include <shellapi.h>
 #include <string>
 #include <utility>
@@ -34,11 +36,17 @@ class TrayCallbacks {
     virtual void OnTrayHover() noexcept = 0;
     virtual void OnTraySettings() noexcept = 0;
     virtual void OnTrayRetryCollector() noexcept {}
+    virtual void OnTrayPinToggle() noexcept {}
     virtual void OnTrayExit() noexcept = 0;
 };
 
 // Creates the small application-owned icon used by the notification-area entry.
 // The caller owns the returned handle and must release it with DestroyIcon.
+inline constexpr std::uint32_t kNetworkFlowMonitorIconSize = 32U;
+inline constexpr std::size_t kNetworkFlowMonitorIconPixelCount =
+    static_cast<std::size_t>(kNetworkFlowMonitorIconSize) * kNetworkFlowMonitorIconSize;
+[[nodiscard]] const std::array<std::uint32_t, kNetworkFlowMonitorIconPixelCount>&
+NetworkFlowMonitorIconPixels() noexcept;
 [[nodiscard]] HICON CreateNetworkFlowMonitorIcon(HINSTANCE instance) noexcept;
 // Returns a process-lifetime, non-owning icon for registered window classes.
 [[nodiscard]] HICON NetworkFlowMonitorClassIcon(HINSTANCE instance) noexcept;
@@ -86,6 +94,7 @@ class TrayController final {
     static constexpr UINT kExitCommand = 2U;
     static constexpr UINT kRetryCollectorCommand = 3U;
     static constexpr UINT kOpenCommand = 4U;
+    static constexpr UINT kPinCommand = 5U;
 
     TrayController(HWND owner, TrayIconOptions options, TrayApi& api, TrayCallbacks& callbacks)
         : owner_{owner}, options_{std::move(options)}, api_{&api}, callbacks_{&callbacks} {}
@@ -113,6 +122,10 @@ class TrayController final {
     void SetLanguage(ResolvedLanguage language) noexcept {
         options_.language = language;
     }
+    void SetPinState(bool pinned, bool enabled) noexcept {
+        pinned_ = pinned;
+        pin_enabled_ = enabled;
+    }
     void SetOwner(HWND owner) noexcept;
     [[nodiscard]] bool HandleCallback(TrayNotification notification) noexcept;
     [[nodiscard]] bool ShowContextMenu(HWND owner_override = nullptr) noexcept;
@@ -126,6 +139,8 @@ class TrayController final {
     TrayApi* api_;
     TrayCallbacks* callbacks_;
     bool installed_{};
+    bool pinned_{};
+    bool pin_enabled_{true};
 };
 
 } // namespace nfm::ui

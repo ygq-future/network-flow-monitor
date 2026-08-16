@@ -27,7 +27,8 @@ WarningsAsErrors: >
   concurrency-*,
   performance-*,
   portability-*
-HeaderFilterRegex: '^(.*[\\/])?(src|include|tests)[\\/]'
+HeaderFilterRegex: '^((src|include|tests)[\\/]|.*[\\/]network-flow-monitor[\\/](src|include|tests)[\\/])'
+ExcludeHeaderFilterRegex: '^[A-Za-z]:[\\/](Program Files|Program Files \(x86\))[\\/](Windows Kits|Microsoft Visual Studio)[\\/]'
 FormatStyle: file
 CheckOptions:
   misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: 'true'

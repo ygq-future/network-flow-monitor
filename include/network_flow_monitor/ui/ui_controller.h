@@ -12,6 +12,7 @@
 #include "network_flow_monitor/ui/settings_controller.h"
 #include "network_flow_monitor/ui/settings_window.h"
 #include "network_flow_monitor/ui/startup_registration.h"
+#include "network_flow_monitor/ui/topmost_policy.h"
 #include "network_flow_monitor/ui/tray_controller.h"
 
 #include <windows.h>
@@ -28,6 +29,7 @@ namespace nfm::ui {
 inline constexpr UINT kUiSnapshotMessage = WM_APP + 0x32U;
 inline constexpr UINT kUiStateMessage = WM_APP + 0x33U;
 inline constexpr UINT_PTR kUiMonitorPanelTimerId = 2U;
+inline constexpr UINT_PTR kUiTopmostPolicyTimerId = 3U;
 
 class UiController final : public ipc::IpcClientObserver,
                            public TrayCallbacks,
@@ -79,6 +81,7 @@ class UiController final : public ipc::IpcClientObserver,
     void OnTrayHover() noexcept override;
     void OnTraySettings() noexcept override;
     void OnTrayRetryCollector() noexcept override;
+    void OnTrayPinToggle() noexcept override;
     void OnTrayExit() noexcept override;
     void OnWindowInvalidated() noexcept override;
     void OnWindowContextMenu() noexcept override;
@@ -98,6 +101,8 @@ class UiController final : public ipc::IpcClientObserver,
                                 bool service_stopped) noexcept;
     void ApplyInteractionState() noexcept;
     void ApplyAppearance() noexcept;
+    void ApplyTopmostPolicy() noexcept;
+    [[nodiscard]] ForegroundWindowState QueryForegroundWindowState() const noexcept;
     void HandleStateOnUiThread(ipc::IpcClientState state) noexcept;
     [[nodiscard]] PixelRect CurrentWorkArea() const noexcept;
     [[nodiscard]] MonitorPanelEnvironment BuildMonitorEnvironment() const;

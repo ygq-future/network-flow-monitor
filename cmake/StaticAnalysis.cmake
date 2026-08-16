@@ -15,6 +15,11 @@ function(nfm_enable_static_analysis target_name)
         set(tidy_command
             "${NFM_CLANG_TIDY_EXECUTABLE}"
             "--config-file=${PROJECT_SOURCE_DIR}/.clang-tidy"
+            # Visual Studio's bundled clang-tidy can omit Clang's cpuid.h resource header,
+            # while the Windows SDK DirectXMath header includes it whenever __clang__ is set.
+            # Use DirectXMath's supported scalar path for analysis; production MSVC builds
+            # retain their normal intrinsic implementation.
+            "--extra-arg=/D_XM_NO_INTRINSICS_"
         )
         if(NFM_ANALYSIS_ENABLE_EXCEPTIONS)
             list(APPEND tidy_command "--extra-arg=/EHsc")

@@ -26,10 +26,12 @@
 | `interaction.dismiss_delay_ms` | 250 | 0–2000ms | 程序 |
 | `floating.auto_hide_enabled` | `true` | 布尔值 | 程序 |
 | `floating.auto_hide_delay_ms` | 500 | 0–5000ms | 程序 |
-| `floating.pinned` | `false` | 布尔值 | 程序 |
+| `floating.nfm_pinned` | `false` | 布尔值 | 程序 |
 | `floating.capsule_width_dip` | 10 | 8–24 DIP | 程序 |
 | `floating.capsule_height_dip` | 64 | 40–160 DIP | 程序 |
-| `floating.opacity_percent` | 92 | 30–100 | 程序 |
+| `floating.opacity_percent` | 92 | 0–100 | 程序 |
+| `floating.blur_strength_percent` | 60 | 0–100（映射到 0–30 DIP Gaussian 标准差） | 程序 |
+| `floating.yield_topmost_when_fullscreen` | `true` | 布尔值 | 程序 |
 | `startup.ui_at_login` | `false` | 布尔值 | 程序 |
 | `collector.preferred_mode` | `portable` | `portable`, `service` | 程序 |
 | `service.start_type` | `automatic_delayed` | `manual`, `automatic`, `automatic_delayed` | 程序 |
@@ -51,13 +53,14 @@
 - 悬停延迟和面板消失延迟。
 - 仅吸附工作区左右边;拖动结束总是吸附到鼠标松开点所在显示器的最近一侧,不提供贴边距离。
 - 自动隐藏、自动隐藏延迟、固定显示,以及胶囊宽度和高度。胶囊可见宽度无论多窄,向屏幕内侧的实际指针命中宽度都不得小于 16 DIP。
-- 监控面板背景透明度。透明度不作用于文字和图标;Acrylic 不可用时使用可读的同色降级背景。
+- 监控面板背景透明度与毛玻璃模糊强度。两者相互独立，透明度不作用于文字和图标；Composition 不可用时使用可读的同色降级背景。
+- “让全屏应用显示在监控面板之上”。启用后，当前台外部窗口覆盖整块显示器时，监控面板从 topmost 降为普通层级；离开全屏后恢复。判定不依赖游戏进程名，因此也覆盖 Windows 截图遮罩。
 
 ### 外观与语言
 
 - 语言提供跟随系统、English 和简体中文;默认 English,系统语言不受支持时回退 English。
 - 主题提供跟随系统、浅色和深色;默认跟随系统。系统主题变更实时生效,高对比度覆盖应用材质和配色。
-- NFM 和 TopA 使用 Acrylic 与背景透明度;设置窗口使用 Mica。所有应用自有面板使用圆角,右键菜单继续使用 Windows 原生菜单。
+- 单一监控面板使用原生 Windows.UI.Composition HostBackdrop 毛玻璃、可调模糊和背景透明度；设置窗口使用 Mica。所有应用自有面板使用圆角，右键菜单继续使用 Windows 原生菜单。
 - 动画只在有界状态转换期间运行并响应系统减少动画设置;空闲时不运行固定高帧率循环。
 
 ### 采集与服务

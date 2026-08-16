@@ -224,7 +224,8 @@ void ApplyPointerEvent(MonitorPanelTransition& result, const MonitorPanelEvent& 
     if (result.state.context_menu_active &&
         event.kind != MonitorPanelEventKind::ContextMenuClosed &&
         event.kind != MonitorPanelEventKind::ContextMenuOpened &&
-        event.kind != MonitorPanelEventKind::ToggleVisibility) {
+        event.kind != MonitorPanelEventKind::ToggleVisibility &&
+        event.kind != MonitorPanelEventKind::PinTogglePressed) {
         return;
     }
     switch (event.kind) {
@@ -415,9 +416,16 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
     }
     const auto* const monitor = MonitorForAnchor(environment, result.state.anchor);
     if (monitor != nullptr) {
-        result.state.bounds =
-            BoundsFor(result.state.anchor, *monitor, config, result.state.surface,
-                      result.state.ranking_presentation, result.state.visible_rows);
+        if (result.state.dragging && event.kind != MonitorPanelEventKind::PointerMove) {
+            // Data, collector and appearance notifications may arrive during a drag. They must
+            // not replace the pointer-following rectangle with the persisted dock rectangle;
+            // the next pointer message would otherwise move it back again and visibly teleport.
+            result.state.bounds = state.bounds;
+        } else {
+            result.state.bounds =
+                BoundsFor(result.state.anchor, *monitor, config, result.state.surface,
+                          result.state.ranking_presentation, result.state.visible_rows);
+        }
         if (result.state.dragging && event.kind == MonitorPanelEventKind::PointerMove) {
             const auto width = result.state.bounds.Width();
             const auto height = result.state.bounds.Height();
@@ -445,16 +453,6 @@ MonitorPanelTransition MonitorPanelBehavior::Transition(const MonitorPanelState&
                                               result.state.bounds.bottom - padding)};
     }
     result.hit_bounds = result.state.bounds;
-    if (result.state.surface == MonitorPanelSurface::Capsule && monitor != nullptr) {
-        const auto hit_width = DipToPixels(16, static_cast<int>(monitor->dpi));
-        if (result.state.anchor.side == DockSide::Left) {
-            result.hit_bounds.right =
-                std::max(result.hit_bounds.right, result.hit_bounds.left + hit_width);
-        } else {
-            result.hit_bounds.left =
-                std::min(result.hit_bounds.left, result.hit_bounds.right - hit_width);
-        }
-    }
     const auto next_surface = result.state.surface;
     if (next_surface != previous_surface) {
         if (next_surface == MonitorPanelSurface::Panel) {

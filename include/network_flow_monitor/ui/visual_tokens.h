@@ -20,6 +20,7 @@ struct VisualTokens {
     // True when the resolved theme is dark, so the Win32 adapter can request the
     // matching immersive dark mode for DWM system backdrops.
     bool dark{};
+    bool transparency_enabled{true};
     // Preferred family; the renderer falls back to Segoe UI when unavailable.
     const wchar_t* text_family{L"Segoe UI Variable"};
     float text_size_dip{12.0F};

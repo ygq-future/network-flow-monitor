@@ -11,7 +11,6 @@
 #include <dwmapi.h>
 #include <limits>
 #include <string>
-#include <timeapi.h>
 #include <windowsx.h>
 
 namespace nfm::ui {
@@ -19,13 +18,12 @@ namespace {
 
 constexpr auto kFloatingWindowClass = std::to_array(L"NetworkFlowMonitor.FloatingWindow");
 constexpr auto kFloatingWindowTitle = std::to_array(L"Network Flow Monitor");
-constexpr UINT_PTR kRowAnimationTimerId = 3U;
+constexpr UINT kRowAnimationFrameMessage = WM_APP + 0x36U;
+constexpr UINT kHeightAnimationFrameMessage = WM_APP + 0x37U;
 constexpr auto kRowAnimationDuration = std::chrono::milliseconds{200};
-constexpr auto kRowAnimationFrameMilliseconds = 16U;
+constexpr auto kHeightAnimationDuration = std::chrono::milliseconds{200};
 
 constexpr float kPanelPaddingDip = 12.0F;
-constexpr float kIconBoxDip = 16.0F;
-constexpr float kPinWidthDip = 36.0F;
 constexpr float kRateWidthDip = 72.0F;
 constexpr float kColumnGapDip = 8.0F;
 
@@ -97,8 +95,17 @@ bool FloatingWindow::Create() noexcept {
                                 rect_.Width(), rect_.Height(), nullptr, nullptr, instance_, this);
     if (window_ != nullptr) {
         ApplyDwmAttributes();
+        if (redirection_alpha_supported_) {
+            static_cast<void>(
+                frosted_glass_.Initialize(window_, display_options_.blur_strength_percent));
+        }
+        frosted_glass_.SetTint(tokens_.background, tokens_.transparency_enabled
+                                                       ? display_options_.opacity_percent
+                                                       : 100U);
+        UpdateFrostedGlassClip();
+        frosted_glass_.SetVisible(tokens_.transparency_enabled);
+        ApplyDwmAttributes();
         icon_cache_.SetNotifyWindow(window_);
-        ApplyHitWindowRect();
     }
     return window_ != nullptr;
 }
@@ -106,41 +113,25 @@ bool FloatingWindow::Create() noexcept {
 void FloatingWindow::Show() noexcept {
     if (Create()) {
         ::ShowWindow(window_, SW_SHOWNOACTIVATE);
-        if (hit_window_ != nullptr) {
-            ::ShowWindow(hit_window_, SW_SHOWNOACTIVATE);
-        }
     }
 }
 
 void FloatingWindow::Hide() noexcept {
     CancelPointerTracking();
     if (window_ != nullptr) {
-        static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
         ::ShowWindow(window_, SW_HIDE);
     }
-    if (hit_window_ != nullptr) {
-        ::ShowWindow(hit_window_, SW_HIDE);
-    }
-    row_animation_active_ = false;
-    SetAnimationFramePeriod(false);
-    for (auto& row : row_visuals_) {
-        row.from_position = row.target_position;
-        row.from_opacity = row.target_opacity;
-    }
-    std::erase_if(row_visuals_, [](const RowVisual& row) { return row.exiting; });
+    FinishRowAnimation();
+    FinishHeightAnimation();
 }
 
 void FloatingWindow::Destroy() noexcept {
     icon_cache_.SetNotifyWindow(nullptr);
     target_.Reset();
-    if (hit_window_ != nullptr) {
-        auto* const hit_window = hit_window_;
-        hit_window_ = nullptr;
-        ::DestroyWindow(hit_window);
-    }
+    frosted_glass_.Reset();
+    redirection_alpha_supported_ = false;
+    FinishHeightAnimation();
     if (window_ != nullptr) {
-        static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
-        SetAnimationFramePeriod(false);
         auto* const window = window_;
         window_ = nullptr;
         ::DestroyWindow(window);
@@ -187,13 +178,26 @@ void FloatingWindow::SetDisplayOptions(WindowDisplayOptions options) noexcept {
     if (display_options_ == options) {
         return;
     }
+    const auto blur_changed =
+        display_options_.blur_strength_percent != options.blur_strength_percent;
     display_options_ = options;
+    if (blur_changed) {
+        frosted_glass_.SetBlurStrength(display_options_.blur_strength_percent);
+        if (!frosted_glass_.active()) {
+            ApplyDwmAttributes();
+        }
+    }
+    frosted_glass_.SetTint(tokens_.background,
+                           tokens_.transparency_enabled ? display_options_.opacity_percent : 100U);
     Invalidate();
 }
 
 void FloatingWindow::SetAppearance(VisualTokens tokens, ResolvedLanguage language) noexcept {
     tokens_ = tokens;
     language_ = language;
+    frosted_glass_.SetVisible(tokens_.transparency_enabled);
+    frosted_glass_.SetTint(tokens_.background,
+                           tokens_.transparency_enabled ? display_options_.opacity_percent : 100U);
     ApplyDwmAttributes();
     Invalidate();
 }
@@ -205,12 +209,44 @@ void FloatingWindow::ApplyDwmAttributes() noexcept {
     const BOOL dark = tokens_.dark ? TRUE : FALSE;
     static_cast<void>(
         ::DwmSetWindowAttribute(window_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark)));
-    const DWM_SYSTEMBACKDROP_TYPE backdrop = DWMSBT_TRANSIENTWINDOW;
+    const DWM_SYSTEMBACKDROP_TYPE backdrop = frosted_glass_.active() ||
+                                                     !tokens_.transparency_enabled ||
+                                                     panel_surface_ == MonitorPanelSurface::Capsule
+                                                 ? DWMSBT_NONE
+                                                 : DWMSBT_TRANSIENTWINDOW;
     static_cast<void>(
         ::DwmSetWindowAttribute(window_, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
-    const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    const DWM_WINDOW_CORNER_PREFERENCE corner =
+        panel_surface_ == MonitorPanelSurface::Capsule ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
     static_cast<void>(
         ::DwmSetWindowAttribute(window_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner)));
+    const BOOL use_redirection_alpha = TRUE;
+    redirection_alpha_supported_ =
+        SUCCEEDED(::DwmSetWindowAttribute(window_, DWMWA_REDIRECTIONBITMAP_ALPHA,
+                                          &use_redirection_alpha, sizeof(use_redirection_alpha)));
+    const MARGINS full_client_frame{
+        .cxLeftWidth = -1, .cxRightWidth = -1, .cyTopHeight = -1, .cyBottomHeight = -1};
+    static_cast<void>(::DwmExtendFrameIntoClientArea(window_, &full_client_frame));
+}
+
+void FloatingWindow::UpdateFrostedGlassClip() noexcept {
+    if (!frosted_glass_.active() || window_ == nullptr) {
+        return;
+    }
+    const auto dpi = WindowDpi(window_);
+    if (panel_surface_ == MonitorPanelSurface::Capsule) {
+        frosted_glass_.SetVisible(false);
+        const PixelRect local{
+            .left = 0, .top = 0, .right = rect_.Width(), .bottom = rect_.Height()};
+        frosted_glass_.SetClip(local, static_cast<float>(rect_.Width()) / 2.0F);
+        ApplyDwmAttributes();
+        return;
+    }
+    frosted_glass_.SetVisible(tokens_.transparency_enabled);
+    const PixelRect local{.left = 0, .top = 0, .right = rect_.Width(), .bottom = rect_.Height()};
+    frosted_glass_.SetClip(
+        local, static_cast<float>(DipToPixels(static_cast<int>(tokens_.corner_radius_dip), dpi)));
+    ApplyDwmAttributes();
 }
 
 void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
@@ -221,24 +257,21 @@ void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
     if (surface_changed && tracking_window_ != nullptr) {
         CancelPointerTracking();
     }
+    if (surface_changed) {
+        FinishHeightAnimation();
+    }
     panel_surface_ = surface;
     capsule_ = capsule;
     visual_bounds_ = visual_bounds;
     hit_bounds_ = hit_bounds;
     viewport_ = viewport;
-    ApplyHitWindowRect();
+    UpdateFrostedGlassClip();
+    if (surface_changed) {
+        ApplyDwmAttributes();
+    }
     if (surface_changed && surface == MonitorPanelSurface::Panel) {
         TransferPanelTracking();
     }
-    Invalidate();
-}
-
-void FloatingWindow::SetMonitorPanelControls(bool pinned, bool pin_enabled) noexcept {
-    if (pinned_ == pinned && pin_enabled_ == pin_enabled) {
-        return;
-    }
-    pinned_ = pinned;
-    pin_enabled_ = pin_enabled;
     Invalidate();
 }
 
@@ -251,56 +284,36 @@ void FloatingWindow::ApplyWindowRect(PixelRect rect) noexcept {
     if (window_ != nullptr) {
         ::SetWindowPos(window_, nullptr, rect.left, rect.top, rect.Width(), rect.Height(),
                        SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+        UpdateFrostedGlassClip();
     }
-    ApplyHitWindowRect();
     observer_->OnWindowMoved();
     Invalidate();
 }
 
-void FloatingWindow::ApplyHitWindowRect() noexcept {
-    PixelRect extension{};
-    if (panel_surface_ == MonitorPanelSurface::Capsule) {
-        if (hit_bounds_.left < visual_bounds_.left) {
-            extension = {.left = hit_bounds_.left,
-                         .top = hit_bounds_.top,
-                         .right = visual_bounds_.left,
-                         .bottom = hit_bounds_.bottom};
-        } else if (hit_bounds_.right > visual_bounds_.right) {
-            extension = {.left = visual_bounds_.right,
-                         .top = hit_bounds_.top,
-                         .right = hit_bounds_.right,
-                         .bottom = hit_bounds_.bottom};
-        }
-    }
-    if (extension.Width() <= 0 || extension.Height() <= 0 || window_ == nullptr) {
-        if (hit_window_ != nullptr) {
-            ::ShowWindow(hit_window_, SW_HIDE);
-        }
-        return;
-    }
-    if (hit_window_ == nullptr) {
-        hit_window_ = ::CreateWindowExW(kHitExtendedStyle, kFloatingWindowClass.data(), L"",
-                                        WS_POPUP, extension.left, extension.top, extension.Width(),
-                                        extension.Height(), nullptr, nullptr, instance_, this);
-        if (hit_window_ != nullptr) {
-            // A separate almost-transparent layered HWND provides a real hit-test surface without
-            // making color-key-transparent pixels responsible for pointer delivery.
-            static_cast<void>(::SetLayeredWindowAttributes(hit_window_, 0U, 1U, LWA_ALPHA));
-        }
-    } else {
-        ::SetWindowPos(hit_window_, nullptr, extension.left, extension.top, extension.Width(),
-                       extension.Height(), SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
-    }
-    if (hit_window_ != nullptr && ::IsWindowVisible(window_) != FALSE) {
-        ::ShowWindow(hit_window_, SW_SHOWNOACTIVATE);
-    }
-}
-
 void FloatingWindow::Reposition(PixelRect rect) noexcept {
-    if (rect_ == rect) {
+    visual_bounds_ = rect;
+    const auto window_bounds = rect;
+    if (rect_ == window_bounds && !height_animation_active_) {
         return;
     }
-    ApplyWindowRect(rect);
+    if (height_animation_active_ && height_target_rect_ == window_bounds) {
+        return;
+    }
+    // Animate panel rect changes when the window is visible.
+    if (window_ != nullptr && ::IsWindowVisible(window_) != FALSE &&
+        panel_surface_ == MonitorPanelSurface::Panel) {
+        const auto was_animating = height_animation_active_;
+        height_from_rect_ = rect_;
+        height_target_rect_ = window_bounds;
+        height_animation_started_ = std::chrono::steady_clock::now();
+        height_animation_active_ = true;
+        if (!was_animating) {
+            static_cast<void>(::PostMessageW(window_, kHeightAnimationFrameMessage, 0U, 0));
+        }
+        return;
+    }
+    FinishHeightAnimation();
+    ApplyWindowRect(window_bounds);
 }
 
 bool FloatingWindow::ShouldInvalidate(std::uint64_t old_generation, std::uint64_t new_generation,
@@ -346,20 +359,6 @@ void FloatingWindow::TransferPanelTracking() noexcept {
     tracking_window_ = window_;
     tracking_surface_ = MonitorPanelSurface::Panel;
     tracking_mouse_ = true;
-}
-
-MonitorPanelControl FloatingWindow::HitTestControl(PixelPoint client_point,
-                                                   std::int32_t client_width_pixels,
-                                                   int dpi) noexcept {
-    const auto x = PixelsToDip(client_point.x, dpi);
-    const auto y = PixelsToDip(client_point.y, dpi);
-    const auto width = PixelsToDip(client_width_pixels, dpi);
-    const auto right = width - kPanelPaddingDip;
-    if (y < 0.0 || y >= static_cast<double>(MonitorPanelLayout::kHeaderRowDip) ||
-        x < right - kPinWidthDip) {
-        return MonitorPanelControl::None;
-    }
-    return MonitorPanelControl::Pin;
 }
 
 bool FloatingWindow::ShouldDispatchPointerLeave(PixelRect tracked_bounds,
@@ -415,9 +414,6 @@ void FloatingWindow::RetargetRows(const ranking::RankingSnapshot* snapshot) {
     if (snapshot == nullptr) {
         row_visuals_.clear();
         row_animation_active_ = false;
-        if (window_ != nullptr) {
-            static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
-        }
         return;
     }
 
@@ -474,14 +470,14 @@ void FloatingWindow::RetargetRows(const ranking::RankingSnapshot* snapshot) {
     }
 
     row_visuals_ = std::move(next);
-    const auto animate = changed && window_ != nullptr && ::IsWindowVisible(window_) != FALSE;
+    const auto animate =
+        changed && !panel_pressing_ && window_ != nullptr && ::IsWindowVisible(window_) != FALSE;
+    const auto frame_already_scheduled = row_animation_active_;
     row_animation_active_ = animate;
     if (animate) {
         row_animation_started_ = std::chrono::steady_clock::now();
-        row_animation_active_ = ::SetTimer(window_, kRowAnimationTimerId,
-                                           kRowAnimationFrameMilliseconds, nullptr) != 0U;
-        if (row_animation_active_) {
-            SetAnimationFramePeriod(true);
+        if (!frame_already_scheduled) {
+            static_cast<void>(::PostMessageW(window_, kRowAnimationFrameMessage, 0U, 0));
         }
     }
     if (!row_animation_active_) {
@@ -504,21 +500,50 @@ void FloatingWindow::TickRowAnimation() noexcept {
             row.from_opacity = row.target_opacity;
         }
         std::erase_if(row_visuals_, [](const RowVisual& row) { return row.exiting; });
-        if (window_ != nullptr) {
-            static_cast<void>(::KillTimer(window_, kRowAnimationTimerId));
-        }
-        SetAnimationFramePeriod(false);
     }
     Invalidate();
 }
 
-void FloatingWindow::SetAnimationFramePeriod(bool active) noexcept {
-    if (active && !animation_timer_period_) {
-        static_cast<void>(::timeBeginPeriod(1U));
-        animation_timer_period_ = true;
-    } else if (!active && animation_timer_period_) {
-        static_cast<void>(::timeEndPeriod(1U));
-        animation_timer_period_ = false;
+void FloatingWindow::FinishRowAnimation() noexcept {
+    row_animation_active_ = false;
+    for (auto& row : row_visuals_) {
+        row.from_position = row.target_position;
+        row.from_opacity = row.target_opacity;
+    }
+    std::erase_if(row_visuals_, [](const RowVisual& row) { return row.exiting; });
+}
+
+void FloatingWindow::TickHeightAnimation() noexcept {
+    if (!height_animation_active_) {
+        return;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - height_animation_started_);
+    const auto linear = std::clamp(static_cast<float>(elapsed.count()) /
+                                       static_cast<float>(kHeightAnimationDuration.count()),
+                                   0.0F, 1.0F);
+    if (linear >= 1.0F) {
+        height_animation_active_ = false;
+        ApplyWindowRect(height_target_rect_);
+        return;
+    }
+    // Ease-out: 1 − (1 − t)².
+    const auto progress = 1.0F - ((1.0F - linear) * (1.0F - linear));
+    const auto lerp = [](std::int32_t from, std::int32_t to, float t) {
+        return from + static_cast<std::int32_t>(static_cast<float>(to - from) * t);
+    };
+    const PixelRect interpolated{
+        .left = lerp(height_from_rect_.left, height_target_rect_.left, progress),
+        .top = lerp(height_from_rect_.top, height_target_rect_.top, progress),
+        .right = lerp(height_from_rect_.right, height_target_rect_.right, progress),
+        .bottom = lerp(height_from_rect_.bottom, height_target_rect_.bottom, progress)};
+    ApplyWindowRect(interpolated);
+}
+
+void FloatingWindow::FinishHeightAnimation() noexcept {
+    if (height_animation_active_) {
+        height_animation_active_ = false;
+        ApplyWindowRect(height_target_rect_);
     }
 }
 
@@ -534,59 +559,137 @@ void FloatingWindow::Paint() noexcept {
     ::GetClientRect(window_, &client_rect);
     const auto size = PixelSize{.width = client_rect.right - client_rect.left,
                                 .height = client_rect.bottom - client_rect.top};
-    if (target_ == nullptr) {
+    const auto window_dpi = WindowDpi(window_);
+    auto composition_context = frosted_glass_.BeginDraw(size, window_dpi);
+    const auto composition_drawing = composition_context != nullptr;
+    if (!composition_drawing && target_ == nullptr) {
         target_ = resources_->CreateHwndRenderTarget(window_, size);
     }
-    if (target_ != nullptr && resources_->text_format() != nullptr) {
-        const auto window_dpi = WindowDpi(window_);
+    auto* const render_target = composition_drawing
+                                    ? static_cast<ID2D1RenderTarget*>(composition_context.Get())
+                                    : static_cast<ID2D1RenderTarget*>(target_.Get());
+    if (render_target != nullptr && resources_->text_format() != nullptr) {
         const auto dpi = static_cast<float>(window_dpi);
-        target_->SetDpi(dpi, dpi);
+        render_target->SetDpi(dpi, dpi);
         const auto to_dip = [window_dpi](std::int32_t pixels) {
             return static_cast<float>(PixelsToDip(pixels, window_dpi));
         };
 
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> text_brush;
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accent_brush;
         const auto opacity = static_cast<float>(display_options_.opacity_percent) / 100.0F;
-        if (SUCCEEDED(target_->CreateSolidColorBrush(Rgb(tokens_.text, 1.0F),
-                                                     text_brush.GetAddressOf())) &&
-            SUCCEEDED(target_->CreateSolidColorBrush(Rgb(tokens_.accent, 1.0F),
-                                                     accent_brush.GetAddressOf()))) {
-            target_->BeginDraw();
-            // Clear with the resolved background tint at the configured opacity. The
-            // premultiplied-alpha target lets the DWM Acrylic backdrop show through,
-            // while text and icons drawn later stay fully opaque. Corner rounding is
-            // applied by DWM (DWMWA_WINDOW_CORNER_PREFERENCE), not by color-key alpha.
-            target_->Clear(Rgb(tokens_.background, opacity));
+        if (SUCCEEDED(render_target->CreateSolidColorBrush(Rgb(tokens_.text, 1.0F),
+                                                           text_brush.GetAddressOf()))) {
+            if (!composition_drawing) {
+                render_target->BeginDraw();
+            }
+            // Composition surfaces and the supported HWND fallback both preserve premultiplied
+            // alpha. Degraded paths keep the tint opaque so content remains readable.
+            const auto transparent_material =
+                tokens_.transparency_enabled &&
+                (composition_drawing || redirection_alpha_supported_) &&
+                (panel_surface_ == MonitorPanelSurface::Panel || frosted_glass_.active());
+            const auto background_opacity = transparent_material ? opacity : 1.0F;
+            if (!composition_drawing) {
+                render_target->Clear(D2D1::ColorF(0.0F, 0.0F, 0.0F, 0.0F));
+            }
             if (panel_surface_ == MonitorPanelSurface::Capsule) {
-                const D2D1_RECT_F background{.left = to_dip(visual_bounds_.left - rect_.left),
-                                             .top = to_dip(visual_bounds_.top - rect_.top),
-                                             .right = to_dip(visual_bounds_.right - rect_.left),
-                                             .bottom = to_dip(visual_bounds_.bottom - rect_.top)};
-                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> download_brush;
-                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> upload_brush;
-                if (SUCCEEDED(target_->CreateSolidColorBrush(Rgb(capsule_.download.color, 1.0F),
-                                                             download_brush.GetAddressOf())) &&
-                    SUCCEEDED(target_->CreateSolidColorBrush(Rgb(capsule_.upload.color, 1.0F),
-                                                             upload_brush.GetAddressOf()))) {
-                    const auto half_height = (background.bottom - background.top) / 2.0F;
-                    const auto download_height = half_height * capsule_.download.fill;
-                    const auto upload_height = half_height * capsule_.upload.fill;
-                    target_->FillRectangle(D2D1::RectF(background.left, background.top,
-                                                       background.right,
-                                                       background.top + download_height),
-                                           download_brush.Get());
-                    target_->FillRectangle(D2D1::RectF(background.left,
-                                                       background.bottom - upload_height,
-                                                       background.right, background.bottom),
-                                           upload_brush.Get());
+                const auto radius = to_dip(rect_.Width()) / 2.0F;
+                const D2D1_RECT_F background{.left = 0.0F,
+                                             .top = 0.0F,
+                                             .right = to_dip(rect_.Width()),
+                                             .bottom = to_dip(rect_.Height())};
+                const auto half_height = background.bottom / 2.0F;
+                const auto download_height = half_height * capsule_.download.fill;
+                const auto upload_height = half_height * capsule_.upload.fill;
+
+                const std::array<D2D1_GRADIENT_STOP, 3> download_stops{
+                    D2D1_GRADIENT_STOP{0.0F, Rgb(0x19D8E6U, 1.0F)},
+                    D2D1_GRADIENT_STOP{0.5F, Rgb(0x2878D0U, 1.0F)},
+                    D2D1_GRADIENT_STOP{1.0F, Rgb(0x8146B8U, 1.0F)}};
+                const std::array<D2D1_GRADIENT_STOP, 3> upload_stops{
+                    D2D1_GRADIENT_STOP{0.0F, Rgb(0xF4D03FU, 1.0F)},
+                    D2D1_GRADIENT_STOP{0.5F, Rgb(0xF39C32U, 1.0F)},
+                    D2D1_GRADIENT_STOP{1.0F, Rgb(0xD93636U, 1.0F)}};
+                Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> download_stop_collection;
+                Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> upload_stop_collection;
+                Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> download_brush;
+                Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> upload_brush;
+                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background_brush;
+                Microsoft::WRL::ComPtr<ID2D1Factory> factory;
+                Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> capsule_geometry;
+                Microsoft::WRL::ComPtr<ID2D1Layer> capsule_layer;
+                render_target->GetFactory(factory.GetAddressOf());
+
+                if (factory != nullptr &&
+                    SUCCEEDED(factory->CreateRoundedRectangleGeometry(
+                        D2D1::RoundedRect(background, radius, radius),
+                        capsule_geometry.GetAddressOf())) &&
+                    SUCCEEDED(render_target->CreateLayer(nullptr, capsule_layer.GetAddressOf())) &&
+                    SUCCEEDED(render_target->CreateSolidColorBrush(
+                        Rgb(tokens_.background, 1.0F), background_brush.GetAddressOf()))) {
+                    render_target->PushLayer(
+                        D2D1::LayerParameters(D2D1::InfiniteRect(), capsule_geometry.Get()),
+                        capsule_layer.Get());
+                    render_target->FillRectangle(background, background_brush.Get());
+
+                    if (download_height > 0.0F &&
+                        SUCCEEDED(render_target->CreateGradientStopCollection(
+                            download_stops.data(), static_cast<UINT32>(download_stops.size()),
+                            D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
+                            download_stop_collection.GetAddressOf())) &&
+                        SUCCEEDED(render_target->CreateLinearGradientBrush(
+                            D2D1::LinearGradientBrushProperties(
+                                D2D1::Point2F(background.left, background.top),
+                                D2D1::Point2F(background.left, background.top + half_height)),
+                            download_stop_collection.Get(), download_brush.GetAddressOf()))) {
+                        render_target->FillRectangle(D2D1::RectF(background.left, background.top,
+                                                                 background.right,
+                                                                 background.top + download_height),
+                                                     download_brush.Get());
+                    }
+                    if (upload_height > 0.0F &&
+                        SUCCEEDED(render_target->CreateGradientStopCollection(
+                            upload_stops.data(), static_cast<UINT32>(upload_stops.size()),
+                            D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
+                            upload_stop_collection.GetAddressOf())) &&
+                        SUCCEEDED(render_target->CreateLinearGradientBrush(
+                            D2D1::LinearGradientBrushProperties(
+                                D2D1::Point2F(background.left, background.bottom),
+                                D2D1::Point2F(background.left, background.bottom - half_height)),
+                            upload_stop_collection.Get(), upload_brush.GetAddressOf()))) {
+                        render_target->FillRectangle(
+                            D2D1::RectF(background.left, background.bottom - upload_height,
+                                        background.right, background.bottom),
+                            upload_brush.Get());
+                    }
+                    render_target->PopLayer();
                 }
             } else {
-                DrawPanel(*target_.Get(), *text_brush.Get(), window_dpi, *accent_brush.Get());
+                if (!composition_drawing) {
+                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background_brush;
+                    if (SUCCEEDED(render_target->CreateSolidColorBrush(
+                            Rgb(tokens_.background, background_opacity),
+                            background_brush.GetAddressOf()))) {
+                        render_target->FillRectangle(
+                            D2D1::RectF(0.0F, 0.0F, to_dip(size.width), to_dip(size.height)),
+                            background_brush.Get());
+                    }
+                }
+                DrawPanel(*render_target, *text_brush.Get(), window_dpi);
             }
-            if (RenderResources::EndDraw(*target_.Get()) == DrawResult::RecreateTarget) {
-                target_.Reset();
+            static_cast<void>(render_target->Flush());
+            if (composition_drawing) {
+                if (FAILED(frosted_glass_.EndDraw())) {
+                    Invalidate();
+                }
+            } else {
+                const auto draw_result = RenderResources::EndDraw(*render_target);
+                if (draw_result == DrawResult::RecreateTarget) {
+                    target_.Reset();
+                }
             }
+        } else if (composition_drawing) {
+            static_cast<void>(frosted_glass_.EndDraw());
         }
     }
     static_cast<void>(device_context);
@@ -597,38 +700,41 @@ void FloatingWindow::Paint() noexcept {
 // caught internally and the remaining COM calls return HRESULT rather than throwing.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity, bugprone-exception-escape)
 void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& text_brush,
-                               int window_dpi, ID2D1SolidColorBrush& accent_brush) noexcept {
+                               int window_dpi) noexcept {
     const auto to_dip = [window_dpi](std::int32_t pixels) {
         return static_cast<float>(PixelsToDip(pixels, window_dpi));
     };
     const auto logical_width = to_dip(rect_.Width());
     const auto right = logical_width - kPanelPaddingDip;
-    const auto pin_left = right - kPinWidthDip;
-    const auto upload_right = pin_left - kColumnGapDip;
+    const auto upload_right = right;
     const auto upload_left = upload_right - kRateWidthDip;
     const auto download_right = upload_left - kColumnGapDip;
     const auto download_left = download_right - kRateWidthDip;
     const auto name_right = download_left - kColumnGapDip;
-    constexpr auto name_left = 12.0F + kIconBoxDip + 8.0F;
+    constexpr auto name_left =
+        static_cast<float>(MonitorPanelLayout::kIconLeftDip + MonitorPanelLayout::kIconSizeDip +
+                           MonitorPanelLayout::kIconTextGapDip);
 
     const auto header_top = static_cast<float>(MonitorPanelLayout::kVerticalPaddingDip);
     const auto header_bottom = header_top + static_cast<float>(MonitorPanelLayout::kHeaderRowDip);
     const auto header_center = (header_top + header_bottom) / 2.0F;
 
-    target.FillEllipse(D2D1::Ellipse(D2D1::Point2F(16.0F, header_center), 7.0F, 7.0F),
-                       &accent_brush);
-    target.DrawLine(D2D1::Point2F(14.0F, header_center + 3.0F),
-                    D2D1::Point2F(14.0F, header_center - 7.0F), &text_brush, 1.5F);
-    target.DrawLine(D2D1::Point2F(14.0F, header_center - 7.0F),
-                    D2D1::Point2F(11.0F, header_center - 4.0F), &text_brush, 1.5F);
-    target.DrawLine(D2D1::Point2F(14.0F, header_center - 7.0F),
-                    D2D1::Point2F(17.0F, header_center - 4.0F), &text_brush, 1.5F);
-    target.DrawLine(D2D1::Point2F(20.0F, header_center - 5.0F),
-                    D2D1::Point2F(20.0F, header_center + 5.0F), &text_brush, 1.5F);
-    target.DrawLine(D2D1::Point2F(20.0F, header_center + 5.0F),
-                    D2D1::Point2F(17.0F, header_center + 2.0F), &text_brush, 1.5F);
-    target.DrawLine(D2D1::Point2F(20.0F, header_center + 5.0F),
-                    D2D1::Point2F(23.0F, header_center + 2.0F), &text_brush, 1.5F);
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> product_icon;
+    const auto product_icon_properties = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    const auto& product_pixels = NetworkFlowMonitorIconPixels();
+    if (SUCCEEDED(target.CreateBitmap(
+            D2D1::SizeU(kNetworkFlowMonitorIconSize, kNetworkFlowMonitorIconSize),
+            product_pixels.data(), kNetworkFlowMonitorIconSize * sizeof(std::uint32_t),
+            product_icon_properties, product_icon.GetAddressOf()))) {
+        constexpr auto icon_left = static_cast<float>(MonitorPanelLayout::kIconLeftDip);
+        constexpr auto icon_size = static_cast<float>(MonitorPanelLayout::kIconSizeDip);
+        const auto icon_top = header_center - (icon_size / 2.0F);
+        target.DrawBitmap(
+            product_icon.Get(),
+            D2D1::RectF(icon_left, icon_top, icon_left + icon_size, icon_top + icon_size), 1.0F,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
 
     constexpr auto brand = std::wstring_view{L"Network Flow Monitor"};
     target.DrawTextW(brand.data(), static_cast<UINT32>(brand.size()), resources_->row_name_format(),
@@ -675,15 +781,6 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
         target.DrawTextLayout(D2D1::Point2F(upload_left, header_top), upload_layout.Get(),
                               &text_brush);
     }
-
-    // Pin is an icon button. The Segoe Fluent Icons glyph renders centered in the Pin
-    // column, colored by the accent when pinned and by the neutral text color otherwise.
-    const auto pin_glyph =
-        pinned_ && pin_enabled_ ? std::wstring_view{L""} : std::wstring_view{L""};
-    target.DrawTextW(pin_glyph.data(), static_cast<UINT32>(pin_glyph.size()),
-                     resources_->icon_format(),
-                     D2D1::RectF(pin_left, header_top, right, header_bottom),
-                     pinned_ && pin_enabled_ ? &accent_brush : &text_brush);
 
     if (show_status) {
         const auto status_top = header_bottom;
@@ -743,8 +840,9 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
                                    icon->bgra.data(), kApplicationIconSize * sizeof(std::uint32_t),
                                    bitmap_properties, icon_bitmap.GetAddressOf()))) {
             const auto icon_top = row_center - (static_cast<float>(kApplicationIconSize) / 2.0F);
+            constexpr auto icon_left = static_cast<float>(MonitorPanelLayout::kIconLeftDip);
             target.DrawBitmap(icon_bitmap.Get(),
-                              D2D1::RectF(12.0F, icon_top, 12.0F + kApplicationIconSize,
+                              D2D1::RectF(icon_left, icon_top, icon_left + kApplicationIconSize,
                                           icon_top + kApplicationIconSize),
                               row.opacity);
         }
@@ -768,7 +866,7 @@ void FloatingWindow::DrawPanel(ID2D1RenderTarget& target, ID2D1SolidColorBrush& 
     text_brush.SetOpacity(1.0F);
 
     const auto ranked_row_count = static_cast<std::size_t>(snapshot_->applications.size());
-    if (ranked_row_count > visible_rows && (tracking_mouse_ || scrollbar_active_)) {
+    if (scrollbar_visible()) {
         const auto track_bottom = viewport_bottom;
         const auto track_top = viewport_top;
         const auto track_height = std::max(1.0F, track_bottom - track_top);
@@ -809,11 +907,7 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         self = static_cast<FloatingWindow*>(create->lpCreateParams);
         // NOLINTNEXTLINE(performance-no-int-to-ptr): Win32 ABI.
         ::SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-        if (self->window_ == nullptr) {
-            self->window_ = window;
-        } else {
-            self->hit_window_ = window;
-        }
+        self->window_ = window;
     }
     if (self == nullptr) {
         return ::DefWindowProcW(window, message, wparam, lparam);
@@ -829,30 +923,19 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         return HTCLIENT;
     case WM_LBUTTONDOWN: {
         const auto point = ScreenPoint(window, lparam);
-        self->pressed_control_ = MonitorPanelControl::None;
-        if (self->panel_surface_ == MonitorPanelSurface::Panel) {
-            const auto x = static_cast<std::int32_t>(static_cast<std::int16_t>(LOWORD(lparam)));
-            const auto y = static_cast<std::int32_t>(static_cast<std::int16_t>(HIWORD(lparam)));
-            const auto control = HitTestControl({.x = x, .y = y}, self->rect_.Width(),
-                                                static_cast<int>(::GetDpiForWindow(window)));
-            if (control == MonitorPanelControl::Pin && self->pin_enabled_) {
-                self->pressed_control_ = control;
-            }
-        }
         static_cast<void>(::SetFocus(window));
         self->panel_press_point_ = point;
         self->panel_pressing_ = true;
+        self->scrollbar_active_ = false;
+        self->FinishRowAnimation();
         static_cast<void>(::SetCapture(window));
+        self->Invalidate();
         self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelPress, point);
     }
         return 0;
     case WM_MOUSEMOVE:
         if (self->panel_pressing_ && (wparam & MK_LBUTTON) != 0U) {
             const auto point = ScreenPoint(window, lparam);
-            if (std::abs(point.x - self->panel_press_point_.x) >= ::GetSystemMetrics(SM_CXDRAG) ||
-                std::abs(point.y - self->panel_press_point_.y) >= ::GetSystemMetrics(SM_CYDRAG)) {
-                self->pressed_control_ = MonitorPanelControl::None;
-            }
             self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PointerMove, point);
             return 0;
         }
@@ -877,22 +960,11 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
     case WM_LBUTTONUP:
         if (self->panel_pressing_) {
             const auto point = ScreenPoint(window, lparam);
-            const auto x = GET_X_LPARAM(lparam);
-            const auto y = GET_Y_LPARAM(lparam);
-            const auto released_control = HitTestControl(
-                {.x = x, .y = y}, self->rect_.Width(), static_cast<int>(::GetDpiForWindow(window)));
-            const auto activated = self->pressed_control_ != MonitorPanelControl::None &&
-                                   self->pressed_control_ == released_control;
             self->panel_pressing_ = false;
-            self->pressed_control_ = MonitorPanelControl::None;
             if (::GetCapture() == window) {
                 ::ReleaseCapture();
             }
             self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PanelRelease, point);
-            if (activated) {
-                self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::PinTogglePressed,
-                                                     point);
-            }
         }
         return 0;
     case WM_RBUTTONUP:
@@ -901,7 +973,6 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
     case WM_CAPTURECHANGED:
         if (self->panel_pressing_) {
             self->panel_pressing_ = false;
-            self->pressed_control_ = MonitorPanelControl::None;
             self->observer_->OnMonitorPanelEvent(MonitorPanelEventKind::DragCancelled, {});
         }
         return 0;
@@ -928,12 +999,22 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         }
         return 0;
     }
-    case WM_TIMER:
-        if (wparam == kRowAnimationTimerId) {
-            self->TickRowAnimation();
-            return 0;
+    case kRowAnimationFrameMessage:
+        self->TickRowAnimation();
+        static_cast<void>(::UpdateWindow(window));
+        if (self->row_animation_active_) {
+            static_cast<void>(::DwmFlush());
+            static_cast<void>(::PostMessageW(window, kRowAnimationFrameMessage, 0U, 0));
         }
-        break;
+        return 0;
+    case kHeightAnimationFrameMessage:
+        self->TickHeightAnimation();
+        static_cast<void>(::UpdateWindow(window));
+        if (self->height_animation_active_) {
+            static_cast<void>(::DwmFlush());
+            static_cast<void>(::PostMessageW(window, kHeightAnimationFrameMessage, 0U, 0));
+        }
+        return 0;
     case WM_MOUSEWHEEL:
         self->ScrollRows(GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? -1 : 1);
         return 0;
@@ -983,11 +1064,7 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
         }
         return 0;
     case WM_NCDESTROY:
-        if (window == self->window_) {
-            self->window_ = nullptr;
-        } else if (window == self->hit_window_) {
-            self->hit_window_ = nullptr;
-        }
+        self->window_ = nullptr;
         if (self->tracking_window_ == window) {
             self->tracking_window_ = nullptr;
         }

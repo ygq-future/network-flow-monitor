@@ -56,6 +56,9 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.floating.auto_hide_enabled, "default auto hide");
     context.Check(config.floating.auto_hide_delay == 500ms, "default auto hide delay");
     context.Check(config.floating.opacity_percent == 92U, "default opacity");
+    context.Check(config.floating.blur_strength_percent == 60U, "default blur strength");
+    context.Check(config.floating.yield_topmost_when_fullscreen,
+                  "full-screen foreground windows are above the monitor by default");
     context.Check(config.floating.capsule_width_dip == 10, "default capsule width");
     context.Check(config.floating.capsule_height_dip == 64, "default capsule height");
     context.Check(config.appearance.language == nfm::config::LanguageMode::English,
@@ -142,14 +145,21 @@ void CheckRanges(TestContext& context) {
     CheckInvalidRange(context, config, "floating.auto_hide_delay_ms", "auto hide above maximum");
 
     config = nfm::config::DefaultAppConfig();
-    config.floating.opacity_percent = 30U;
+    config.floating.opacity_percent = 0U;
     context.CheckValid(config, "opacity minimum");
     config.floating.opacity_percent = 100U;
     context.CheckValid(config, "opacity maximum");
-    config.floating.opacity_percent = 29U;
-    CheckInvalidRange(context, config, "floating.opacity_percent", "opacity below minimum");
     config.floating.opacity_percent = 101U;
     CheckInvalidRange(context, config, "floating.opacity_percent", "opacity above maximum");
+
+    config = nfm::config::DefaultAppConfig();
+    config.floating.blur_strength_percent = 0U;
+    context.CheckValid(config, "blur strength minimum");
+    config.floating.blur_strength_percent = 100U;
+    context.CheckValid(config, "blur strength maximum");
+    config.floating.blur_strength_percent = 101U;
+    CheckInvalidRange(context, config, "floating.blur_strength_percent",
+                      "blur strength above maximum");
 
     config = nfm::config::DefaultAppConfig();
     config.floating.capsule_width_dip = 8;

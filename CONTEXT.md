@@ -20,7 +20,7 @@ _Avoid_: 绿色版(旧称)
 ## 界面
 
 **监控面板 (Monitor panel)**
-同时展示 Network Flow Monitor 身份、总上传/下载速率、Pin 以及 Top N 应用排行的单一桌面界面;它与胶囊是同一产品表面的两种可见形态。
+同时展示 Network Flow Monitor 身份、总上传/下载速率以及 Top N 应用排行的单一桌面界面；它与胶囊是同一产品表面的两种可见形态，Pin 通过共享右键菜单管理。监控面板的 opacity 只改变背景 tint alpha，blur strength 独立改变 HostBackdrop 的 Gaussian 模糊，内容保持不透明；默认在外部全屏前台窗口存在时让出 topmost 层级。
 _Avoid_: NFM 主面板、TopA 面板、悬浮窗、排行面板
 
 **托盘图标 (Tray icon)**
@@ -37,7 +37,7 @@ _Avoid_: NFM 主面板、TopA 面板、悬浮窗、排行面板
 _Avoid_: reveal 条、细圆棍
 
 **固定显示 (Pin)**
-阻止监控面板在指针离开后自动收缩为胶囊的持久用户状态。
+阻止监控面板在指针离开后自动收缩为胶囊的持久用户状态;入口位于监控面板和托盘图标共享的原生右键菜单。
 _Avoid_: 锁定、冻结
 
 **离线遮罩 (Offline overlay)**

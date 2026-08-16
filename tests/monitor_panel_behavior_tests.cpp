@@ -85,6 +85,44 @@ void PanelDragAndCancel(Test& test) {
                "cancelled panel drag restores its original anchor");
     test.Check(cancelled.effects.empty(), "cancelled drag does not persist");
 }
+void DragRemainsStableDuringDataRefresh(Test& test) {
+    const auto env = Environment();
+    const MonitorPanelConfig capsule_config{};
+    auto capsule = MonitorPanelBehavior::Transition({}, {.kind = MonitorPanelEventKind::Start}, env,
+                                                    capsule_config)
+                       .state;
+    auto capsule_press = MonitorPanelBehavior::Transition(
+        capsule, {.kind = MonitorPanelEventKind::PanelPress, .point = {.x = 1915, .y = 120}}, env,
+        capsule_config);
+    auto capsule_move = MonitorPanelBehavior::Transition(
+        capsule_press.state,
+        {.kind = MonitorPanelEventKind::PointerMove, .point = {.x = 900, .y = 500}}, env,
+        capsule_config);
+    const auto capsule_refresh = MonitorPanelBehavior::Transition(
+        capsule_move.state, {.kind = MonitorPanelEventKind::RankingReadyRows, .visible_rows = 5},
+        env, capsule_config);
+    test.Check(capsule_refresh.state.dragging &&
+                   capsule_refresh.target_bounds == capsule_move.target_bounds,
+               "capsule data refresh keeps the in-progress drag at the pointer");
+
+    const MonitorPanelConfig panel_config{.pinned = true};
+    auto panel = MonitorPanelBehavior::Transition({}, {.kind = MonitorPanelEventKind::Start}, env,
+                                                  panel_config)
+                     .state;
+    auto panel_press = MonitorPanelBehavior::Transition(
+        panel, {.kind = MonitorPanelEventKind::PanelPress, .point = {.x = 1500, .y = 120}}, env,
+        panel_config);
+    auto panel_move = MonitorPanelBehavior::Transition(
+        panel_press.state,
+        {.kind = MonitorPanelEventKind::PointerMove, .point = {.x = 800, .y = 500}}, env,
+        panel_config);
+    const auto panel_refresh = MonitorPanelBehavior::Transition(
+        panel_move.state, {.kind = MonitorPanelEventKind::RankingReadyRows, .visible_rows = 4}, env,
+        panel_config);
+    test.Check(panel_refresh.state.dragging &&
+                   panel_refresh.target_bounds == panel_move.target_bounds,
+               "panel data refresh keeps the in-progress drag at the pointer");
+}
 void Capsule(Test& test) {
     const auto env = Environment();
     const MonitorPanelConfig config{};
@@ -214,8 +252,7 @@ void FirstUseAndHitBounds(Test& test) {
                "minimum capsule dimensions scale with DPI");
     const auto layout = MonitorPanelBehavior::Transition(
         state, {.kind = MonitorPanelEventKind::EnvironmentChanged}, env, config);
-    test.Check(layout.hit_bounds.Width() == 32,
-               "capsule pointer target extends inward to sixteen DIP");
+    test.Check(layout.hit_bounds.Width() == 16, "capsule pointer target matches single box bounds");
     auto press = MonitorPanelBehavior::Transition(
         state, {.kind = MonitorPanelEventKind::PanelPress, .point = {.x = 992, .y = 20}}, env,
         config);
@@ -364,6 +401,21 @@ void ContextMenuAllowsVisibilityCommand(Test& test) {
         menu.state, {.kind = MonitorPanelEventKind::ToggleVisibility}, env, config);
     test.Check(hidden.state.surface == MonitorPanelSurface::Hidden,
                "Show/hide monitor remains actionable while its native context menu is open");
+}
+void ContextMenuAllowsPinCommand(Test& test) {
+    const auto env = Environment();
+    const MonitorPanelConfig config{};
+    auto state =
+        MonitorPanelBehavior::Transition({}, {.kind = MonitorPanelEventKind::Start}, env, config)
+            .state;
+    state.surface = MonitorPanelSurface::Panel;
+    const auto menu = MonitorPanelBehavior::Transition(
+        state, {.kind = MonitorPanelEventKind::ContextMenuOpened}, env, config);
+    const auto pinned = MonitorPanelBehavior::Transition(
+        menu.state, {.kind = MonitorPanelEventKind::PinTogglePressed}, env, config);
+    test.Check(pinned.state.pin_preference && pinned.effects.size() == 1U &&
+                   pinned.effects.front().kind == MonitorPanelEffectKind::PersistPin,
+               "Pin remains actionable while its native context menu is open");
 }
 void EnvironmentAndPersistenceFeedback(Test& test) {
     auto env = Environment();
@@ -593,6 +645,7 @@ int main() {
     Test test;
     Docking(test);
     PanelDragAndCancel(test);
+    DragRemainsStableDuringDataRefresh(test);
     Capsule(test);
     ContentDerivedHeight(test);
     MissingMonitorFallback(test);
@@ -602,6 +655,7 @@ int main() {
     TimingAndThresholds(test);
     ContextMenuPausesAutoHide(test);
     ContextMenuAllowsVisibilityCommand(test);
+    ContextMenuAllowsPinCommand(test);
     EnvironmentAndPersistenceFeedback(test);
     RateMapping(test);
     PinDisconnectAndViewport(test);

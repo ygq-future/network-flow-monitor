@@ -101,14 +101,41 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
             total_upload += app.upload_bytes;
         }
 
+        std::uint64_t download_rate = 0U;
+        std::uint64_t upload_rate = 0U;
+
+        if (previous_sample_time_.has_value() && now > *previous_sample_time_ &&
+            previous_total_download_.has_value() && previous_total_upload_.has_value()) {
+            const auto elapsed_us =
+                std::chrono::duration_cast<std::chrono::microseconds>(now - *previous_sample_time_)
+                    .count();
+            if (elapsed_us > 0) {
+                const auto delta_download = total_download >= *previous_total_download_
+                                                ? total_download - *previous_total_download_
+                                                : 0U;
+                const auto delta_upload = total_upload >= *previous_total_upload_
+                                              ? total_upload - *previous_total_upload_
+                                              : 0U;
+                const double elapsed_seconds = static_cast<double>(elapsed_us) / 1'000'000.0;
+                download_rate = static_cast<std::uint64_t>(static_cast<double>(delta_download) /
+                                                           elapsed_seconds);
+                upload_rate =
+                    static_cast<std::uint64_t>(static_cast<double>(delta_upload) / elapsed_seconds);
+            }
+        }
+
+        previous_total_download_ = total_download;
+        previous_total_upload_ = total_upload;
+        previous_sample_time_ = now;
+
         const auto monotonic_ms = MonotonicMs(now, instance_started_at_);
 
         if (tick_due) {
             const TrafficTickMessage tick{
                 .seq = ++tick_sequence_,
                 .monotonic_ms = monotonic_ms,
-                .download_bytes_per_sec = total_download,
-                .upload_bytes_per_sec = total_upload,
+                .download_bytes_per_sec = download_rate,
+                .upload_bytes_per_sec = upload_rate,
             };
             const auto pub_result = server_->PublishTrafficTick(tick);
             if (!pub_result.ok()) {
@@ -124,8 +151,8 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                 .status = "Ready",
                 .total_rate =
                     {
-                        .download_bytes_per_sec = total_download,
-                        .upload_bytes_per_sec = total_upload,
+                        .download_bytes_per_sec = download_rate,
+                        .upload_bytes_per_sec = upload_rate,
                     },
             };
 

@@ -87,6 +87,12 @@ class FloatingWindow final {
     [[nodiscard]] bool row_animation_active() const noexcept {
         return row_animation_active_;
     }
+    [[nodiscard]] bool capsule_animation_active() const noexcept {
+        return capsule_animation_active_;
+    }
+    // The capsule fill currently on screen, interpolated toward the latest target while
+    // the rate transition is active and equal to the target otherwise.
+    [[nodiscard]] CapsulePresentation displayed_capsule() const noexcept;
     [[nodiscard]] bool frosted_glass_active() const noexcept {
         return frosted_glass_.active();
     }
@@ -140,6 +146,10 @@ class FloatingWindow final {
     [[nodiscard]] float RowAnimationProgress() const noexcept;
     void TickHeightAnimation() noexcept;
     void FinishHeightAnimation() noexcept;
+    void TickCapsuleRateAnimation() noexcept;
+    void FinishCapsuleRateAnimation() noexcept;
+    void RetargetCapsuleRates(const CapsulePresentation& displayed_before) noexcept;
+    [[nodiscard]] float CapsuleRateProgress() const noexcept;
 
     HINSTANCE instance_{};
     RenderResources* resources_;
@@ -155,6 +165,10 @@ class FloatingWindow final {
     ResolvedLanguage language_{ResolvedLanguage::English};
     MonitorPanelSurface panel_surface_{MonitorPanelSurface::Panel};
     CapsulePresentation capsule_{};
+    CapsulePresentation capsule_from_{};
+    std::chrono::steady_clock::time_point capsule_animation_started_;
+    std::chrono::milliseconds capsule_animation_duration_{200};
+    bool capsule_animation_active_{};
     PixelRect rect_{.left = 20, .top = 20, .right = 380, .bottom = 212};
     PixelRect visual_bounds_{rect_};
     PixelRect hit_bounds_{rect_};
@@ -167,11 +181,11 @@ class FloatingWindow final {
     bool positioned_{};
     ApplicationIconCache icon_cache_;
     std::vector<RowVisual> row_visuals_;
-    std::chrono::steady_clock::time_point row_animation_started_{};
+    std::chrono::steady_clock::time_point row_animation_started_;
     bool row_animation_active_{};
     PixelRect height_from_rect_{};
     PixelRect height_target_rect_{};
-    std::chrono::steady_clock::time_point height_animation_started_{};
+    std::chrono::steady_clock::time_point height_animation_started_;
     bool height_animation_active_{};
     bool tracking_mouse_{};
     bool scrollbar_active_{};

@@ -20,6 +20,8 @@ constexpr auto kFloatingWindowClass = std::to_array(L"NetworkFlowMonitor.Floatin
 constexpr auto kFloatingWindowTitle = std::to_array(L"Network Flow Monitor");
 constexpr UINT kRowAnimationFrameMessage = WM_APP + 0x36U;
 constexpr UINT kHeightAnimationFrameMessage = WM_APP + 0x37U;
+constexpr UINT_PTR kCapsuleRateAnimationTimerId = 101U;
+constexpr UINT kCapsuleRateAnimationFrameMilliseconds = 16U;
 constexpr auto kRowAnimationDuration = std::chrono::milliseconds{200};
 constexpr auto kHeightAnimationDuration = std::chrono::milliseconds{200};
 
@@ -42,6 +44,23 @@ constexpr float kColumnGapDip = 8.0F;
     return D2D1::ColorF(static_cast<float>((rgb >> 16U) & 0xFFU) / 255.0F,
                         static_cast<float>((rgb >> 8U) & 0xFFU) / 255.0F,
                         static_cast<float>(rgb & 0xFFU) / 255.0F, alpha);
+}
+
+struct ColorRange {
+    std::uint32_t from;
+    std::uint32_t to;
+};
+
+[[nodiscard]] std::uint32_t InterpolateColor(ColorRange range, float progress) noexcept {
+    const auto channel = [progress](std::uint32_t first, std::uint32_t second) noexcept {
+        return static_cast<std::uint32_t>(
+            std::lround(static_cast<float>(first) +
+                        ((static_cast<float>(second) - static_cast<float>(first)) * progress)));
+    };
+    const auto red = channel((range.from >> 16U) & 0xFFU, (range.to >> 16U) & 0xFFU);
+    const auto green = channel((range.from >> 8U) & 0xFFU, (range.to >> 8U) & 0xFFU);
+    const auto blue = channel(range.from & 0xFFU, range.to & 0xFFU);
+    return (red << 16U) | (green << 8U) | blue;
 }
 
 } // namespace
@@ -123,6 +142,7 @@ void FloatingWindow::Hide() noexcept {
     }
     FinishRowAnimation();
     FinishHeightAnimation();
+    FinishCapsuleRateAnimation();
 }
 
 void FloatingWindow::Destroy() noexcept {
@@ -131,6 +151,7 @@ void FloatingWindow::Destroy() noexcept {
     frosted_glass_.Reset();
     redirection_alpha_supported_ = false;
     FinishHeightAnimation();
+    FinishCapsuleRateAnimation();
     if (window_ != nullptr) {
         auto* const window = window_;
         window_ = nullptr;
@@ -254,6 +275,7 @@ void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
                                                  PixelRect visual_bounds, PixelRect hit_bounds,
                                                  PixelRect viewport) noexcept {
     const auto surface_changed = panel_surface_ != surface;
+    const auto displayed_before = displayed_capsule();
     if (surface_changed && tracking_window_ != nullptr) {
         CancelPointerTracking();
     }
@@ -265,6 +287,7 @@ void FloatingWindow::SetMonitorPanelPresentation(MonitorPanelSurface surface,
     visual_bounds_ = visual_bounds;
     hit_bounds_ = hit_bounds;
     viewport_ = viewport;
+    RetargetCapsuleRates(displayed_before);
     UpdateFrostedGlassClip();
     if (surface_changed) {
         ApplyDwmAttributes();
@@ -547,6 +570,86 @@ void FloatingWindow::FinishHeightAnimation() noexcept {
     }
 }
 
+float FloatingWindow::CapsuleRateProgress() const noexcept {
+    if (!capsule_animation_active_) {
+        return 1.0F;
+    }
+    if (capsule_animation_duration_.count() <= 0) {
+        return 1.0F;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - capsule_animation_started_);
+    const auto linear = std::clamp(static_cast<float>(elapsed.count()) /
+                                       static_cast<float>(capsule_animation_duration_.count()),
+                                   0.0F, 1.0F);
+    // Fluent cubic ease-out: 1 − (1 − t)³ for natural deceleration.
+    const auto inverted = 1.0F - linear;
+    return 1.0F - (inverted * inverted * inverted);
+}
+
+CapsulePresentation FloatingWindow::displayed_capsule() const noexcept {
+    if (!capsule_animation_active_) {
+        return capsule_;
+    }
+    const auto progress = CapsuleRateProgress();
+    const auto lerp = [](float from, float to, float t) noexcept {
+        return from + ((to - from) * t);
+    };
+    return {
+        .download = {.fill = lerp(capsule_from_.download.fill, capsule_.download.fill, progress),
+                     .color = InterpolateColor(
+                         {.from = capsule_from_.download.color, .to = capsule_.download.color},
+                         progress)},
+        .upload = {
+            .fill = lerp(capsule_from_.upload.fill, capsule_.upload.fill, progress),
+            .color = InterpolateColor(
+                {.from = capsule_from_.upload.color, .to = capsule_.upload.color}, progress)}};
+}
+
+void FloatingWindow::RetargetCapsuleRates(const CapsulePresentation& displayed_before) noexcept {
+    const auto fill_changed = displayed_before.download.fill != capsule_.download.fill ||
+                              displayed_before.upload.fill != capsule_.upload.fill;
+    const auto can_animate = panel_surface_ == MonitorPanelSurface::Capsule &&
+                             tokens_.capsule_rate_interpolation.count() > 0 && window_ != nullptr &&
+                             ::IsWindowVisible(window_) != FALSE;
+    if (!fill_changed || !can_animate) {
+        FinishCapsuleRateAnimation();
+        return;
+    }
+    const auto is_growth = capsule_.download.fill >= displayed_before.download.fill &&
+                           capsule_.upload.fill >= displayed_before.upload.fill;
+    const auto base_duration = tokens_.capsule_rate_interpolation;
+    capsule_animation_duration_ = is_growth ? base_duration : (base_duration * 3 / 2);
+    capsule_from_ = displayed_before;
+    capsule_animation_started_ = std::chrono::steady_clock::now();
+    capsule_animation_active_ = true;
+    static_cast<void>(::SetTimer(window_, kCapsuleRateAnimationTimerId,
+                                 kCapsuleRateAnimationFrameMilliseconds, nullptr));
+    Invalidate();
+}
+
+void FloatingWindow::TickCapsuleRateAnimation() noexcept {
+    if (!capsule_animation_active_) {
+        if (window_ != nullptr) {
+            static_cast<void>(::KillTimer(window_, kCapsuleRateAnimationTimerId));
+        }
+        return;
+    }
+    if (std::chrono::steady_clock::now() - capsule_animation_started_ >=
+        capsule_animation_duration_) {
+        FinishCapsuleRateAnimation();
+    }
+    Invalidate();
+}
+
+void FloatingWindow::FinishCapsuleRateAnimation() noexcept {
+    capsule_animation_active_ = false;
+    capsule_from_ = capsule_;
+    if (window_ != nullptr) {
+        static_cast<void>(::KillTimer(window_, kCapsuleRateAnimationTimerId));
+    }
+}
+
 // NOLINTNEXTLINE(bugprone-exception-escape): formatting allocations are caught before drawing.
 void FloatingWindow::Paint() noexcept {
     PAINTSTRUCT paint{};
@@ -599,21 +702,10 @@ void FloatingWindow::Paint() noexcept {
                                              .right = to_dip(rect_.Width()),
                                              .bottom = to_dip(rect_.Height())};
                 const auto half_height = background.bottom / 2.0F;
-                const auto download_height = half_height * capsule_.download.fill;
-                const auto upload_height = half_height * capsule_.upload.fill;
+                const auto capsule = displayed_capsule();
+                const auto download_height = half_height * capsule.download.fill;
+                const auto upload_height = half_height * capsule.upload.fill;
 
-                const std::array<D2D1_GRADIENT_STOP, 3> download_stops{
-                    D2D1_GRADIENT_STOP{0.0F, Rgb(0x19D8E6U, 1.0F)},
-                    D2D1_GRADIENT_STOP{0.5F, Rgb(0x2878D0U, 1.0F)},
-                    D2D1_GRADIENT_STOP{1.0F, Rgb(0x8146B8U, 1.0F)}};
-                const std::array<D2D1_GRADIENT_STOP, 3> upload_stops{
-                    D2D1_GRADIENT_STOP{0.0F, Rgb(0xF4D03FU, 1.0F)},
-                    D2D1_GRADIENT_STOP{0.5F, Rgb(0xF39C32U, 1.0F)},
-                    D2D1_GRADIENT_STOP{1.0F, Rgb(0xD93636U, 1.0F)}};
-                Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> download_stop_collection;
-                Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> upload_stop_collection;
-                Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> download_brush;
-                Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> upload_brush;
                 Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background_brush;
                 Microsoft::WRL::ComPtr<ID2D1Factory> factory;
                 Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> capsule_geometry;
@@ -632,35 +724,74 @@ void FloatingWindow::Paint() noexcept {
                         capsule_layer.Get());
                     render_target->FillRectangle(background, background_brush.Get());
 
-                    if (download_height > 0.0F &&
-                        SUCCEEDED(render_target->CreateGradientStopCollection(
-                            download_stops.data(), static_cast<UINT32>(download_stops.size()),
-                            D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
-                            download_stop_collection.GetAddressOf())) &&
-                        SUCCEEDED(render_target->CreateLinearGradientBrush(
-                            D2D1::LinearGradientBrushProperties(
-                                D2D1::Point2F(background.left, background.top),
-                                D2D1::Point2F(background.left, background.top + half_height)),
-                            download_stop_collection.Get(), download_brush.GetAddressOf()))) {
-                        render_target->FillRectangle(D2D1::RectF(background.left, background.top,
-                                                                 background.right,
-                                                                 background.top + download_height),
-                                                     download_brush.Get());
+                    if (download_height > 0.0F) {
+                        const auto three_stops = capsule.download.fill > 0.5F;
+                        const auto mid_ratio = three_stops ? (0.5F / capsule.download.fill) : 0.5F;
+                        const std::array download_stops{
+                            D2D1_GRADIENT_STOP{.position = 0.0F, .color = Rgb(0x19D8E6U, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = mid_ratio,
+                                               .color = Rgb(0x2878D0U, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = 1.0F,
+                                               .color = Rgb(capsule.download.color, 1.0F)}};
+                        const std::array download_two_stops{
+                            D2D1_GRADIENT_STOP{.position = 0.0F, .color = Rgb(0x19D8E6U, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = 1.0F,
+                                               .color = Rgb(capsule.download.color, 1.0F)}};
+                        const auto download_stop_count = three_stops ? 3U : 2U;
+                        const auto* const stops_ptr =
+                            three_stops ? download_stops.data() : download_two_stops.data();
+
+                        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection>
+                            download_stop_collection;
+                        Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> download_brush;
+                        if (SUCCEEDED(render_target->CreateGradientStopCollection(
+                                stops_ptr, download_stop_count, D2D1_GAMMA_2_2,
+                                D2D1_EXTEND_MODE_CLAMP, download_stop_collection.GetAddressOf())) &&
+                            SUCCEEDED(render_target->CreateLinearGradientBrush(
+                                D2D1::LinearGradientBrushProperties(
+                                    D2D1::Point2F(background.left, background.top),
+                                    D2D1::Point2F(background.left,
+                                                  background.top + download_height)),
+                                download_stop_collection.Get(), download_brush.GetAddressOf()))) {
+                            render_target->FillRectangle(
+                                D2D1::RectF(background.left, background.top, background.right,
+                                            background.top + download_height),
+                                download_brush.Get());
+                        }
                     }
-                    if (upload_height > 0.0F &&
-                        SUCCEEDED(render_target->CreateGradientStopCollection(
-                            upload_stops.data(), static_cast<UINT32>(upload_stops.size()),
-                            D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP,
-                            upload_stop_collection.GetAddressOf())) &&
-                        SUCCEEDED(render_target->CreateLinearGradientBrush(
-                            D2D1::LinearGradientBrushProperties(
-                                D2D1::Point2F(background.left, background.bottom),
-                                D2D1::Point2F(background.left, background.bottom - half_height)),
-                            upload_stop_collection.Get(), upload_brush.GetAddressOf()))) {
-                        render_target->FillRectangle(
-                            D2D1::RectF(background.left, background.bottom - upload_height,
-                                        background.right, background.bottom),
-                            upload_brush.Get());
+                    if (upload_height > 0.0F) {
+                        const auto three_stops = capsule.upload.fill > 0.5F;
+                        const auto mid_ratio = three_stops ? (0.5F / capsule.upload.fill) : 0.5F;
+                        const std::array upload_stops{
+                            D2D1_GRADIENT_STOP{.position = 0.0F, .color = Rgb(0xF4D03FU, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = mid_ratio,
+                                               .color = Rgb(0xF39C32U, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = 1.0F,
+                                               .color = Rgb(capsule.upload.color, 1.0F)}};
+                        const std::array upload_two_stops{
+                            D2D1_GRADIENT_STOP{.position = 0.0F, .color = Rgb(0xF4D03FU, 1.0F)},
+                            D2D1_GRADIENT_STOP{.position = 1.0F,
+                                               .color = Rgb(capsule.upload.color, 1.0F)}};
+                        const auto upload_stop_count = three_stops ? 3U : 2U;
+                        const auto* const stops_ptr =
+                            three_stops ? upload_stops.data() : upload_two_stops.data();
+
+                        Microsoft::WRL::ComPtr<ID2D1GradientStopCollection> upload_stop_collection;
+                        Microsoft::WRL::ComPtr<ID2D1LinearGradientBrush> upload_brush;
+                        if (SUCCEEDED(render_target->CreateGradientStopCollection(
+                                stops_ptr, upload_stop_count, D2D1_GAMMA_2_2,
+                                D2D1_EXTEND_MODE_CLAMP, upload_stop_collection.GetAddressOf())) &&
+                            SUCCEEDED(render_target->CreateLinearGradientBrush(
+                                D2D1::LinearGradientBrushProperties(
+                                    D2D1::Point2F(background.left, background.bottom),
+                                    D2D1::Point2F(background.left,
+                                                  background.bottom - upload_height)),
+                                upload_stop_collection.Get(), upload_brush.GetAddressOf()))) {
+                            render_target->FillRectangle(
+                                D2D1::RectF(background.left, background.bottom - upload_height,
+                                            background.right, background.bottom),
+                                upload_brush.Get());
+                        }
                     }
                     render_target->PopLayer();
                 }
@@ -897,6 +1028,7 @@ void FloatingWindow::PositionOnFirstShow() noexcept {
     rect_.bottom = rect_.top + height;
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wparam,
                                             LPARAM lparam) noexcept {
     // NOLINTNEXTLINE(performance-no-int-to-ptr): GWLP_USERDATA is the Win32 pointer storage ABI.
@@ -1015,6 +1147,13 @@ LRESULT CALLBACK FloatingWindow::WindowProc(HWND window, UINT message, WPARAM wp
             static_cast<void>(::PostMessageW(window, kHeightAnimationFrameMessage, 0U, 0));
         }
         return 0;
+    case WM_TIMER:
+        if (wparam == kCapsuleRateAnimationTimerId) {
+            self->TickCapsuleRateAnimation();
+            static_cast<void>(::UpdateWindow(window));
+            return 0;
+        }
+        break;
     case WM_MOUSEWHEEL:
         self->ScrollRows(GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? -1 : 1);
         return 0;

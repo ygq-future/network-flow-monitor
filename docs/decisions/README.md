@@ -17,5 +17,7 @@
 | [0013](0013-user-login-startup.md) | 使用当前用户 Run 项管理 UI 登录自启 | 已接受 |
 | [0014](0014-portable-collector-stop-signal.md) | 使用 UI 创建的命名事件停止绿色采集器 | 已接受 |
 | [0015](0015-portable-collector-one-time-authorization.md) | 便携采集器用一次性授权免 UAC | 已接受 |
+| [0016](0016-adjustable-composition-frosted-glass.md) | 使用系统合成亚克力与可调节高斯模糊 | 已接受 |
+| [0017](0017-hybrid-cpp-core-wpf-fluent-ui.md) | 混合架构：C++ 高性能采集引擎与 C# .NET 10 WPF 现代前端 | 已接受 |
 
 改变已接受 ADR 的结论时，应新增取代它的 ADR 或明确更新状态及理由，不应静默修改历史。

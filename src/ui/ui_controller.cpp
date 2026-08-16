@@ -478,17 +478,6 @@ bool UiController::ProcessPendingSnapshot() noexcept {
         HandleMonitorPanelEvent({.kind = presentation, .visible_rows = visible_rows});
         const auto generation = snapshot_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
         floating_window_.SetSnapshot(ranking_snapshot_, generation);
-        const auto& rate = ranking_snapshot_->total_rate;
-        const auto bounded = [](double value) noexcept {
-            return value <= 0.0 ? 0ULL
-                                : static_cast<std::uint64_t>(
-                                      std::min(value, static_cast<double>(UINT64_MAX)));
-        };
-        floating_window_.SetMonitorPanelPresentation(
-            monitor_panel_state_.surface,
-            MonitorPanelBehavior::MapCapsuleRates(bounded(rate.download_bytes_per_second),
-                                                  bounded(rate.upload_bytes_per_second)),
-            monitor_panel_state_.bounds, monitor_panel_hit_bounds_, monitor_panel_viewport_);
         return true;
     } catch (...) {
         memory_error_.store(true, std::memory_order_release);

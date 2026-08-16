@@ -70,6 +70,7 @@ nfm_enable_static_analysis(nfm_ui_tray_tests)
 target_link_libraries(nfm_ui_tray_tests PRIVATE nfm_ui D2D1 Dwrite Shell32 User32)
 
 add_test(NAME ui.tray COMMAND nfm_ui_tray_tests)
+set_tests_properties(ui.tray PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(nfm_ui_window_logic_tests ui_window_logic_tests.cpp)
 
@@ -79,6 +80,7 @@ nfm_enable_static_analysis(nfm_ui_window_logic_tests)
 target_link_libraries(nfm_ui_window_logic_tests PRIVATE nfm_ui D2D1 Dwrite Shell32 User32)
 
 add_test(NAME ui.window_logic COMMAND nfm_ui_window_logic_tests)
+set_tests_properties(ui.window_logic PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(nfm_ui_display_format_tests ui_display_format_tests.cpp)
 
@@ -112,6 +114,7 @@ target_link_libraries(
 )
 
 add_test(NAME ui.controller COMMAND nfm_ui_controller_tests)
+set_tests_properties(ui.controller PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(nfm_ui_integration_smoke_tests ui_integration_smoke_tests.cpp)
 
@@ -136,6 +139,7 @@ target_link_libraries(
 )
 
 add_test(NAME ui.integration_smoke COMMAND nfm_ui_integration_smoke_tests)
+set_tests_properties(ui.integration_smoke PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(nfm_ui_settings_controller_tests ui_settings_controller_tests.cpp)
 
@@ -165,6 +169,7 @@ target_link_libraries(
 )
 
 add_test(NAME ui.settings_window COMMAND nfm_ui_settings_window_tests)
+set_tests_properties(ui.settings_window PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(nfm_ui_startup_registration_tests ui_startup_registration_tests.cpp)
 

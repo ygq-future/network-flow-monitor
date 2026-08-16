@@ -1,6 +1,9 @@
 # Native Win11 UI modernization and monitor-panel interaction
 
-Status: ready-for-agent
+Status: deprecated
+Superseded-by: .scratch/hybrid-cpp-core-wpf-ui/spec.md (ADR-0017)
+
+> **DEPRECATION NOTICE**: This specification proposed implementing the UI directly in raw C++ Win32 / Direct2D. Following extensive architectural evaluation and ADR-0017, this implementation path has been superseded by the hybrid architecture (C++ Core Collector Daemon + .NET 10 WPF Fluent UI). Confirmed domain behaviors, interaction rules, docking math, and Pin semantics from this document have been formally migrated into `.scratch/hybrid-cpp-core-wpf-ui/spec.md`. This legacy spec will not be implemented.
 
 ## Problem Statement
 

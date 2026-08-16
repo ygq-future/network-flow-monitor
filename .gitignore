@@ -12,6 +12,9 @@
 /x64/
 /x86/
 /arm64/
+bin/
+obj/
+*.baml
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

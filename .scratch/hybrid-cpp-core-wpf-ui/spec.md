@@ -141,7 +141,7 @@ This matrix explicitly records the fate of every confirmed product behavior and 
 36. As a user, I want ranking rows to smoothly reorder from their current positions when application bandwidth ranks change, without queuing obsolete snapshots.
 37. As a user, I want clear, localized status rows displayed during data collection warm-up (`Collecting data…` / `正在采集数据…`) and zero-traffic idle (`No network activity` / `无网络活动`).
 
-### Pin, Shared Menu, Topmost & Tray Control
+### Pin, Shared Menu, Topmost, Visibility & Tray Control
 38. As a user, I want a shared native context menu accessible by right-clicking the capsule, monitor panel, or tray icon.
 39. As a user, I want the shared context menu to provide a toggleable "Pin / 固定显示" menu item.
 40. As a user with Pin on, I want the complete monitor panel to remain permanently visible on the desktop even when the pointer leaves the window.
@@ -150,27 +150,29 @@ This matrix explicitly records the fate of every confirmed product behavior and 
 43. As a user, I want auto-hide timers paused while the context menu is open, so that navigating menu items does not collapse the panel underneath.
 44. As a user, I want clicking, dragging, or right-clicking on ordinary monitor panel content never to accidentally alter the Pin state.
 45. As a user running full-screen games or media, I want the monitor panel and capsule to yield their topmost level to external full-screen foreground windows, restoring topmost once cleared.
-46. As a user, I want the system tray icon to provide direct access to Settings, Retry Collector, Pin Toggle, and Exit.
+46. As a user, I want a "Hide Monitor / 隐藏监控" context menu item to hide both the capsule and panel, leaving only the system tray icon while background collection continues.
+47. As a user in Tray-Only mode, I want clicking "Show Monitor / 显示监控" in the tray context menu to restore the monitor at its persisted anchor without losing my Pin preference.
+48. As a user, I want the system tray icon to provide direct access to Show/Hide Monitor, Settings, Retry/Restart Collector, Pin Toggle, and Exit.
 
 ### Settings Control Center, Theming & Localization
-47. As a user, I want a dedicated, modern Fluent Settings window organized into General, Monitor, Ranking, Collector, and Diagnostics tabs.
-48. As a user, I want to choose between System, Light, and Dark themes, with live reaction to Windows 11 system theme changes in System mode.
-49. As a user, I want to choose between System, English, and Simplified Chinese languages, applying immediately to all open windows without requiring a restart.
-50. As a user, I want `Network Flow Monitor` brand name kept untranslated across all language modes.
-51. As a user, I want to configure background opacity (0–100%) and blur strength (0–100%) for the monitor panel with real-time preview.
-52. As a user, I want an option to enable/disable launching Network Flow Monitor automatically upon Windows user login.
-53. As a user, I want the Settings Collector tab to display live connection state, collector PID, collector instance ID, elevation status, ETW health, dropped packets, and active tracked processes.
-54. As a user, I want direct "Retry Collector", "Restart Collector", and "Copy Diagnostics" actions on the Settings Collector tab.
+49. As a user, I want a dedicated, modern Fluent Settings window organized into General, Monitor, Ranking, Collector, and Diagnostics tabs.
+50. As a user, I want to choose between System, Light, and Dark themes, with live reaction to Windows 11 system theme changes in System mode.
+51. As a user, I want to choose between System, English, and Simplified Chinese languages, applying immediately to all open windows without requiring a restart.
+52. As a user, I want `Network Flow Monitor` brand name kept untranslated across all language modes.
+53. As a user, I want to configure background opacity (0–100%) and blur strength (0–100%) for the monitor panel with real-time preview, while Settings retains opaque readability.
+54. As a user, I want an option to enable/disable launching Network Flow Monitor automatically upon Windows user login.
+55. As a user, I want the Settings Collector tab to display live connection state, collector PID, collector instance ID, elevation status, ETW health, dropped packets, and active tracked processes.
+56. As a user, I want direct "Retry Collector", "Restart Collector", and "Copy Diagnostics" actions on the Settings Collector tab.
 
 ### Portable Lifecycle, Reliability & Security
-55. As a user, I want to run the application from its extracted portable directory without installing or registering a Windows Service.
-56. As a user, I want double-clicking `NetworkFlowMonitor.exe` to start the complete application, prompting for UAC only when the elevated companion collector must be launched.
-57. As a user, I want closing the UI to terminate the collector companion automatically via parent-process watch, leaving no lingering background processes.
-58. As a user, I want the collector companion to detect an unexpected UI crash and terminate itself cleanly.
-59. As a user, I want at most one UI process and one collector companion per Windows user session, preventing duplicate ETW sessions and duplicate tray/UI instances.
-60. As a user whose collector crashes or disconnects, I want the UI to display a clear offline overlay (`Collector offline` / `采集器未运行`) and offer a one-click retry action in the tray.
-61. As a security-conscious user, I want the WPF UI process to run with standard user privileges, while only the companion collector possesses ETW trace privileges.
-62. As a user, I want the C++ Named Pipe IPC server to verify that client connections originate exclusively from my own user security identifier (SID), preventing unauthorized local process tampering.
+57. As a user, I want to run the application from its extracted portable directory without installing or registering a Windows Service.
+58. As a user, I want double-clicking `NetworkFlowMonitor.exe` to start the complete application, prompting for UAC only when the elevated companion collector must be launched.
+59. As a user, I want closing the UI to terminate the collector companion automatically via parent-process watch, leaving no lingering background processes.
+60. As a user, I want the collector companion to detect an unexpected UI crash and terminate itself cleanly.
+61. As a user, I want at most one UI process and one collector companion per Windows user session, preventing duplicate ETW sessions and duplicate tray/UI instances.
+62. As a user whose collector crashes or disconnects, I want the UI to display a clear offline overlay (`Collector offline` / `采集器未运行`) and offer a one-click retry action in the tray.
+63. As a security-conscious user, I want the WPF UI process to run with standard user privileges, while only the companion collector possesses ETW trace privileges.
+64. As a user, I want the C++ Named Pipe IPC server to verify that client connections originate exclusively from my own user security identifier (SID), preventing unauthorized local process tampering.
 
 ## Implementation Decisions
 
@@ -226,7 +228,7 @@ nfm-project/
 6. **Protocol V1 Has Fixed 12-Byte Framing, Limits, and Cross-Language Fixtures**:
    All IPC packets have a fixed 12-byte binary header (`Magic: "NFM1"`, `Version: 1`, `Type: uint16`, `PayloadLength: uint32`). Maximum payload length is strictly capped at 256 KiB. Cross-language JSON test vectors in `tests/fixtures/` are validated by both C++ and C# test suites to guarantee schema alignment before any allocation or parsing.
 7. **Existing C++ UI is Retained Until E2E Tracer Bullet Passes**:
-   The existing C++ Win32 UI code and its test suite remain fully functional in the repository until the Automated Hybrid E2E tracer bullet has passed and the new C++ → Pipe → C# → Presentation → WPF path has been proven on the target environment. Legacy UI removal itself remains deferred until the final target-host acceptance gate in Milestone 5.
+   The existing C++ Win32 UI code and its test suite remain fully functional in the repository until the Automated Hybrid E2E tracer bullet has passed and the new C++ $\to$ Pipe $\to$ C# $\to$ Presentation $\to$ WPF path has been proven on the target environment. Legacy UI removal itself remains deferred until the final target-host acceptance gate in Milestone 5.
 8. **Single Interactive Instance Invariant**:
    Within one Windows interactive user session, at most 1 $\times$ `NetworkFlowMonitor.exe` and 1 $\times$ `nfm-collector.exe` may run. Secondary UI launches detect the existing instance via session-scoped mutex, activate/restore the existing window, and exit immediately without spawning a second collector.
 
@@ -258,7 +260,7 @@ Raw Win32 / WPF Input Events
                               │
                               ▼ (Deterministic Result)
                          Transition
-                              ├── Next State (MonitorState)
+                              ├── Next State (MonitorPresentationState: TrayOnly / CapsuleVisible / PanelVisible)
                               ├── PresentationTargets (Visibility, Bounds, Viewport)
                               ├── AnimationTargets (Kind, Easing, Duration)
                               └── EffectIntents (PersistAnchor, PersistPin, LogDiagnostic)
@@ -267,7 +269,7 @@ Raw Win32 / WPF Input Events
                         WPF / Win32 Adapters Execute Side Effects
 ```
 
-- **Scope of Seam**: Covers Capsule hover, hover delay deadline, click reveal, pointer leave, dismiss delay deadline, drag start, drag threshold crossing, drag cancel, drag completion, cross-monitor snapping, left/right tie-breaking, Pin state, global auto-hide toggle, context menu open/close reconciliation, collector disconnect/reconnect/instance reset, monitor removal fallback, DPI change, reduced motion, high contrast, and fullscreen topmost-yield.
+- **Scope of Seam**: Covers `TrayOnly` / `CapsuleVisible` / `PanelVisible` visibility states, `HideMonitorRequested` / `ShowMonitorRequested`, Capsule hover, hover delay deadline, click reveal, pointer leave, dismiss delay deadline, drag start, drag threshold crossing, drag cancel, drag completion, cross-monitor snapping, left/right tie-breaking, Pin state, global auto-hide toggle, context menu open/close reconciliation, collector disconnect/reconnect/instance reset, monitor removal fallback, DPI change, reduced motion, high contrast, and fullscreen topmost-yield.
 
 ### 4. Protocol V1 Specification & Security Contract
 
@@ -353,34 +355,151 @@ Raw Win32 / WPF Input Events
    ```
    *Note*: Used strictly as an optional fast-path graceful shutdown notification preceding process termination. Generic command execution or remote execution brokers are completely prohibited.
 
-### 5. Mathematical Rate-to-Fill & Gradient Color Contract
+## UI & Interaction Behavior Contract
 
-- **Deterministic Rate-to-Fill Mapping Pure Function**:
+### 1. Dock Capsule Interaction Contract
+
+- **Capsule Normal State**:
+  - Represented by `DockCapsuleWindow`.
+  - Renders as a vertical pill docked against the active display's left or right work-area edge.
+  - Download meter occupies the top half (scaling downwards to the center); upload meter occupies the bottom half (scaling upwards to the center).
+  - Width configurable between 8–24 DIP (default 10 DIP); height configurable between 40–160 DIP (default 64 DIP).
+- **Hover Reveal**:
+  - When `Pin = Off` and `AutoHide = On`, pointer entering the capsule starts a 350 ms hover deadline.
+  - If the pointer remains within the capsule for the full duration, `MonitorPanelWindow` is revealed.
+  - If pointer leaves, a drag begins, or context changes before the deadline expires, hover reveal is canceled.
+- **Click Reveal**:
+  - Left-clicking the capsule without exceeding the drag threshold reveals `MonitorPanelWindow` immediately without waiting for the hover delay.
+- **Drag Behavior**:
+  - Pressing and moving beyond the Windows drag threshold transitions from click candidate to drag state.
+  - Cancels any pending hover reveal.
+  - Supports dragging across multi-monitor display boundaries; the release-point monitor determines the final target display.
+  - Snaps exclusively to left or right edges; exact tie retains previous side; first unresolved tie defaults to right.
+  - Completed drag emits `EffectIntent.PersistAnchor`; canceled drag restores previous anchor.
+- **Panel Dismissal**:
+  - When `Pin = Off` and `AutoHide = On`, pointer leaving the full `MonitorPanelWindow` starts a 500 ms dismiss deadline.
+  - If the pointer remains outside upon deadline expiration, the panel collapses into `DockCapsuleWindow`.
+  - If the pointer re-enters the panel during dismissal, the timer cancels and the collapse animation reverses/retargets smoothly from its current visual value.
+- **Capsule $\to$ Panel Pointer Transfer**:
+  - Revealing the panel from the capsule transitions pointer tracking continuously; stale leave events from the collapsing capsule do not trigger premature panel dismissal.
+- **Tray-Only & Visibility State Semantics**:
+  - **`TrayOnly` State**: When the user triggers "Hide Monitor", both `DockCapsuleWindow` and `MonitorPanelWindow` are hidden; the system tray icon and background collector continue running uninterrupted.
+  - **`Show Monitor`**: Restores the monitor presentation at its persisted anchor according to rule:
+    - `AutoHide = On` and `Pin = Off` $\to$ `CapsuleVisible`
+    - `Pin = On` $\to$ `PanelVisible`
+    - `AutoHide = Off` $\to$ `PanelVisible`
+  - Hiding or showing the monitor never modifies the user's stored Pin preference.
+
+### 2. Monitor Panel Layout Contract
+
+- **Single Compact Card**:
+  - Fixed design width of 340 DIP. No secondary TopA popup, no ranking/header gap, no separate `Top {N} Applications` heading row, and no dedicated Pin header column.
+- **Header Row Information Hierarchy**:
+  - Order: `[Product Icon + Network Flow Monitor]` $\to$ `[Download Icon + Total Download Rate]` $\to$ `[Upload Icon + Total Upload Rate]`.
+  - Brand string is invariant and untranslated (`Network Flow Monitor`).
+  - Total download rate precedes total upload rate.
+- **Ranking Row Layout Hierarchy**:
+  - Order: `[Application Icon + Application Name]` $\to$ `[Download Rate]` $\to$ `[Upload Rate]`.
+  - Rate columns share identical widths, right-alignment, and tabular numerals with the header totals above them.
+  - Application Name consumes all remaining horizontal space between the icon and rate columns, ending in an ellipsis when long; long names never widen the card.
+- **Icon Extraction & Resource Ownership**:
+  - Fixed icon box size. Asynchronous extraction via `SHGetFileInfo`.
+  - Real icons and fallback icons occupy the exact same geometry box; replacing a fallback with an extracted icon never shifts row layout.
+  - Native `HICON` handles extracted from shell APIs must be converted to managed image sources and immediately released with `DestroyIcon` to prevent GDI handle leaks.
+- **Panel Height & Viewport Scrolling**:
+  - Dynamic height: $\text{Header} + \text{Visible Ranking Rows (or Status Row)} + \text{Padding/Borders}$.
+  - Over-tall lists: When configured Top N rows exceed available screen height, the header stays pinned while only the ranking row viewport scrolls vertically via mouse wheel, touchpad, and keyboard (Up/Down/PageUp/PageDown/Home/End).
+
+### 3. Shared Context Menu Contract
+
+- **Unified Product Command Model**:
+  - Right-clicking the capsule, monitor panel, or system tray opens a native Windows context menu sharing identical command ordering and state rules:
+    ```
+    Show Monitor / 显示监控   (if currently TrayOnly)
+    OR
+    Hide Monitor / 隐藏监控   (if currently CapsuleVisible or PanelVisible)
+    ────────────────────────────────────────────
+    Pin / 固定显示           (Checked reflects stored Pin preference)
+    ────────────────────────────────────────────
+    Retry Collector / 重试采集 (if Collector is Offline)
+    OR
+    Restart Collector / 重启采集 (if Collector is Connected)
+    Settings / 设置
+    ────────────────────────────────────────────
+    Exit / 退出
+    ```
+- **Pin Menu Item Rules**:
+  - Checked state reflects persisted Pin preference.
+  - When global `AutoHide = Off`, the panel remains permanently visible and the Pin menu item is disabled while retaining its checked state; disabling auto-hide never clears the stored Pin preference.
+- **Settings & Activation**:
+  - Selecting Settings activates and brings the existing `SettingsWindow` to the foreground; never spawns duplicate settings windows.
+- **Exit Action**:
+  - Selecting Exit sends `ShutdownRequest`, closes the UI process, and allows Parent-Process Watch to cleanly terminate `nfm-collector.exe`.
+- **Menu Lifetime & Timer Interactions**:
+  - Opening the context menu from the capsule or panel pauses dismiss and auto-hide timers.
+  - Closing the menu re-evaluates the actual pointer position and resumes delays accordingly.
+  - Opening the menu from the system tray never implicitly reveals or hides the monitor presentation.
+
+### 4. Animation & Transition Contract
+
+- **Deterministic Rate-to-Fill Pure Function**:
   $$F(R) = \begin{cases} 0.0 & \text{if } R \le 0 \\ \operatorname{clamp}\left(\frac{\log_2(R)}{30.0}, 0.0, 1.0\right) & \text{if } R > 0 \end{cases}$$
-  - $1\text{ B/s} \to 0.000$
-  - $1\text{ KiB/s } (1024) \to 0.333$
-  - $1\text{ MiB/s } (1048576) \to 0.667$
-  - $\ge 1\text{ GiB/s } (1073741824) \to 1.000$ (smooth saturation)
-- **Fixed Gradient Topology**:
-  - Stop collection topology remains fixed (no adding/removing stops at runtime across thresholds).
-  - Download Stops: Stop 0 (`#19D8E6` Cyan at edge), Stop 1 (`#2878D0` Blue at mid), Stop 2 (leading tip animated to `#8146B8` Purple).
-  - Upload Stops: Stop 0 (`#F4D03F` Yellow at edge), Stop 1 (`#F39C32` Orange at mid), Stop 2 (leading tip animated to `#D93636` Red).
-- **Interruption & Retargeting Contract**:
-  - When new telemetry arrives mid-animation, the transition retargets smoothly from the current rendered presentation value ($v_{\text{current}} \to v_{\text{target}}$).
-  - If $v_{\text{target}} == v_{\text{current\_target}}$, the in-flight animation continues without redundant restart.
+  - $1\text{ B/s} \to 0.000$, $1\text{ KiB/s} \to 0.333$, $1\text{ MiB/s} \to 0.667$, $\ge 1\text{ GiB/s} \to 1.000$.
+- **Asymmetric Rate Ballistics**:
+  - Rate Rise (Attack / Surge): 250 ms Fluent Cubic Ease-Out ($1 - (1-t)^3$).
+  - Rate Fall (Decay / Momentum): 450 ms natural momentum decay ($1 - (1-t)^2$).
+- **Fixed Gradient Topology & Color Morphing**:
+  - Stop collection topology remains fixed.
+  - Download linear gradient: `#19D8E6` (Cyan edge) $\to$ `#2878D0` (Blue mid) $\to$ `#8146B8` (Purple tip).
+  - Upload linear gradient: `#F4D03F` (Yellow edge) $\to$ `#F39C32` (Orange mid) $\to$ `#D93636` (Red tip).
+  - Rate colors interpolate continuously across RGB channels; no abrupt color snapping across fill thresholds.
+- **Interruption & Retargeting**:
+  - New telemetry arriving mid-transition retargets smoothly from the current rendered visual value ($v_{\text{current}} \to v_{\text{target}}$).
+  - If $v_{\text{target}} == v_{\text{current\_target}}$, in-flight animations continue without redundant restart.
+- **Ranking Reordering Transitions**:
+  - Ranking row changes smoothly translate existing rows to new Y positions. Entrants fade in; exits fade out.
+  - New snapshots arriving during an active reorder retarget immediately from current visual positions without queuing stale animations.
+- **Reduced Motion**:
+  - When Windows Reduced Motion is enabled, all transitions complete immediately with 0 ms duration.
 
-### 6. Window Surface & Backdrop Technical Spike (Prerequisite)
+### 5. Settings Information Architecture
 
-Before finalizing visual implementation, an isolated WPF Technical Spike (`WpfSurfaceSpike`) must validate the following on a live Windows 11 host:
+```
+┌────────────────────────────────────────────────────────────┐
+│ Settings / 设置                                            │
+├──────────────┬─────────────────────────────────────────────┤
+│ General      │ [Section Title]                             │
+│ Monitor      │                                             │
+│ Ranking      │ [Setting Controls / Grouped Cards]          │
+│ Collector    │                                             │
+│ Diagnostics  │                                             │
+└──────────────┴─────────────────────────────────────────────┘
+```
 
-1. **Monitor Panel Surface**:
-   - `WindowStyle=None` and `AllowsTransparency=False` with `DwmSetWindowAttribute` (`DWMWA_SYSTEMBACKDROP_TYPE` Mica/Acrylic and `DWMWA_WINDOW_CORNER_PREFERENCE` Round).
-   - Validation that background transparency/opacity does not bleed into or reduce text/icon readability.
-   - Behavior of blur-strength adjustment (if Windows 11 DWM backdrop does not support continuous Gaussian blur strength slider, spike decides between native DWM backdrop vs DirectComposition HostBackdrop interop vs retiring the slider in favor of standard system material).
-2. **Pill-Shaped Dock Capsule**:
-   - 10 DIP width visible pill with $\ge 16\text{ DIP}$ invisible inward hit target.
-   - Confirmation that edge docking does not expose opaque black rectangular gutters or trigger layered-window GDI software fallback.
-   - Confirmation that full pill curvature matches design expectations without clipping defects.
+- **Layout**: Left navigation sidebar with right content panel; collapses to a top tab selector on narrow widths without separate mobile UI.
+- **Section Field Ownership**:
+  - **General**: Language (System, English, 简体中文), Theme (System, Light, Dark), Start with Windows (User Run key registration).
+  - **Monitor**: Auto-Hide toggle, Pin preference, Capsule Width (8–24 DIP), Capsule Height (40–160 DIP), Hover Delay (default 350 ms), Auto-hide / Dismiss Delay (default 500 ms), Panel Background Opacity (0–100%), Blur Strength (0–100%, subject to spike capability decision), Rate Units (Auto B/s, Auto bps, B/s, KB/s, MB/s).
+  - **Ranking**: Top N application count.
+  - **Collector**: Connection State, Collector PID, Collector Instance ID, Elevation Status, ETW Health, Dropped Packets, Active Process Count, Last Error, with "Retry Collector", "Restart Collector", and "Copy Diagnostics" actions (NO Windows Service management UI).
+  - **Diagnostics**: App Version, Collector Version, Config File Path, Protocol Version, Last Error log, and Copy Diagnostics button.
+- **Single Instance & Opacity Isolation**:
+  - Re-opening Settings activates the existing window. Settings uses an opaque, readable Fluent card surface and never inherits Monitor Panel background transparency.
+
+### 6. Surface, Theme & Localization Contract
+
+- **Surface & Material Standards**:
+  - `MonitorPanelWindow`: Rounded card, `WindowStyle=None`, `AllowsTransparency=False`, DWM backdrop (Mica/Acrylic). Opacity slider alters background material tint alpha only; text, icons, and rates remain fully opaque.
+  - Fallback: On RDP, High Contrast, or unsupported composition, surfaces fall back to a readable, opaque tinted ground ground without broken visual artifacts.
+- **Theme Dynamics**:
+  - Supported: System (default), Light, Dark.
+  - In System mode, Windows 11 theme changes update all open surfaces live without restart. Explicit Light/Dark choices override system preferences until System mode is re-selected.
+  - High Contrast mode overrides custom palettes, background opacity, and backdrop materials to enforce system accessibility contrast standards.
+- **Localization Standards**:
+  - Supported: System (default), English, Simplified Chinese.
+  - In System mode, supported Windows language tags map to matching resources; unsupported languages fall back to English.
+  - Runtime language switching updates all open windows, menus, dialogs, and diagnostics immediately without restart.
+  - Product brand `Network Flow Monitor` and standard rate units (`KB/s`, `MB/s`, `bps`) remain untranslated.
 
 ## Testing Decisions
 
@@ -396,7 +515,7 @@ Before finalizing visual implementation, an isolated WPF Technical Spike (`WpfSu
 | :--- | :--- | :--- | :--- |
 | **C++ Core Engine Tests** | C++20 / CTest | ETW decoder, process tracker, sliding-window rate tracking, 12-byte IPC framing, parent-watch lifecycle. | `ranking_engine_tests.cpp`, `ipc_frame_codec_tests.cpp` |
 | **Protocol Fixture Tests** | C++ & C# xUnit | 12-byte header, magic validation, 256 KiB cap, `Hello`, `HelloAck`, `TrafficTick`, `RankingSnapshot`, `CollectorStatus`, `ShutdownRequest`. | `ipc_snapshot_codec_tests.cpp` |
-| **MonitorBehaviorModel Tests** | C# / xUnit | Pure state transitions: hover, click, drag threshold, drag cancel, Pin, auto-hide, fullscreen yield, disconnect/reconnect. | `monitor_panel_behavior_tests.cpp` |
+| **MonitorBehaviorModel Tests** | C# / xUnit | Pure state transitions: `TrayOnly` $\leftrightarrow$ `CapsuleVisible` $\leftrightarrow$ `PanelVisible`, hover, click, drag threshold, drag cancel, Pin, auto-hide, fullscreen yield, disconnect/reconnect. | `monitor_panel_behavior_tests.cpp` |
 | **Animation & Math Tests** | C# / xUnit | Pure rate-to-fill log mapping, color channel interpolation, attack/decay curves, retargeting from in-flight values. | `ui_appearance_tests.cpp` |
 | **Automated Hybrid E2E Test** | C++ Test Daemon + C# Client | Real Named Pipe launch, 12-byte framing, 4 Hz stream ingestion into `TelemetryStore`, instance reset, clean exit (No UAC/ETW required). | `ipc_server_integration_tests.cpp` |
 | **Target-Host Acceptance Test** | Live Win11 Runner | Elevated portable collector, real ETW packet stream, WPF dock capsule visually fluid animation without 250 ms stepping, DWM backdrop, multi-DPI snapping, clean parent-watch termination. | `portable-acceptance.ps1` |

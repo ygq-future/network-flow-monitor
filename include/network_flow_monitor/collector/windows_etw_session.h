@@ -114,6 +114,7 @@ class WindowsEtwSession {
     [[nodiscard]] WindowsEtwSessionResult FlushAndQuery() noexcept;
     [[nodiscard]] WindowsEtwSessionResult Stop() noexcept;
     [[nodiscard]] CollectorHealth health() const noexcept;
+    [[nodiscard]] std::size_t active_process_count() const noexcept;
     [[nodiscard]] WindowsEtwSessionStatistics statistics() const noexcept;
     [[nodiscard]] WindowsEtwSchemaObservations observed_schemas() const noexcept;
     [[nodiscard]] ranking::CounterSnapshot MakeSnapshot(

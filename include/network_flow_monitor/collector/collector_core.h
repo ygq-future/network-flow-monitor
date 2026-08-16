@@ -82,6 +82,7 @@ class CollectorCore {
     [[nodiscard]] ranking::CounterSnapshot MakeSnapshot(
         std::chrono::steady_clock::time_point captured_at) const;
     [[nodiscard]] const CollectorHealth& health() const noexcept;
+    [[nodiscard]] std::size_t active_process_count() const noexcept;
 
   private:
     friend struct CollectorCoreTestAccess;

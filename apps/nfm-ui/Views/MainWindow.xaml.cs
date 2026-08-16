@@ -1,11 +1,19 @@
 using System;
-using System.Globalization;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using NetworkFlowMonitor.Ipc;
 using NetworkFlowMonitor.Store;
 
 namespace NetworkFlowMonitor.Views;
+
+public sealed record RankingRowItem(
+    string DisplayName,
+    string ExecutablePath,
+    string DownloadRateText,
+    string UploadRateText
+);
 
 public partial class MainWindow : Window
 {
@@ -32,17 +40,36 @@ public partial class MainWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            DownloadRateText.Text = FormatRate(snapshot.DownloadBytesPerSec);
-            UploadRateText.Text = FormatRate(snapshot.UploadBytesPerSec);
+            DownloadRateText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec);
+            UploadRateText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec);
             SeqText.Text = $"Seq: {snapshot.Seq}";
-            InstanceText.Text = $"Collector PID: {(snapshot.CollectorPid != 0 ? snapshot.CollectorPid.ToString() : "N/A")}";
+
+            var statusDiag = snapshot.LatestStatus != null
+                ? $"ETW: {(snapshot.LatestStatus.EtwSessionActive ? "Active" : "Inactive")} | PIDs: {snapshot.LatestStatus.ActivePids} | Drop: {snapshot.LatestStatus.DroppedPackets}"
+                : $"PID: {(snapshot.CollectorPid != 0 ? snapshot.CollectorPid.ToString() : "N/A")}";
+            DiagnosticsText.Text = statusDiag;
 
             switch (snapshot.ConnectionState)
             {
                 case CollectorConnectionState.Connected:
-                    StatusText.Text = "Connected";
-                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(34, 197, 94)); // Green
-                    StatusBadge.Background = new SolidColorBrush(Color.FromRgb(20, 83, 45));
+                    switch (snapshot.DataState)
+                    {
+                        case TelemetryDataState.Warmup:
+                            StatusText.Text = "Collecting data…";
+                            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(234, 179, 8)); // Yellow
+                            StatusBadge.Background = new SolidColorBrush(Color.FromRgb(113, 63, 18));
+                            break;
+                        case TelemetryDataState.Idle:
+                            StatusText.Text = "No network activity";
+                            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(161, 161, 170));
+                            StatusBadge.Background = new SolidColorBrush(Color.FromRgb(39, 39, 42));
+                            break;
+                        default:
+                            StatusText.Text = "Connected";
+                            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(34, 197, 94)); // Green
+                            StatusBadge.Background = new SolidColorBrush(Color.FromRgb(20, 83, 45));
+                            break;
+                    }
                     break;
                 case CollectorConnectionState.Connecting:
                     StatusText.Text = "Connecting…";
@@ -60,23 +87,41 @@ public partial class MainWindow : Window
                     StatusBadge.Background = new SolidColorBrush(Color.FromRgb(39, 39, 42));
                     break;
             }
+
+            // Ranking table display
+            if (snapshot.ConnectionState != CollectorConnectionState.Connected)
+            {
+                RankingStatusText.Text = "Collector offline / Disconnected";
+                RankingStatusText.Visibility = Visibility.Visible;
+                RankingItemsList.ItemsSource = null;
+            }
+            else if (snapshot.DataState == TelemetryDataState.Warmup)
+            {
+                RankingStatusText.Text = "Collecting data…";
+                RankingStatusText.Visibility = Visibility.Visible;
+                RankingItemsList.ItemsSource = null;
+            }
+            else if (snapshot.DataState == TelemetryDataState.Idle)
+            {
+                RankingStatusText.Text = "No network activity";
+                RankingStatusText.Visibility = Visibility.Visible;
+                RankingItemsList.ItemsSource = null;
+            }
+            else
+            {
+                RankingStatusText.Visibility = Visibility.Collapsed;
+                var items = snapshot.LatestRanking?.Applications?
+                    .Select(app => new RankingRowItem(
+                        DisplayName: string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName,
+                        ExecutablePath: app.ExecutablePath,
+                        DownloadRateText: RateFormatter.FormatRate(app.DownloadBytesPerSec),
+                        UploadRateText: RateFormatter.FormatRate(app.UploadBytesPerSec)
+                    ))
+                    .ToList() ?? [];
+                RankingItemsList.ItemsSource = items;
+            }
         });
     }
 
-    public static string FormatRate(ulong bytesPerSec)
-    {
-        if (bytesPerSec < 1024)
-        {
-            return $"{bytesPerSec} B/s";
-        }
-        if (bytesPerSec < 1024 * 1024)
-        {
-            return $"{(bytesPerSec / 1024.0):F1} KB/s";
-        }
-        if (bytesPerSec < 1024 * 1024 * 1024)
-        {
-            return $"{(bytesPerSec / (1024.0 * 1024.0)):F1} MB/s";
-        }
-        return $"{(bytesPerSec / (1024.0 * 1024.0 * 1024.0)):F2} GB/s";
-    }
+    public static string FormatRate(ulong bytesPerSec) => RateFormatter.FormatRate(bytesPerSec);
 }

@@ -92,6 +92,9 @@ class ProcessTracker {
     [[nodiscard]] ProcessLookupResult ResolveAt(std::uint32_t pid, TraceTimePoint event_time);
     [[nodiscard]] ProcessTrackerError AdvanceWatermark(TraceTimePoint watermark);
     [[nodiscard]] const ProcessTrackerDiagnostics& diagnostics() const noexcept;
+    [[nodiscard]] std::size_t active_process_count() const noexcept {
+        return active_.size();
+    }
 
   private:
     struct ProcessEntry {

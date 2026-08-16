@@ -268,6 +268,10 @@ const CollectorHealth& CollectorCore::health() const noexcept {
     return health_;
 }
 
+std::size_t CollectorCore::active_process_count() const noexcept {
+    return process_tracker_.active_process_count();
+}
+
 bool CollectorCore::IsFailed() const noexcept {
     return health_.state == CollectorState::Failed;
 }

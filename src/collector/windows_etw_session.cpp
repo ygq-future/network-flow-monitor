@@ -310,6 +310,11 @@ CollectorHealth WindowsEtwSession::health() const noexcept {
     return core_.health();
 }
 
+std::size_t WindowsEtwSession::active_process_count() const noexcept {
+    std::scoped_lock lock{core_mutex_};
+    return core_.active_process_count();
+}
+
 WindowsEtwSessionStatistics WindowsEtwSession::statistics() const noexcept {
     std::scoped_lock lock{lifecycle_mutex_};
     return statistics_;

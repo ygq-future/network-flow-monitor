@@ -60,7 +60,7 @@ public class HybridE2ETests
                 await pipeServer.WriteAsync(ackBytes, cts.Token).ConfigureAwait(false);
                 await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
 
-                // Step 3: Stream 4 Hz ticks (simulate 3 ticks at 250ms cadence)
+                // Step 3: Stream 4 Hz ticks and 1 Hz ranking snapshot
                 for (ulong seq = 1; seq <= 3; seq++)
                 {
                     var tick = new TrafficTickMessage(
@@ -72,6 +72,29 @@ public class HybridE2ETests
                     var tickBytes = ProtocolV1Codec.EncodeMessage(MessageType.TrafficTick, tick);
                     await pipeServer.WriteAsync(tickBytes, cts.Token).ConfigureAwait(false);
                     await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
+
+                    if (seq == 2)
+                    {
+                        var ranking = new RankingSnapshotMessage(
+                            Seq: 1,
+                            MonotonicMs: 500,
+                            Status: "Ready",
+                            TotalRate: new TotalRate(10_485_760, 2_097_152),
+                            Applications:
+                            [
+                                new RankingApplication("app_chrome", "C:\\chrome.exe", "Google Chrome", "chrome_icon", 8_388_608, 1_048_576)
+                            ]
+                        );
+                        var rankBytes = ProtocolV1Codec.EncodeMessage(MessageType.RankingSnapshot, ranking);
+                        await pipeServer.WriteAsync(rankBytes, cts.Token).ConfigureAwait(false);
+                        await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
+
+                        var status = new CollectorStatusMessage(500, true, 0, 15);
+                        var statusBytes = ProtocolV1Codec.EncodeMessage(MessageType.CollectorStatus, status);
+                        await pipeServer.WriteAsync(statusBytes, cts.Token).ConfigureAwait(false);
+                        await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
+                    }
+
                     await Task.Delay(50, cts.Token).ConfigureAwait(false);
                 }
 
@@ -117,6 +140,13 @@ public class HybridE2ETests
         Assert.Equal(3 * 5_242_880UL, finalSnap.DownloadBytesPerSec);
         Assert.Equal(3 * 1_048_576UL, finalSnap.UploadBytesPerSec);
         Assert.Equal(CollectorConnectionState.Connected, finalSnap.ConnectionState);
+        Assert.Equal(TelemetryDataState.Active, finalSnap.DataState);
+        Assert.NotNull(finalSnap.LatestRanking);
+        Assert.Single(finalSnap.LatestRanking.Applications);
+        Assert.Equal("app_chrome", finalSnap.LatestRanking.Applications[0].Id);
+        Assert.NotNull(finalSnap.LatestStatus);
+        Assert.True(finalSnap.LatestStatus.EtwSessionActive);
+        Assert.Equal(15U, finalSnap.LatestStatus.ActivePids);
 
         // Stop Client and verify clean shutdown
         await client.DisposeAsync();

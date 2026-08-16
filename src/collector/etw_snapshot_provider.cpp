@@ -14,7 +14,9 @@ ipc::CaptureResult EtwSnapshotProvider::Capture() noexcept {
     try {
         const auto captured_at = std::chrono::steady_clock::now();
         return {.capture = {.health = session_->health(),
-                            .counters = session_->MakeSnapshot(captured_at)}};
+                            .counters = session_->MakeSnapshot(captured_at),
+                            .active_pids =
+                                static_cast<std::uint32_t>(session_->active_process_count())}};
     } catch (...) {
         return {.error = ipc::CaptureError::SnapshotFailed,
                 .capture = {.health = session_->health(), .counters = {}}};

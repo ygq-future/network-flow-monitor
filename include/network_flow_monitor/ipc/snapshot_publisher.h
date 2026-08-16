@@ -4,9 +4,11 @@
 #include "network_flow_monitor/collector/collector_health.h"
 #include "network_flow_monitor/ipc/ipc_server.h"
 #include "network_flow_monitor/ranking/counter_types.h"
+#include "network_flow_monitor/ranking/ranking_engine.h"
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -18,6 +20,7 @@ namespace nfm::ipc {
 struct CollectorCapture {
     collector::CollectorHealth health;
     ranking::CounterSnapshot counters;
+    std::uint32_t active_pids{};
 };
 
 enum class CaptureError : std::uint8_t {
@@ -70,6 +73,10 @@ class SnapshotPublisher final : public ClientSessionObserver {
     SnapshotPublisher(std::string collector_instance_id,
                       std::chrono::steady_clock::time_point instance_started_at,
                       SnapshotProvider& provider, IpcServer& server);
+    SnapshotPublisher(std::string collector_instance_id,
+                      std::chrono::steady_clock::time_point instance_started_at,
+                      SnapshotProvider& provider, IpcServer& server,
+                      ranking::RankingOptions ranking_options);
     ~SnapshotPublisher() override = default;
     SnapshotPublisher(const SnapshotPublisher&) = delete;
     SnapshotPublisher& operator=(const SnapshotPublisher&) = delete;
@@ -92,6 +99,7 @@ class SnapshotPublisher final : public ClientSessionObserver {
     std::chrono::steady_clock::time_point instance_started_at_;
     SnapshotProvider* provider_;
     IpcServer* server_;
+    std::unique_ptr<ranking::RankingEngine> ranking_engine_;
     std::unordered_map<std::uint64_t, HelloMessage> connected_clients_;
     std::optional<std::chrono::steady_clock::time_point> last_tick_run_;
     std::optional<std::chrono::steady_clock::time_point> last_snapshot_run_;

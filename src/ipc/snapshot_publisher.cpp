@@ -1,7 +1,10 @@
 #include "network_flow_monitor/ipc/snapshot_publisher.h"
 
+#include "network_flow_monitor/config/app_config.h"
+
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -20,8 +23,22 @@ PublisherResult PublisherFailure(PublisherError error) noexcept {
 SnapshotPublisher::SnapshotPublisher(std::string collector_instance_id,
                                      std::chrono::steady_clock::time_point instance_started_at,
                                      SnapshotProvider& provider, IpcServer& server)
+    : SnapshotPublisher(
+          std::move(collector_instance_id), instance_started_at, provider, server,
+          ranking::RankingOptions{.window = config::DefaultAppConfig().ranking.window,
+                                  .top_n = config::DefaultAppConfig().ranking.top_n}) {}
+
+SnapshotPublisher::SnapshotPublisher(std::string collector_instance_id,
+                                     std::chrono::steady_clock::time_point instance_started_at,
+                                     SnapshotProvider& provider, IpcServer& server,
+                                     ranking::RankingOptions ranking_options)
     : collector_instance_id_{std::move(collector_instance_id)},
-      instance_started_at_{instance_started_at}, provider_{&provider}, server_{&server} {}
+      instance_started_at_{instance_started_at}, provider_{&provider}, server_{&server} {
+    auto create_result = ranking::CreateRankingEngine(ranking_options);
+    if (create_result.error == ranking::RankingError::None) {
+        ranking_engine_ = std::move(create_result.engine);
+    }
+}
 
 std::uint64_t SnapshotPublisher::MonotonicMs(
     std::chrono::steady_clock::time_point now,
@@ -130,6 +147,11 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
 
         const auto monotonic_ms = MonotonicMs(now, instance_started_at_);
 
+        ranking::RankingResult ranking_result;
+        if (ranking_engine_) {
+            ranking_result = ranking_engine_->PushSnapshot(capture_result.capture.counters);
+        }
+
         if (tick_due) {
             const TrafficTickMessage tick{
                 .seq = ++tick_sequence_,
@@ -145,35 +167,70 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
         }
 
         if (snapshot_due) {
+            std::string status = "WarmingUp";
+            std::uint64_t snapshot_dl_rate = download_rate;
+            std::uint64_t snapshot_ul_rate = upload_rate;
+
             RankingSnapshotMessage snapshot{
                 .seq = ++snapshot_sequence_,
                 .monotonic_ms = monotonic_ms,
-                .status = "Ready",
+                .status = status,
                 .total_rate =
                     {
-                        .download_bytes_per_sec = download_rate,
-                        .upload_bytes_per_sec = upload_rate,
+                        .download_bytes_per_sec = snapshot_dl_rate,
+                        .upload_bytes_per_sec = snapshot_ul_rate,
                     },
             };
 
-            for (const auto& app_counter : capture_result.capture.counters.applications) {
-                RankingApplication app_item{
-                    .id = app_counter.id,
-                    .executable_path = app_counter.metadata.icon_key,
-                    .display_name = app_counter.metadata.display_name.empty()
-                                        ? app_counter.id
-                                        : app_counter.metadata.display_name,
-                    .icon_key = app_counter.metadata.icon_key,
-                    .download_bytes_per_sec = app_counter.download_bytes,
-                    .upload_bytes_per_sec = app_counter.upload_bytes,
-                };
-                snapshot.applications.push_back(std::move(app_item));
+            if (ranking_result.accepted()) {
+                if (ranking_result.snapshot.status == ranking::RankingStatus::Ready) {
+                    snapshot.status = "Ready";
+                    snapshot.total_rate.download_bytes_per_sec = static_cast<std::uint64_t>(
+                        std::max(0.0, std::round(ranking_result.snapshot.total_rate
+                                                     .download_bytes_per_second)));
+                    snapshot.total_rate.upload_bytes_per_sec = static_cast<std::uint64_t>(std::max(
+                        0.0,
+                        std::round(ranking_result.snapshot.total_rate.upload_bytes_per_second)));
+                }
+                for (const auto& ranked_app : ranking_result.snapshot.applications) {
+                    RankingApplication app_item{
+                        .id = ranked_app.id,
+                        .executable_path = ranked_app.metadata.icon_key,
+                        .display_name = ranked_app.metadata.display_name.empty()
+                                            ? ranked_app.id
+                                            : ranked_app.metadata.display_name,
+                        .icon_key = ranked_app.metadata.icon_key,
+                        .download_bytes_per_sec = static_cast<std::uint64_t>(
+                            std::max(0.0, std::round(ranked_app.rate.download_bytes_per_second))),
+                        .upload_bytes_per_sec = static_cast<std::uint64_t>(
+                            std::max(0.0, std::round(ranked_app.rate.upload_bytes_per_second))),
+                    };
+                    snapshot.applications.push_back(std::move(app_item));
+                }
             }
 
             const auto pub_result = server_->PublishRankingSnapshot(snapshot);
             if (!pub_result.ok()) {
                 return PublisherFailure(PublisherError::ServerFailed);
             }
+
+            const CollectorStatusMessage status_msg{
+                .monotonic_ms = monotonic_ms,
+                .etw_session_active =
+                    capture_result.capture.health.state == collector::CollectorState::Running ||
+                    capture_result.capture.health.state == collector::CollectorState::Degraded,
+                .dropped_packets = capture_result.capture.health.events_lost +
+                                   capture_result.capture.health.realtime_buffers_lost,
+                .active_pids = capture_result.capture.active_pids != 0U
+                                   ? capture_result.capture.active_pids
+                                   : static_cast<std::uint32_t>(
+                                         capture_result.capture.counters.applications.size()),
+            };
+            const auto status_pub_result = server_->PublishCollectorStatus(status_msg);
+            if (!status_pub_result.ok()) {
+                return PublisherFailure(PublisherError::ServerFailed);
+            }
+
             last_snapshot_run_ = now;
         }
 

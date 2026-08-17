@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using NetworkFlowMonitor.Presentation;
 using NetworkFlowMonitor.Views;
 using Xunit;
@@ -31,15 +32,21 @@ public class WindowInteractionTests
                 Application.Current.Resources.MergedDictionaries.Add(dict);
 
                 var window = new MonitorPanelWindow();
-                window.Show();
+                // Create HWND headlessly (SW_HIDE, zero visual popup on screen)
+                var helper = new WindowInteropHelper(window);
+                helper.EnsureHandle();
 
+                // Raise right button up to open context menu
                 var mouseDevice = Mouse.PrimaryDevice;
-                var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right)
+                if (mouseDevice != null)
                 {
-                    RoutedEvent = UIElement.MouseRightButtonUpEvent,
-                    Source = window
-                };
-                window.RaiseEvent(eventArgs);
+                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right)
+                    {
+                        RoutedEvent = UIElement.MouseRightButtonUpEvent,
+                        Source = window
+                    };
+                    window.RaiseEvent(eventArgs);
+                }
 
                 window.Close();
             }
@@ -89,15 +96,20 @@ public class WindowInteractionTests
                     }
                 });
 
-                window.Show();
+                // Create HWND headlessly (SW_HIDE, zero visual popup on screen)
+                var helper = new WindowInteropHelper(window);
+                helper.EnsureHandle();
 
-                // Open context menu
-                var eventArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+                var mouseDevice = Mouse.PrimaryDevice;
+                if (mouseDevice != null)
                 {
-                    RoutedEvent = UIElement.MouseRightButtonUpEvent,
-                    Source = window
-                };
-                window.RaiseEvent(eventArgs);
+                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right)
+                    {
+                        RoutedEvent = UIElement.MouseRightButtonUpEvent,
+                        Source = window
+                    };
+                    window.RaiseEvent(eventArgs);
+                }
 
                 var menu = window.ContextMenu;
                 Assert.NotNull(menu);

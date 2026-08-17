@@ -1,0 +1,123 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Fluent Separator Style -->
+    <Style x:Key="FluentSeparatorStyle" TargetType="Separator">
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Margin" Value="4,2,4,2" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="#20FFFFFF" SnapsToDevicePixels="True" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Fluent MenuItem Style (Compact Win11) -->
+    <Style x:Key="FluentMenuItemStyle" TargetType="MenuItem">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Margin" Value="1,1,1,1" />
+        <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI, sans-serif" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="#F4F4F5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="MenuItemBorder"
+                            CornerRadius="4"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="6,0"
+                            SnapsToDevicePixels="True">
+                        <Grid VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Checkmark / Icon Area -->
+                            <Grid Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Center" Width="14" Height="14">
+                                <!-- Checkmark Vector (Fluent Style) -->
+                                <Path x:Name="CheckmarkPath"
+                                      Data="M2,6 L5,9 L10,3"
+                                      Stroke="#38BDF8"
+                                      StrokeThickness="1.6"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Visibility="Collapsed"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Center" />
+
+                                <!-- Custom Icon Content -->
+                                <ContentPresenter x:Name="IconPresenter"
+                                                  ContentSource="Icon"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Grid>
+
+                            <!-- Header / Title -->
+                            <ContentPresenter Grid.Column="1"
+                                              ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              VerticalAlignment="Center"
+                                              Margin="2,0,4,0" />
+                        </Grid>
+                    </Border>
+
+                    <ControlTemplate.Triggers>
+                        <!-- Checked state -->
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="CheckmarkPath" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <!-- Highlighted (Hover) state -->
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="MenuItemBorder" Property="Background" Value="#22FFFFFF" />
+                            <Setter Property="Foreground" Value="#FFFFFF" />
+                        </Trigger>
+                        <!-- Pressed state -->
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="MenuItemBorder" Property="Background" Value="#18FFFFFF" />
+                        </Trigger>
+                        <!-- Disabled state -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="MenuItemBorder" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Fluent ContextMenu Style (Compact Win11) -->
+    <Style x:Key="FluentContextMenuStyle" TargetType="ContextMenu">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="HasDropShadow" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border CornerRadius="6"
+                            Background="#F01C1C20"
+                            BorderBrush="#38FFFFFF"
+                            BorderThickness="1"
+                            Padding="3,3"
+                            MinHeight="30"
+                            MinWidth="120">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="16"
+                                              ShadowDepth="4"
+                                              Direction="270"
+                                              Color="#000000"
+                                              Opacity="0.45" />
+                        </Border.Effect>
+                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource FluentMenuItemStyle}" />
+    </Style>
+
+</ResourceDictionary>

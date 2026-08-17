@@ -84,20 +84,38 @@ public sealed class MonitorPresentationHost : IDisposable {
         ApplyPresentationTargets(transition.Targets);
     }
 
+    private MonitorPresentationState _currentVisibility = MonitorPresentationState.CapsuleVisible;
+
     private void ApplyPresentationTargets(PresentationTargets targets) {
+        var prevVisibility = _currentVisibility;
+        _currentVisibility = targets.VisibilityState;
+
         switch (targets.VisibilityState) {
             case MonitorPresentationState.CapsuleVisible:
-                _panelWindow.Hide();
-                PositionWindow(_capsuleWindow, targets.TargetBounds);
+                PositionWindow(_capsuleWindow, targets.TargetBounds, isCapsule: true);
                 _capsuleWindow.UpdateDockSide(targets.DockSide);
-                _capsuleWindow.Show();
+                _capsuleWindow.UpdatePinState(_state.PinPreference, _config.AutoHideEnabled);
+
+                if (prevVisibility == MonitorPresentationState.PanelVisible) {
+                    _panelWindow.AnimateDismiss(targets.DockSide, _config.ReducedMotion, () => _panelWindow.Hide());
+                    _capsuleWindow.AnimateReveal(targets.DockSide, _config.ReducedMotion);
+                } else {
+                    _panelWindow.Hide();
+                    _capsuleWindow.Show();
+                }
                 break;
 
             case MonitorPresentationState.PanelVisible:
-                _capsuleWindow.Hide();
-                PositionWindow(_panelWindow, targets.TargetBounds);
+                PositionWindow(_panelWindow, targets.TargetBounds, isCapsule: false);
                 _panelWindow.UpdatePinState(_state.PinPreference, _config.AutoHideEnabled);
-                _panelWindow.Show();
+
+                if (prevVisibility != MonitorPresentationState.PanelVisible) {
+                    _capsuleWindow.Hide();
+                    _panelWindow.AnimateReveal(targets.DockSide, _config.ReducedMotion);
+                } else {
+                    _capsuleWindow.Hide();
+                    _panelWindow.Show();
+                }
                 break;
 
             case MonitorPresentationState.TrayOnly:
@@ -107,7 +125,7 @@ public sealed class MonitorPresentationHost : IDisposable {
         }
     }
 
-    private static void PositionWindow(Window window, PixelRect bounds) {
+    private static void PositionWindow(Window window, PixelRect bounds, bool isCapsule) {
         // Convert screen pixel bounds to WPF DIP coordinates
         var source = PresentationSource.FromVisual(window);
         var dpiX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
@@ -118,7 +136,7 @@ public sealed class MonitorPresentationHost : IDisposable {
         if (bounds.Width > 0) {
             window.Width = bounds.Width / dpiX;
         }
-        if (bounds.Height > 0) {
+        if (isCapsule && bounds.Height > 0) {
             window.Height = bounds.Height / dpiY;
         }
     }
@@ -146,8 +164,8 @@ public sealed class MonitorPresentationHost : IDisposable {
 
             // Update visuals
             var capsuleRates = MonitorLayout.MapCapsuleRates(snapshot.DownloadBytesPerSec, snapshot.UploadBytesPerSec);
-            _capsuleWindow.UpdateRates(capsuleRates);
-            _panelWindow.UpdateSnapshot(snapshot);
+            _capsuleWindow.UpdateRates(capsuleRates, _config.ReducedMotion);
+            _panelWindow.UpdateSnapshot(snapshot, _config.ReducedMotion);
         });
     }
 

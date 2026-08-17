@@ -52,7 +52,16 @@ public static class DwmBackdropAdapter {
                 sizeof(int)
             );
 
-            // Set system backdrop type (Windows 11 22H2+)
+            // Remove DWM default 1px white border
+            var noBorder = unchecked((int)NativeMethods.DWMWA_COLOR_NONE);
+            NativeMethods.DwmSetWindowAttribute(
+                hwnd,
+                NativeMethods.DWMWA_BORDER_COLOR,
+                ref noBorder,
+                sizeof(int)
+            );
+
+            // Set system backdrop type (Windows 11 22H2+: Acrylic / Mica)
             var backdropValue = (int)backdrop;
             NativeMethods.DwmSetWindowAttribute(
                 hwnd,
@@ -61,7 +70,7 @@ public static class DwmBackdropAdapter {
                 sizeof(int)
             );
 
-            // Set corner preference
+            // Set corner preference (DWM hardware-clipped rounded corners)
             var cornerValue = (int)corner;
             NativeMethods.DwmSetWindowAttribute(
                 hwnd,
@@ -75,6 +84,33 @@ public static class DwmBackdropAdapter {
             NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
 
             return true;
+        } catch {
+            return false;
+        }
+    }
+
+    public static bool EnableBlurBehind(IntPtr hwnd) {
+        if (hwnd == IntPtr.Zero) {
+            return false;
+        }
+
+        try {
+            var isDark = 1;
+            NativeMethods.DwmSetWindowAttribute(
+                hwnd,
+                NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                ref isDark,
+                sizeof(int)
+            );
+
+            var bb = new NativeMethods.DWM_BLURBEHIND {
+                dwFlags = NativeMethods.DWM_BB_ENABLE,
+                fEnable = true,
+                hRgnBlur = IntPtr.Zero,
+                fTransitionOnMaximized = false
+            };
+
+            return NativeMethods.DwmEnableBlurBehindWindow(hwnd, ref bb) == 0;
         } catch {
             return false;
         }

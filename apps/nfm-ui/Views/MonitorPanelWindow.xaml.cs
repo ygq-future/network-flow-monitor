@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using NetworkFlowMonitor.Interop;
 using NetworkFlowMonitor.Presentation;
 using NetworkFlowMonitor.Services;
@@ -14,16 +17,129 @@ using NetworkFlowMonitor.Store;
 
 namespace NetworkFlowMonitor.Views;
 
+public sealed class RankingRowItemModel : INotifyPropertyChanged {
+    private ImageSource _icon;
+    private double _translateY;
+    private double _opacity = 1.0;
+    private string _displayName;
+    private string _downloadRateText;
+    private string _uploadRateText;
+
+    public string Id { get; }
+    public string? ExecutablePath { get; }
+
+    public string DisplayName {
+        get => _displayName;
+        set {
+            if (_displayName != value) {
+                _displayName = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+            }
+        }
+    }
+
+    public string DownloadRateText {
+        get => _downloadRateText;
+        set {
+            if (_downloadRateText != value) {
+                _downloadRateText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadRateText)));
+            }
+        }
+    }
+
+    public string UploadRateText {
+        get => _uploadRateText;
+        set {
+            if (_uploadRateText != value) {
+                _uploadRateText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UploadRateText)));
+            }
+        }
+    }
+
+    public ImageSource Icon {
+        get => _icon;
+        set {
+            if (_icon != value) {
+                _icon = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Icon)));
+            }
+        }
+    }
+
+    public double TranslateY {
+        get => _translateY;
+        set {
+            if (Math.Abs(_translateY - value) > 0.001) {
+                _translateY = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TranslateY)));
+            }
+        }
+    }
+
+    public double Opacity {
+        get => _opacity;
+        set {
+            if (Math.Abs(_opacity - value) > 0.001) {
+                _opacity = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Opacity)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public RankingRowItemModel(
+        string id,
+        string displayName,
+        string? executablePath,
+        string downloadRateText,
+        string uploadRateText,
+        ImageSource initialIcon) {
+        Id = id;
+        _displayName = displayName;
+        ExecutablePath = executablePath;
+        _downloadRateText = downloadRateText;
+        _uploadRateText = uploadRateText;
+        _icon = initialIcon;
+    }
+}
+
 public partial class MonitorPanelWindow : Window {
     private Action<MonitorEvent>? _eventDispatcher;
     private HwndSourceHookAdapter? _hookAdapter;
     private ContextMenu? _contextMenu;
     private GlobalMouseHook? _mouseHook;
+    private GlobalMouseHook? _outsideClickHook;
     private MenuItem? _hideMenuItem;
     private MenuItem? _pinMenuItem;
     private MenuItem? _retryMenuItem;
     private MenuItem? _settingsItem;
     private MenuItem? _exitItem;
+
+    private readonly Dictionary<string, RankingRowItemModel> _existingRows = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ObservableCollection<RankingRowItemModel> _rowItems = [];
+
+    private readonly List<RowTransition> _activeTransitions = [];
+    private bool _isRenderingHooked;
+
+    private sealed class RowTransition(
+        RankingRowItemModel row,
+        double startY,
+        double targetY,
+        double startOpacity,
+        double targetOpacity,
+        DateTime startTime,
+        TimeSpan duration) {
+        public RankingRowItemModel Row { get; } = row;
+        public double StartY { get; } = startY;
+        public double TargetY { get; } = targetY;
+        public double StartOpacity { get; } = startOpacity;
+        public double TargetOpacity { get; } = targetOpacity;
+        public DateTime StartTime { get; } = startTime;
+        public TimeSpan Duration { get; } = duration;
+    }
 
     public MonitorPanelWindow() {
         InitializeComponent();
@@ -34,6 +150,8 @@ public partial class MonitorPanelWindow : Window {
         MouseMove += OnMouseMove;
         MouseLeftButtonUp += OnMouseLeftButtonUp;
         MouseRightButtonUp += OnMouseRightButtonUp;
+
+        RankingItemsControl.ItemsSource = _rowItems;
 
         SetupContextMenu();
         LocalizationService.LanguageChanged += UpdateLocalizedTexts;
@@ -47,15 +165,138 @@ public partial class MonitorPanelWindow : Window {
     private void OnSourceInitialized(object? sender, EventArgs e) {
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero) {
-            DwmBackdropAdapter.ApplyBackdrop(hwnd, BackdropType.Acrylic, CornerPreference.Round, darkMode: true);
+            DwmBackdropAdapter.EnableBlurBehind(hwnd);
             DwmBackdropAdapter.ConfigureFloatingWindowStyles(hwnd, topmost: true);
             _hookAdapter = HwndSourceHookAdapter.Attach(hwnd, ev => _eventDispatcher?.Invoke(ev));
         }
     }
 
+    private double _currentTargetHeight = 74.0;
+
+    public void AnimateReveal(DockSide side, bool reducedMotion) {
+        Show();
+        StartOutsideClickHook();
+
+        if (reducedMotion) {
+            PanelCard.Opacity = 1.0;
+            PanelCardScale.ScaleX = 1.0;
+            PanelCardScale.ScaleY = 1.0;
+            return;
+        }
+
+        PanelCard.RenderTransformOrigin = side == DockSide.Right ? new Point(1.0, 0.0) : new Point(0.0, 0.0);
+
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        PanelCard.BeginAnimation(UIElement.OpacityProperty, null);
+
+        PanelCardScale.ScaleX = 0.05;
+        PanelCardScale.ScaleY = 0.05;
+        PanelCard.Opacity = 0.0;
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = TimeSpan.FromMilliseconds(220);
+
+        var scaleXAnim = new DoubleAnimation(1.0, dur) { EasingFunction = ease };
+        var scaleYAnim = new DoubleAnimation(1.0, dur) { EasingFunction = ease };
+        var opacityAnim = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(180)) { EasingFunction = ease };
+
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleXAnim, HandoffBehavior.SnapshotAndReplace);
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleYAnim, HandoffBehavior.SnapshotAndReplace);
+        PanelCard.BeginAnimation(UIElement.OpacityProperty, opacityAnim, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    public void AnimateDismiss(DockSide side, bool reducedMotion, Action? onCompleted = null) {
+        StopOutsideClickHook();
+
+        if (reducedMotion) {
+            PanelCard.Opacity = 0.0;
+            onCompleted?.Invoke();
+            return;
+        }
+
+        PanelCard.RenderTransformOrigin = side == DockSide.Right ? new Point(1.0, 0.0) : new Point(0.0, 0.0);
+        var ease = new QuadraticEase { EasingMode = EasingMode.EaseIn };
+        var dur = TimeSpan.FromMilliseconds(180);
+
+        var scaleXAnim = new DoubleAnimation(0.05, dur) { EasingFunction = ease };
+        var scaleYAnim = new DoubleAnimation(0.05, dur) { EasingFunction = ease };
+        var opacityAnim = new DoubleAnimation(0.0, dur) { EasingFunction = ease };
+
+        if (onCompleted != null) {
+            opacityAnim.Completed += (_, _) => onCompleted();
+        }
+
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleXAnim, HandoffBehavior.SnapshotAndReplace);
+        PanelCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleYAnim, HandoffBehavior.SnapshotAndReplace);
+        PanelCard.BeginAnimation(UIElement.OpacityProperty, opacityAnim, HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void StartOutsideClickHook() {
+        _outsideClickHook?.Dispose();
+        _outsideClickHook = new GlobalMouseHook(screenPt => {
+            Dispatcher.BeginInvoke(() => {
+                if (_contextMenu != null && _contextMenu.IsOpen) {
+                    return;
+                }
+
+                if (IsVisible) {
+                    var source = PresentationSource.FromVisual(this) as HwndSource;
+                    if (source != null && source.Handle != IntPtr.Zero &&
+                        NativeMethods.GetWindowRect(source.Handle, out var lpRect)) {
+                        var rect = new PixelRect(lpRect.Left, lpRect.Top, lpRect.Right, lpRect.Bottom);
+                        if (!rect.Contains(screenPt)) {
+                            // Instantly dismiss when clicking outside the panel
+                            _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.DismissDeadline));
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    private void StopOutsideClickHook() {
+        _outsideClickHook?.Dispose();
+        _outsideClickHook = null;
+    }
+
+    private void AnimateHeightTo(double targetHeight, bool reducedMotion) {
+        if (Math.Abs(_currentTargetHeight - targetHeight) < 0.5) {
+            return;
+        }
+
+        _currentTargetHeight = targetHeight;
+
+        if (reducedMotion || ActualHeight <= 0) {
+            BeginAnimation(HeightProperty, null);
+            Height = targetHeight;
+            return;
+        }
+
+        var anim = new DoubleAnimation {
+            To = targetHeight,
+            Duration = TimeSpan.FromMilliseconds(220),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        BeginAnimation(HeightProperty, anim, HandoffBehavior.SnapshotAndReplace);
+    }
+
     private void SetupContextMenu() {
-        var menuStyle = (Style)FindResource("FluentContextMenuStyle");
-        var separatorStyle = (Style)FindResource("FluentSeparatorStyle");
+        var menuStyle = TryFindResource("FluentContextMenuStyle") as Style;
+        var separatorStyle = TryFindResource("FluentSeparatorStyle") as Style;
+
+        if (menuStyle == null) {
+            try {
+                var dict = new ResourceDictionary {
+                    Source = new Uri("/NetworkFlowMonitor;component/Resources/FluentStyles.xaml", UriKind.RelativeOrAbsolute)
+                };
+                Resources.MergedDictionaries.Add(dict);
+                menuStyle = dict["FluentContextMenuStyle"] as Style;
+                separatorStyle = dict["FluentSeparatorStyle"] as Style;
+            } catch {
+                // Fallback to default
+            }
+        }
 
         _contextMenu = new ContextMenu {
             Style = menuStyle,
@@ -63,7 +304,6 @@ public partial class MonitorPanelWindow : Window {
             Placement = PlacementMode.MousePoint
         };
 
-        // Suppress all right-clicks on context menu items: only left-click can activate menu items
         _contextMenu.PreviewMouseRightButtonDown += (_, e) => e.Handled = true;
         _contextMenu.PreviewMouseRightButtonUp += (_, e) => e.Handled = true;
 
@@ -102,7 +342,6 @@ public partial class MonitorPanelWindow : Window {
         _contextMenu.Opened += (_, _) => {
             _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.ContextMenuOpened));
 
-            // Start global mouse hook to detect click outside context menu anywhere on screen
             _mouseHook?.Dispose();
             _mouseHook = new GlobalMouseHook(screenPt => {
                 Dispatcher.BeginInvoke(() => {
@@ -159,40 +398,188 @@ public partial class MonitorPanelWindow : Window {
         }
     }
 
-    public void UpdateSnapshot(TelemetrySnapshot snapshot) {
+    public void UpdateSnapshot(TelemetrySnapshot snapshot, bool reducedMotion = false) {
         HeaderDownloadText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec);
         HeaderUploadText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec);
 
         if (snapshot.ConnectionState != CollectorConnectionState.Connected) {
             StatusRowText.Text = LocalizationService.CollectorOffline;
             StatusRow.Visibility = Visibility.Visible;
-            RankingItemsControl.Visibility = Visibility.Collapsed;
+            RankingScrollViewer.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RetryCollector;
+            _rowItems.Clear();
+            _existingRows.Clear();
+            _activeTransitions.Clear();
+            StopRenderingHook();
+            AnimateHeightTo(74.0, reducedMotion);
         } else if (snapshot.DataState == TelemetryDataState.Warmup) {
             StatusRowText.Text = LocalizationService.CollectingData;
             StatusRow.Visibility = Visibility.Visible;
-            RankingItemsControl.Visibility = Visibility.Collapsed;
+            RankingScrollViewer.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
+            _rowItems.Clear();
+            _existingRows.Clear();
+            _activeTransitions.Clear();
+            StopRenderingHook();
+            AnimateHeightTo(74.0, reducedMotion);
         } else if (snapshot.DataState == TelemetryDataState.Idle) {
             StatusRowText.Text = LocalizationService.NoNetworkActivity;
             StatusRow.Visibility = Visibility.Visible;
-            RankingItemsControl.Visibility = Visibility.Collapsed;
+            RankingScrollViewer.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
+            _rowItems.Clear();
+            _existingRows.Clear();
+            _activeTransitions.Clear();
+            StopRenderingHook();
+            AnimateHeightTo(74.0, reducedMotion);
         } else {
             StatusRow.Visibility = Visibility.Collapsed;
-            RankingItemsControl.Visibility = Visibility.Visible;
+            RankingScrollViewer.Visibility = Visibility.Visible;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
 
-            var items = snapshot.LatestRanking?.Applications?
-                .Select(app => new RankingRowItem(
-                    DisplayName: string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName,
-                    ExecutablePath: app.ExecutablePath,
-                    DownloadRateText: RateFormatter.FormatRate(app.DownloadBytesPerSec),
-                    UploadRateText: RateFormatter.FormatRate(app.UploadBytesPerSec)
-                ))
-                .ToList() ?? [];
+            var apps = snapshot.LatestRanking?.Applications ?? [];
+            var targetCount = Math.Max(1, apps.Length);
+            var targetHeight = Math.Min(520.0, 36.0 + (targetCount * 28.0) + 10.0);
+            AnimateHeightTo(targetHeight, reducedMotion);
 
-            RankingItemsControl.ItemsSource = items;
+            var oldIndexMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < _rowItems.Count; i++) {
+                oldIndexMap[_rowItems[i].Id] = i;
+            }
+
+            var newRowList = new List<RankingRowItemModel>();
+            var activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var now = DateTime.UtcNow;
+            var animDuration = TimeSpan.FromMilliseconds(250);
+
+            for (int newIndex = 0; newIndex < apps.Length; newIndex++) {
+                var app = apps[newIndex];
+                activeKeys.Add(app.Id);
+                var dlText = RateFormatter.FormatRate(app.DownloadBytesPerSec);
+                var ulText = RateFormatter.FormatRate(app.UploadBytesPerSec);
+                var name = string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName;
+
+                if (_existingRows.TryGetValue(app.Id, out var existingRow)) {
+                    existingRow.DisplayName = name;
+                    existingRow.DownloadRateText = dlText;
+                    existingRow.UploadRateText = ulText;
+
+                    if (oldIndexMap.TryGetValue(app.Id, out var oldIndex) && oldIndex != newIndex && !reducedMotion) {
+                        var deltaY = (oldIndex - newIndex) * 28.0;
+                        StartRowTransition(existingRow, existingRow.TranslateY + deltaY, 0.0, existingRow.Opacity, 1.0, now, animDuration);
+                    } else {
+                        existingRow.TranslateY = 0.0;
+                        existingRow.Opacity = 1.0;
+                    }
+                    newRowList.Add(existingRow);
+                } else {
+                    var newRow = new RankingRowItemModel(
+                        app.Id,
+                        name,
+                        app.ExecutablePath,
+                        dlText,
+                        ulText,
+                        AppIconCache.FallbackIcon
+                    );
+                    _existingRows[app.Id] = newRow;
+
+                    if (!reducedMotion) {
+                        newRow.Opacity = 0.0;
+                        newRow.TranslateY = 14.0;
+                        StartRowTransition(newRow, 14.0, 0.0, 0.0, 1.0, now, animDuration);
+                    } else {
+                        newRow.Opacity = 1.0;
+                        newRow.TranslateY = 0.0;
+                    }
+
+                    newRowList.Add(newRow);
+
+                    if (!string.IsNullOrWhiteSpace(app.ExecutablePath)) {
+                        AppIconCache.GetIconAsync(app.ExecutablePath, app.IconKey).ContinueWith(t => {
+                            if (t.IsCompletedSuccessfully && t.Result != null) {
+                                Dispatcher.BeginInvoke(() => newRow.Icon = t.Result);
+                            }
+                        });
+                    }
+                }
+            }
+
+            var toRemove = _existingRows.Keys.Where(k => !activeKeys.Contains(k)).ToList();
+            foreach (var k in toRemove) {
+                _existingRows.Remove(k);
+            }
+
+            // In-place sync into ObservableCollection to keep visual containers alive
+            for (int i = 0; i < newRowList.Count; i++) {
+                if (i < _rowItems.Count) {
+                    if (!ReferenceEquals(_rowItems[i], newRowList[i])) {
+                        _rowItems[i] = newRowList[i];
+                    }
+                } else {
+                    _rowItems.Add(newRowList[i]);
+                }
+            }
+            while (_rowItems.Count > newRowList.Count) {
+                _rowItems.RemoveAt(_rowItems.Count - 1);
+            }
+        }
+    }
+
+    private void StartRowTransition(
+        RankingRowItemModel row,
+        double startY,
+        double targetY,
+        double startOpacity,
+        double targetOpacity,
+        DateTime startTime,
+        TimeSpan duration) {
+        row.TranslateY = startY;
+        row.Opacity = startOpacity;
+        _activeTransitions.RemoveAll(t => t.Row.Id == row.Id);
+        _activeTransitions.Add(new RowTransition(row, startY, targetY, startOpacity, targetOpacity, startTime, duration));
+        EnsureRenderingHook();
+    }
+
+    private void EnsureRenderingHook() {
+        if (!_isRenderingHooked && _activeTransitions.Count > 0) {
+            _isRenderingHooked = true;
+            CompositionTarget.Rendering += OnCompositionRendering;
+        }
+    }
+
+    private void StopRenderingHook() {
+        if (_isRenderingHooked) {
+            _isRenderingHooked = false;
+            CompositionTarget.Rendering -= OnCompositionRendering;
+        }
+    }
+
+    private void OnCompositionRendering(object? sender, EventArgs e) {
+        if (_activeTransitions.Count == 0) {
+            StopRenderingHook();
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        for (int i = _activeTransitions.Count - 1; i >= 0; i--) {
+            var t = _activeTransitions[i];
+            var elapsed = (now - t.StartTime).TotalMilliseconds;
+            var progress = Math.Clamp(elapsed / t.Duration.TotalMilliseconds, 0.0, 1.0);
+            // Fluent Cubic Ease-Out: 1 - (1 - progress)^3
+            var ease = 1.0 - Math.Pow(1.0 - progress, 3);
+
+            t.Row.TranslateY = t.StartY + ((t.TargetY - t.StartY) * ease);
+            t.Row.Opacity = t.StartOpacity + ((t.TargetOpacity - t.StartOpacity) * ease);
+
+            if (progress >= 1.0) {
+                t.Row.TranslateY = t.TargetY;
+                t.Row.Opacity = t.TargetOpacity;
+                _activeTransitions.RemoveAt(i);
+            }
+        }
+
+        if (_activeTransitions.Count == 0) {
+            StopRenderingHook();
         }
     }
 
@@ -242,6 +629,8 @@ public partial class MonitorPanelWindow : Window {
     }
 
     protected override void OnClosed(EventArgs e) {
+        StopRenderingHook();
+        StopOutsideClickHook();
         _mouseHook?.Dispose();
         _mouseHook = null;
         LocalizationService.LanguageChanged -= UpdateLocalizedTexts;

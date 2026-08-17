@@ -163,6 +163,26 @@ public static class MonitorLayout {
         return new CapsuleTrack(fill, color);
     }
 
+    public static AnimationBallistics GetBallistics(float current, float target, bool reducedMotion) {
+        if (reducedMotion) {
+            return new AnimationBallistics(TimeSpan.Zero, null);
+        }
+
+        if (target > current) {
+            // Attack: 250 ms Fluent Cubic Ease-Out: 1 - (1 - t)^3
+            return new AnimationBallistics(
+                TimeSpan.FromMilliseconds(250),
+                new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            );
+        } else {
+            // Decay: 450 ms natural momentum decay: 1 - (1 - t)^2
+            return new AnimationBallistics(
+                TimeSpan.FromMilliseconds(450),
+                new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            );
+        }
+    }
+
     public static CapsulePresentation MapCapsuleRates(ulong downloadBytesPerSec, ulong uploadBytesPerSec) {
         return new CapsulePresentation(
             Track(downloadBytesPerSec, download: true),

@@ -26,6 +26,10 @@ public sealed class HwndSourceHookAdapter : IDisposable {
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
         switch (msg) {
+            case NativeMethods.WM_ERASEBKGND:
+                handled = true;
+                return (IntPtr)1;
+
             case NativeMethods.WM_DPICHANGED:
             case NativeMethods.WM_DISPLAYCHANGE:
             case NativeMethods.WM_SETTINGCHANGE:

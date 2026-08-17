@@ -88,6 +88,11 @@ public readonly record struct AnimationTarget(
     public static AnimationTarget None => new(MonitorAnimationKind.None, EasingKind.EaseOut, TimeSpan.Zero);
 }
 
+public sealed record AnimationBallistics(
+    TimeSpan Duration,
+    System.Windows.Media.Animation.IEasingFunction? EasingFunction
+);
+
 public readonly record struct PixelPoint(int X, int Y);
 
 public readonly record struct PixelSize(int Width, int Height);

@@ -10,6 +10,7 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
+[Collection("WpfTestFixtureGroup")]
 public class WindowInteractionTests {
     [Fact]
     public void MonitorPanelWindow_ContextMenuOpen_DoesNotThrow() {

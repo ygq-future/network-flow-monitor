@@ -120,4 +120,75 @@
         <Setter Property="ItemContainerStyle" Value="{StaticResource FluentMenuItemStyle}" />
     </Style>
 
+    <!-- Fluent ScrollBar Thumb Style -->
+    <Style x:Key="FluentScrollBarThumbStyle" TargetType="Thumb">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ThumbBorder"
+                            CornerRadius="2"
+                            Background="#44FFFFFF"
+                            Width="4"
+                            HorizontalAlignment="Right"
+                            SnapsToDevicePixels="True" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="#88FFFFFF" />
+                            <Setter TargetName="ThumbBorder" Property="Width" Value="6" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="ThumbBorder" Property="Background" Value="#AAFFFFFF" />
+                            <Setter TargetName="ThumbBorder" Property="Width" Value="6" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Fluent ScrollBar Style -->
+    <Style x:Key="FluentScrollBarStyle" TargetType="ScrollBar">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Width" Value="8" />
+        <Setter Property="MinWidth" Value="8" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="Transparent">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True" HorizontalAlignment="Right">
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource FluentScrollBarThumbStyle}" />
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Fluent ScrollViewer Style -->
+    <Style x:Key="FluentScrollViewerStyle" TargetType="ScrollViewer">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid>
+                        <ScrollContentPresenter CanContentScroll="{TemplateBinding CanContentScroll}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar"
+                                   HorizontalAlignment="Right"
+                                   Orientation="Vertical"
+                                   ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Maximum="{TemplateBinding ScrollableHeight}"
+                                   Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                   Style="{StaticResource FluentScrollBarStyle}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

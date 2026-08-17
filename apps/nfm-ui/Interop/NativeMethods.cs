@@ -5,6 +5,7 @@ namespace NetworkFlowMonitor.Interop;
 
 internal static class NativeMethods {
     public const int WM_MOVE = 0x0003;
+    public const int WM_ERASEBKGND = 0x0014;
     public const int WM_SETTINGCHANGE = 0x001A;
     public const int WM_WINDOWPOSCHANGING = 0x0046;
     public const int WM_WINDOWPOSCHANGED = 0x0047;
@@ -25,6 +26,7 @@ internal static class NativeMethods {
     public const int HTCAPTION = 2;
 
     public const int GWL_EXSTYLE = -20;
+    public const int GCLP_HBRBACKGROUND = -10;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int WS_EX_NOACTIVATE = 0x08000000;
     public const int WS_EX_TOPMOST = 0x00000008;
@@ -44,7 +46,50 @@ internal static class NativeMethods {
 
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWA_BORDER_COLOR = 34;
+    public const int DWMWA_CAPTION_COLOR = 35;
     public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    public const uint DWMWA_COLOR_NONE = 0xFFFFFFFE;
+
+    public const int WCA_ACCENT_POLICY = 19;
+
+    public enum AccentState {
+        ACCENT_DISABLED = 0,
+        ACCENT_ENABLE_GRADIENT = 1,
+        ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+        ACCENT_ENABLE_BLURBEHIND = 3,
+        ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+        ACCENT_INVALID_STATE = 5
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AccentPolicy {
+        public AccentState AccentState;
+        public int AccentFlags;
+        public uint GradientColor;
+        public int AnimationId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct WindowCompositionAttributeData {
+        public int Attribute;
+        public IntPtr Data;
+        public int SizeOfData;
+    }
+
+    public const uint DWM_BB_ENABLE = 0x00000001;
+    public const uint DWM_BB_BLURREGION = 0x00000002;
+    public const uint DWM_BB_TRANSITIONONMAXIMIZED = 0x00000004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DWM_BLURBEHIND {
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fEnable;
+        public IntPtr hRgnBlur;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fTransitionOnMaximized;
+    }
 
     public const int DWMWCP_DEFAULT = 0;
     public const int DWMWCP_DONOTROUND = 1;
@@ -121,11 +166,40 @@ internal static class NativeMethods {
         ref MARGINS pMarInset
     );
 
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmEnableBlurBehindWindow(IntPtr hWnd, ref DWM_BLURBEHIND pBlurBehind);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRoundRectRgn(
+        int x1, int y1, int x2, int y2,
+        int cx, int cy
+    );
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DeleteObject(IntPtr hObject);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtr", SetLastError = true)]
+    private static extern IntPtr SetClassLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLong", SetLastError = true)]
+    private static extern int SetClassLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    public static IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong) {
+        if (IntPtr.Size == 8) {
+            return SetClassLongPtr64(hWnd, nIndex, dwNewLong);
+        }
+        return new IntPtr(SetClassLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -164,6 +238,44 @@ internal static class NativeMethods {
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    public const uint SHGFI_ICON = 0x000000100;
+    public const uint SHGFI_SMALLICON = 0x000000001;
+    public const uint SHGFI_USEFILEATTRIBUTES = 0x000000010;
+    public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct SHFILEINFO {
+        public IntPtr hIcon;
+        public int iIcon;
+        public uint dwAttributes;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szDisplayName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
+        public string szTypeName;
+    }
+
+    [DllImport("shell32.dll", EntryPoint = "SHGetFileInfoW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr SHGetFileInfo(
+        [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
+        uint dwFileAttributes,
+        ref SHFILEINFO psfi,
+        uint cbFileInfo,
+        uint uFlags
+    );
+
+    [DllImport("shell32.dll", EntryPoint = "ExtractIconExW", CharSet = CharSet.Unicode)]
+    public static extern uint ExtractIconEx(
+        [MarshalAs(UnmanagedType.LPWStr)] string lpszFile,
+        int nIconIndex,
+        IntPtr[]? phiconLarge,
+        IntPtr[]? phiconSmall,
+        uint nIcons
+    );
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DestroyIcon(IntPtr hIcon);
 
     [DllImport("shcore.dll")]
     public static extern int GetDpiForMonitor(

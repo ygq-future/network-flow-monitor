@@ -5,33 +5,28 @@ using System.Windows.Interop;
 
 namespace NetworkFlowMonitor.Interop;
 
-public enum BackdropType
-{
+public enum BackdropType {
     None = NativeMethods.DWMSBT_NONE,
     Mica = NativeMethods.DWMSBT_MAINWINDOW,
     Acrylic = NativeMethods.DWMSBT_TRANSIENTWINDOW,
     MicaAlt = NativeMethods.DWMSBT_TABBEDWINDOW
 }
 
-public enum CornerPreference
-{
+public enum CornerPreference {
     Default = NativeMethods.DWMWCP_DEFAULT,
     DoNotRound = NativeMethods.DWMWCP_DONOTROUND,
     Round = NativeMethods.DWMWCP_ROUND,
     RoundSmall = NativeMethods.DWMWCP_ROUNDSMALL
 }
 
-public static class DwmBackdropAdapter
-{
+public static class DwmBackdropAdapter {
     public static bool ApplyBackdrop(
         Window window,
         BackdropType backdrop = BackdropType.Acrylic,
         CornerPreference corner = CornerPreference.Round,
-        bool darkMode = true)
-    {
+        bool darkMode = true) {
         var hwnd = new WindowInteropHelper(window).Handle;
-        if (hwnd == IntPtr.Zero)
-        {
+        if (hwnd == IntPtr.Zero) {
             return false;
         }
 
@@ -42,15 +37,12 @@ public static class DwmBackdropAdapter
         IntPtr hwnd,
         BackdropType backdrop = BackdropType.Acrylic,
         CornerPreference corner = CornerPreference.Round,
-        bool darkMode = true)
-    {
-        if (hwnd == IntPtr.Zero)
-        {
+        bool darkMode = true) {
+        if (hwnd == IntPtr.Zero) {
             return false;
         }
 
-        try
-        {
+        try {
             // Set dark/light mode
             var isDark = darkMode ? 1 : 0;
             NativeMethods.DwmSetWindowAttribute(
@@ -83,26 +75,20 @@ public static class DwmBackdropAdapter
             NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
 
             return true;
-        }
-        catch
-        {
+        } catch {
             return false;
         }
     }
 
-    public static void ConfigureFloatingWindowStyles(IntPtr hwnd, bool topmost = true)
-    {
-        if (hwnd == IntPtr.Zero)
-        {
+    public static void ConfigureFloatingWindowStyles(IntPtr hwnd, bool topmost = true) {
+        if (hwnd == IntPtr.Zero) {
             return;
         }
 
-        try
-        {
+        try {
             var exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
             exStyle |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE;
-            if (topmost)
-            {
+            if (topmost) {
                 exStyle |= NativeMethods.WS_EX_TOPMOST;
             }
             NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, exStyle);
@@ -114,22 +100,17 @@ public static class DwmBackdropAdapter
                 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED
             );
-        }
-        catch
-        {
+        } catch {
             // Ignore styling errors on headless/mock environments
         }
     }
 
-    public static void SetTopmostState(IntPtr hwnd, bool topmost)
-    {
-        if (hwnd == IntPtr.Zero)
-        {
+    public static void SetTopmostState(IntPtr hwnd, bool topmost) {
+        if (hwnd == IntPtr.Zero) {
             return;
         }
 
-        try
-        {
+        try {
             var insertAfter = topmost ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_NOTOPMOST;
             NativeMethods.SetWindowPos(
                 hwnd,
@@ -137,9 +118,7 @@ public static class DwmBackdropAdapter
                 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE
             );
-        }
-        catch
-        {
+        } catch {
             // Ignore errors
         }
     }

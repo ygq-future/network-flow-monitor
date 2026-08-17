@@ -3,8 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace NetworkFlowMonitor.Interop;
 
-internal static class NativeMethods
-{
+internal static class NativeMethods {
     public const int WM_MOVE = 0x0003;
     public const int WM_SETTINGCHANGE = 0x001A;
     public const int WM_WINDOWPOSCHANGING = 0x0046;
@@ -65,15 +64,13 @@ internal static class NativeMethods
     public const uint MDT_EFFECTIVE_DPI = 0;
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct MARGINS
-    {
+    public struct MARGINS {
         public int cxLeftWidth;
         public int cxRightWidth;
         public int cyTopHeight;
         public int cyBottomHeight;
 
-        public MARGINS(int left, int right, int top, int bottom)
-        {
+        public MARGINS(int left, int right, int top, int bottom) {
             cxLeftWidth = left;
             cxRightWidth = right;
             cyTopHeight = top;
@@ -84,15 +81,13 @@ internal static class NativeMethods
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct RECT
-    {
+    public struct RECT {
         public int Left;
         public int Top;
         public int Right;
         public int Bottom;
 
-        public RECT(int left, int top, int right, int bottom)
-        {
+        public RECT(int left, int top, int right, int bottom) {
             Left = left;
             Top = top;
             Right = right;
@@ -101,8 +96,7 @@ internal static class NativeMethods
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    public struct MONITORINFOEX
-    {
+    public struct MONITORINFOEX {
         public int cbSize;
         public RECT rcMonitor;
         public RECT rcWork;

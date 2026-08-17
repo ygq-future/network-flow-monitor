@@ -7,16 +7,12 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public class ProtocolFixtureTests
-{
-    private static string FindFixturesDirectory()
-    {
+public class ProtocolFixtureTests {
+    private static string FindFixturesDirectory() {
         var current = AppContext.BaseDirectory;
-        for (int i = 0; i < 12; i++)
-        {
+        for (int i = 0; i < 12; i++) {
             var candidate = Path.Combine(current, "tests", "fixtures");
-            if (Directory.Exists(candidate))
-            {
+            if (Directory.Exists(candidate)) {
                 return candidate;
             }
             var parent = Directory.GetParent(current);
@@ -27,8 +23,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void FramingVectors_AllVectors_PassValidation()
-    {
+    public void FramingVectors_AllVectors_PassValidation() {
         var fixturesDir = FindFixturesDirectory();
         var vectorsFile = Path.Combine(fixturesDir, "framing_vectors.json");
         Assert.True(File.Exists(vectorsFile), "framing_vectors.json exists");
@@ -42,8 +37,7 @@ public class ProtocolFixtureTests
         Assert.Equal(262144, root.GetProperty("max_payload_length_bytes").GetInt32());
         Assert.Equal(1, root.GetProperty("current_protocol_version").GetInt32());
 
-        foreach (var vector in root.GetProperty("vectors").EnumerateArray())
-        {
+        foreach (var vector in root.GetProperty("vectors").EnumerateArray()) {
             var name = vector.GetProperty("name").GetString()!;
             var isValid = vector.GetProperty("valid").GetBoolean();
             var hexWire = vector.GetProperty("hex_encoded_wire").GetString()!;
@@ -51,8 +45,7 @@ public class ProtocolFixtureTests
 
             var parseResult = ProtocolV1Codec.TryDecodeFrame(wireBytes, out var header, out var payload, out var requiredBytes, out var errorCode);
 
-            if (isValid)
-            {
+            if (isValid) {
                 Assert.True(parseResult == FrameParseStatus.Decoded, $"Vector '{name}' failed with status={parseResult}, error={errorCode}, required={requiredBytes}, wireLen={wireBytes.Length}");
                 Assert.Equal(ProtocolErrorCode.None, errorCode);
 
@@ -61,8 +54,7 @@ public class ProtocolFixtureTests
                 Assert.Equal((MessageType)expectedHeader.GetProperty("message_type").GetUInt16(), header.MessageType);
                 Assert.Equal(expectedHeader.GetProperty("payload_length").GetUInt32(), header.PayloadLength);
 
-                if (header.PayloadLength > 0)
-                {
+                if (header.PayloadLength > 0) {
                     var expectedJson = vector.GetProperty("payload_json").GetString();
                     var actualJson = System.Text.Encoding.UTF8.GetString(payload.Span);
                     // Verify both represent equivalent JSON
@@ -70,9 +62,7 @@ public class ProtocolFixtureTests
                     using var actualDoc = JsonDocument.Parse(actualJson);
                     Assert.Equal(expectedDoc.RootElement.ToString(), actualDoc.RootElement.ToString());
                 }
-            }
-            else
-            {
+            } else {
                 Assert.True(parseResult == FrameParseStatus.Rejected, $"Vector '{name}' should be rejected");
                 var expectedError = vector.GetProperty("expected_error").GetString();
                 Assert.Equal(expectedError, errorCode.ToString());
@@ -81,8 +71,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_Hello_RoundTrips()
-    {
+    public void MessageFixtures_Hello_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var helloFile = Path.Combine(fixturesDir, "messages", "hello.json");
         var json = File.ReadAllText(helloFile);
@@ -101,8 +90,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_HelloAck_RoundTrips()
-    {
+    public void MessageFixtures_HelloAck_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var file = Path.Combine(fixturesDir, "messages", "hello_ack.json");
         var json = File.ReadAllText(file);
@@ -117,8 +105,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_TrafficTick_RoundTrips()
-    {
+    public void MessageFixtures_TrafficTick_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var file = Path.Combine(fixturesDir, "messages", "traffic_tick.json");
         var json = File.ReadAllText(file);
@@ -132,8 +119,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_RankingSnapshot_RoundTrips()
-    {
+    public void MessageFixtures_RankingSnapshot_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var file = Path.Combine(fixturesDir, "messages", "ranking_snapshot.json");
         var json = File.ReadAllText(file);
@@ -149,8 +135,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_CollectorStatus_RoundTrips()
-    {
+    public void MessageFixtures_CollectorStatus_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var file = Path.Combine(fixturesDir, "messages", "collector_status.json");
         var json = File.ReadAllText(file);
@@ -162,8 +147,7 @@ public class ProtocolFixtureTests
     }
 
     [Fact]
-    public void MessageFixtures_ShutdownRequest_RoundTrips()
-    {
+    public void MessageFixtures_ShutdownRequest_RoundTrips() {
         var fixturesDir = FindFixturesDirectory();
         var file = Path.Combine(fixturesDir, "messages", "shutdown_request.json");
         var json = File.ReadAllText(file);

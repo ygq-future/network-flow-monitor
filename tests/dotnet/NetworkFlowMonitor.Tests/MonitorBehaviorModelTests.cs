@@ -6,10 +6,8 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public sealed class MonitorBehaviorModelTests
-{
-    private static MonitorEnvironment CreateDualMonitorEnvironment()
-    {
+public sealed class MonitorBehaviorModelTests {
+    private static MonitorEnvironment CreateDualMonitorEnvironment() {
         return new MonitorEnvironment(
         [
             new MonitorWorkArea(
@@ -27,8 +25,7 @@ public sealed class MonitorBehaviorModelTests
         ]);
     }
 
-    private static MonitorEnvironment CreateSingleMonitorEnvironment(int bottom = 1080)
-    {
+    private static MonitorEnvironment CreateSingleMonitorEnvironment(int bottom = 1080) {
         return new MonitorEnvironment(
         [
             new MonitorWorkArea(
@@ -41,8 +38,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void Docking_FollowsPointerAndSnapsToReleaseMonitorEdge()
-    {
+    public void Docking_FollowsPointerAndSnapsToReleaseMonitorEdge() {
         var state = new MonitorState();
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
@@ -92,8 +88,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void PanelDragAndCancel_RestoresOriginalAnchor()
-    {
+    public void PanelDragAndCancel_RestoresOriginalAnchor() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig(Pinned: true);
 
@@ -132,8 +127,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void DragRemainsStableDuringDataRefresh()
-    {
+    public void DragRemainsStableDuringDataRefresh() {
         var env = CreateDualMonitorEnvironment();
         var capsuleConfig = new MonitorConfig();
 
@@ -202,8 +196,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void CapsuleHoverAndClickReveal_WorkCorrectly()
-    {
+    public void CapsuleHoverAndClickReveal_WorkCorrectly() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -245,8 +238,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void ContentDerivedHeight_CalculatesBoundsFromVisibleRows()
-    {
+    public void ContentDerivedHeight_CalculatesBoundsFromVisibleRows() {
         var env = CreateSingleMonitorEnvironment();
         var config = new MonitorConfig(Pinned: true, TopN: 5);
 
@@ -314,8 +306,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void MissingMonitorFallback_RestoresToPrimary()
-    {
+    public void MissingMonitorFallback_RestoresToPrimary() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -343,8 +334,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void SmallWorkAreaAndTieBreaking_BehavesDeterministically()
-    {
+    public void SmallWorkAreaAndTieBreaking_BehavesDeterministically() {
         var env = new MonitorEnvironment(
         [
             new MonitorWorkArea(
@@ -393,8 +383,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void FirstUseAndHitBounds_CalculatesMinimumInwardHitExtension()
-    {
+    public void FirstUseAndHitBounds_CalculatesMinimumInwardHitExtension() {
         var env = new MonitorEnvironment(
         [
             new MonitorWorkArea(
@@ -479,10 +468,8 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void AutoHideRevealReservation_ReservesTwoPixelsOnDockedEdge()
-    {
-        foreach (var side in new[] { DockSide.Left, DockSide.Right })
-        {
+    public void AutoHideRevealReservation_ReservesTwoPixelsOnDockedEdge() {
+        foreach (var side in new[] { DockSide.Left, DockSide.Right }) {
             var env = new MonitorEnvironment(
             [
                 new MonitorWorkArea(
@@ -510,20 +497,16 @@ public sealed class MonitorBehaviorModelTests
             Assert.True(state.State.Bounds.Left >= env.Monitors[0].Rect.Left);
             Assert.True(state.State.Bounds.Right <= env.Monitors[0].Rect.Right);
 
-            if (side == DockSide.Left)
-            {
+            if (side == DockSide.Left) {
                 Assert.Equal(12, state.State.Bounds.Left);
-            }
-            else
-            {
+            } else {
                 Assert.Equal(14, state.State.Bounds.Right);
             }
         }
     }
 
     [Fact]
-    public void TimingAndThresholds_HandleHoverAndDismiss()
-    {
+    public void TimingAndThresholds_HandleHoverAndDismiss() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig(
             MinimumDragDistanceXPixels: 8,
@@ -641,8 +624,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void ContextMenuPausesAutoHide_AndReconcilesPointer()
-    {
+    public void ContextMenuPausesAutoHide_AndReconcilesPointer() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -715,8 +697,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void ContextMenu_AllowsVisibilityAndPinCommands()
-    {
+    public void ContextMenu_AllowsVisibilityAndPinCommands() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -725,8 +706,7 @@ public sealed class MonitorBehaviorModelTests
             new MonitorEvent(MonitorEventKind.Start),
             env,
             config
-        ).State with
-        {
+        ).State with {
             State = MonitorPresentationState.PanelVisible
         };
 
@@ -757,8 +737,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void EnvironmentAndPersistenceFeedback_HandleDpiAndFailures()
-    {
+    public void EnvironmentAndPersistenceFeedback_HandleDpiAndFailures() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -822,8 +801,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void RateMapping_CalculatesLogarithmicFillAndPalettes()
-    {
+    public void RateMapping_CalculatesLogarithmicFillAndPalettes() {
         const ulong kib = 1024UL;
         const ulong mib = kib * 1024UL;
         const ulong gib = mib * 1024UL;
@@ -856,8 +834,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void PureRateToFill_ValidatesMathematicalEndpoints()
-    {
+    public void PureRateToFill_ValidatesMathematicalEndpoints() {
         Assert.Equal(0.0f, MonitorLayout.RateToFill(0));
         Assert.Equal(0.0f, MonitorLayout.RateToFill(1));
         Assert.InRange(MonitorLayout.RateToFill(1024), 0.333f, 0.334f);
@@ -867,8 +844,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void PinDisconnectAndViewport_ManageStateCorrectly()
-    {
+    public void PinDisconnectAndViewport_ManageStateCorrectly() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig(Pinned: true, TopN: 5);
 
@@ -960,8 +936,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void BottomCorrectionAndViewportScroll_FitsWorkArea()
-    {
+    public void BottomCorrectionAndViewportScroll_FitsWorkArea() {
         var env = CreateSingleMonitorEnvironment(200);
         var config = new MonitorConfig(Pinned: true, TopN: 100);
 
@@ -991,8 +966,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void TrayVisibilityToggle_TogglesBetweenTrayOnlyAndRestored()
-    {
+    public void TrayVisibilityToggle_TogglesBetweenTrayOnlyAndRestored() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 
@@ -1038,8 +1012,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void AutoHideDisabledControls_PreservesSavedPinPreference()
-    {
+    public void AutoHideDisabledControls_PreservesSavedPinPreference() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig(AutoHideEnabled: false, Pinned: true);
 
@@ -1073,8 +1046,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void FullscreenTopmostYield_UpdatesTopmostState()
-    {
+    public void FullscreenTopmostYield_UpdatesTopmostState() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig(YieldFullscreen: true);
 
@@ -1109,8 +1081,7 @@ public sealed class MonitorBehaviorModelTests
     }
 
     [Fact]
-    public void AnimationTargets_EmitsAppropriateTokens()
-    {
+    public void AnimationTargets_EmitsAppropriateTokens() {
         var env = CreateDualMonitorEnvironment();
         var config = new MonitorConfig();
 

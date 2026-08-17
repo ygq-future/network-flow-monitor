@@ -7,26 +7,22 @@ using NetworkFlowMonitor.Presentation;
 
 namespace NetworkFlowMonitor.Views;
 
-public partial class WpfSurfaceSpikeWindow : Window
-{
+public partial class WpfSurfaceSpikeWindow : Window {
     private IntPtr _hwnd;
 
-    public WpfSurfaceSpikeWindow()
-    {
+    public WpfSurfaceSpikeWindow() {
         InitializeComponent();
         SourceInitialized += OnSourceInitialized;
     }
 
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
+    private void OnSourceInitialized(object? sender, EventArgs e) {
         _hwnd = new WindowInteropHelper(this).Handle;
         ApplyCurrentSettings();
         AppendLog("WpfSurfaceSpikeWindow 初始化完成：WindowStyle=None, AllowsTransparency=False。");
         RunValidationChecks();
     }
 
-    private void ApplyCurrentSettings()
-    {
+    private void ApplyCurrentSettings() {
         if (_hwnd == IntPtr.Zero) return;
 
         var backdrop = RadioAcrylic.IsChecked == true ? BackdropType.Acrylic
@@ -42,8 +38,7 @@ public partial class WpfSurfaceSpikeWindow : Window
             : corner == CornerPreference.RoundSmall ? new CornerRadius(4)
             : new CornerRadius(0);
 
-        if (SpikeRoot != null)
-        {
+        if (SpikeRoot != null) {
             SpikeRoot.CornerRadius = cornerRadius;
         }
 
@@ -51,23 +46,19 @@ public partial class WpfSurfaceSpikeWindow : Window
         AppendLog($"切换材质 => 材质={backdrop}, 圆角={corner} (同步WPF边框半径={cornerRadius.TopLeft}px) => {(result ? "成功应用" : "应用失败/不受支持")}");
     }
 
-    private void OnBackdropChanged(object sender, RoutedEventArgs e)
-    {
+    private void OnBackdropChanged(object sender, RoutedEventArgs e) {
         ApplyCurrentSettings();
     }
 
-    private void OnCornerChanged(object sender, RoutedEventArgs e)
-    {
+    private void OnCornerChanged(object sender, RoutedEventArgs e) {
         ApplyCurrentSettings();
     }
 
-    private void OnRunChecksClicked(object sender, RoutedEventArgs e)
-    {
+    private void OnRunChecksClicked(object sender, RoutedEventArgs e) {
         RunValidationChecks();
     }
 
-    private void RunValidationChecks()
-    {
+    private void RunValidationChecks() {
         var sb = new StringBuilder();
         sb.AppendLine($"--- Windows 11 DWM 表面与环境检测 ---");
         sb.AppendLine($"系统版本: {Environment.OSVersion}");
@@ -80,8 +71,7 @@ public partial class WpfSurfaceSpikeWindow : Window
 
         var env = MonitorEnvironmentProvider.GetCurrentEnvironment();
         sb.AppendLine($"活跃显示器数量: {env.Monitors.Count}");
-        foreach (var m in env.Monitors)
-        {
+        foreach (var m in env.Monitors) {
             sb.AppendLine($"  - [{m.Id}] 工作区: {m.Rect.Left},{m.Rect.Top}..{m.Rect.Right},{m.Rect.Bottom} (DPI={m.Dpi}, 主屏={m.Primary}, 任务栏左避让={m.AutoHideRevealOnLeft}, 右避让={m.AutoHideRevealOnRight})");
         }
 
@@ -91,8 +81,7 @@ public partial class WpfSurfaceSpikeWindow : Window
 
         // Inward hit target check
         var primaryMon = MonitorBehaviorModel.PrimaryMonitor(env);
-        if (primaryMon != null)
-        {
+        if (primaryMon != null) {
             var bounds = MonitorLayout.BoundsFor(
                 new PersistedMonitorAnchor(primaryMon.Id, DockSide.Right, 100),
                 primaryMon,
@@ -109,17 +98,14 @@ public partial class WpfSurfaceSpikeWindow : Window
         AppendLog(sb.ToString());
     }
 
-    private void AppendLog(string message)
-    {
-        if (LogTextBox != null)
-        {
+    private void AppendLog(string message) {
+        if (LogTextBox != null) {
             LogTextBox.AppendText($"[{DateTime.Now:HH:mm:ss.fff}] {message}\n");
             LogTextBox.ScrollToEnd();
         }
     }
 
-    private void OnCloseClicked(object sender, RoutedEventArgs e)
-    {
+    private void OnCloseClicked(object sender, RoutedEventArgs e) {
         Close();
     }
 }

@@ -7,11 +7,9 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public class TelemetryStoreTests
-{
+public class TelemetryStoreTests {
     [Fact]
-    public void InitialState_IsDisconnectedAndZero()
-    {
+    public void InitialState_IsDisconnectedAndZero() {
         var store = new TelemetryStore();
         var snapshot = store.CurrentSnapshot;
 
@@ -26,14 +24,11 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateConnection_UpdatesStateAtomically()
-    {
+    public void UpdateConnection_UpdatesStateAtomically() {
         var store = new TelemetryStore();
         bool eventFired = false;
-        store.SnapshotUpdated += snap =>
-        {
-            if (snap.ConnectionState == CollectorConnectionState.Connected)
-            {
+        store.SnapshotUpdated += snap => {
+            if (snap.ConnectionState == CollectorConnectionState.Connected) {
                 eventFired = true;
             }
         };
@@ -49,8 +44,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateTrafficTick_UpdatesRatesAndNotifies()
-    {
+    public void UpdateTrafficTick_UpdatesRatesAndNotifies() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
 
@@ -75,8 +69,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateTrafficTick_DiscardsOutOfOrderTicks()
-    {
+    public void UpdateTrafficTick_DiscardsOutOfOrderTicks() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
 
@@ -100,8 +93,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateRanking_AtomicallyReplacesLatestRanking_AndDiscardsOutOfOrder()
-    {
+    public void UpdateRanking_AtomicallyReplacesLatestRanking_AndDiscardsOutOfOrder() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
 
@@ -163,8 +155,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateConnection_OnDisconnect_PurgesStaleDataAndSetsDisconnectedState()
-    {
+    public void UpdateConnection_OnDisconnect_PurgesStaleDataAndSetsDisconnectedState() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
         store.UpdateTrafficTick(new TrafficTickMessage(10, 1000, 5000, 2000));
@@ -192,8 +183,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void UpdateConnection_OnNewInstanceId_ResetsSequenceAndPurgesStaleRanking()
-    {
+    public void UpdateConnection_OnNewInstanceId_ResetsSequenceAndPurgesStaleRanking() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
         store.UpdateTrafficTick(new TrafficTickMessage(100, 10000, 5000, 2000));
@@ -225,8 +215,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void TelemetryDataState_ReflectsDisconnectedWarmupIdleAndActiveCorrectly()
-    {
+    public void TelemetryDataState_ReflectsDisconnectedWarmupIdleAndActiveCorrectly() {
         var store = new TelemetryStore();
         Assert.Equal(TelemetryDataState.Disconnected, store.CurrentSnapshot.DataState);
 
@@ -256,8 +245,7 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public void RateFormatter_FormatsCorrectly()
-    {
+    public void RateFormatter_FormatsCorrectly() {
         Assert.Equal("0 B/s", RateFormatter.FormatRate(0));
         Assert.Equal("500 B/s", RateFormatter.FormatRate(500));
         Assert.Equal("1023 B/s", RateFormatter.FormatRate(1023));
@@ -269,32 +257,25 @@ public class TelemetryStoreTests
     }
 
     [Fact]
-    public async Task ConcurrentUpdates_MaintainConsistency()
-    {
+    public async Task ConcurrentUpdates_MaintainConsistency() {
         var store = new TelemetryStore();
         store.UpdateConnection(CollectorConnectionState.Connected, "cinst_1", 1000);
         const int iterations = 1000;
 
-        var task1 = Task.Run(() =>
-        {
-            for (ulong i = 1; i <= iterations; i++)
-            {
+        var task1 = Task.Run(() => {
+            for (ulong i = 1; i <= iterations; i++) {
                 store.UpdateTrafficTick(new TrafficTickMessage(i, i * 100, i * 1024, i * 512));
             }
         });
 
-        var task2 = Task.Run(() =>
-        {
-            for (int i = 1; i <= iterations; i++)
-            {
+        var task2 = Task.Run(() => {
+            for (int i = 1; i <= iterations; i++) {
                 store.UpdateStatus(new CollectorStatusMessage((ulong)i, true, 0, (uint)i));
             }
         });
 
-        var task3 = Task.Run(() =>
-        {
-            for (ulong i = 1; i <= iterations; i++)
-            {
+        var task3 = Task.Run(() => {
+            for (ulong i = 1; i <= iterations; i++) {
                 store.UpdateRanking(new RankingSnapshotMessage(i, i * 1000, "Ready", new TotalRate(i * 1024, i * 512), []));
             }
         });

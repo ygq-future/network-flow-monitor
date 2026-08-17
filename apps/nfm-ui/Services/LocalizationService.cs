@@ -4,26 +4,21 @@ using System.Globalization;
 
 namespace NetworkFlowMonitor.Services;
 
-public enum AppLanguage
-{
+public enum AppLanguage {
     System,
     SimplifiedChinese,
     English
 }
 
-public static class LocalizationService
-{
+public static class LocalizationService {
     private static AppLanguage _currentLanguage = AppLanguage.System;
 
     public static event Action? LanguageChanged;
 
-    public static AppLanguage CurrentLanguage
-    {
+    public static AppLanguage CurrentLanguage {
         get => _currentLanguage;
-        set
-        {
-            if (_currentLanguage != value)
-            {
+        set {
+            if (_currentLanguage != value) {
                 _currentLanguage = value;
                 LanguageChanged?.Invoke();
             }

@@ -4,35 +4,28 @@ using System.Linq;
 
 namespace NetworkFlowMonitor.Presentation;
 
-public static class MonitorBehaviorModel
-{
+public static class MonitorBehaviorModel {
     private static readonly TimeSpan MonitorMotionDuration = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan ThemeTransitionDuration = TimeSpan.FromMilliseconds(150);
 
     private static TimeSpan EffectiveDuration(TimeSpan token, bool reducedMotion) =>
         reducedMotion ? TimeSpan.Zero : token;
 
-    public static MonitorWorkArea? PrimaryMonitor(MonitorEnvironment environment)
-    {
-        if (environment.Monitors == null || environment.Monitors.Count == 0)
-        {
+    public static MonitorWorkArea? PrimaryMonitor(MonitorEnvironment environment) {
+        if (environment.Monitors == null || environment.Monitors.Count == 0) {
             return null;
         }
         return environment.Monitors.FirstOrDefault(m => m.Primary) ?? environment.Monitors[0];
     }
 
-    public static MonitorWorkArea? MonitorForPoint(MonitorEnvironment environment, PixelPoint point)
-    {
-        if (environment.Monitors == null || environment.Monitors.Count == 0)
-        {
+    public static MonitorWorkArea? MonitorForPoint(MonitorEnvironment environment, PixelPoint point) {
+        if (environment.Monitors == null || environment.Monitors.Count == 0) {
             return null;
         }
 
-        foreach (var monitor in environment.Monitors)
-        {
+        foreach (var monitor in environment.Monitors) {
             if (point.X >= monitor.Rect.Left && point.X < monitor.Rect.Right &&
-                point.Y >= monitor.Rect.Top && point.Y < monitor.Rect.Bottom)
-            {
+                point.Y >= monitor.Rect.Top && point.Y < monitor.Rect.Bottom) {
                 return monitor;
             }
         }
@@ -40,8 +33,7 @@ public static class MonitorBehaviorModel
         MonitorWorkArea? nearest = null;
         var nearestDistance = long.MaxValue;
 
-        foreach (var monitor in environment.Monitors)
-        {
+        foreach (var monitor in environment.Monitors) {
             long dx = point.X < monitor.Rect.Left
                 ? (long)monitor.Rect.Left - point.X
                 : point.X >= monitor.Rect.Right
@@ -55,8 +47,7 @@ public static class MonitorBehaviorModel
                     : 0;
 
             var distance = (dx * dx) + (dy * dy);
-            if (distance < nearestDistance)
-            {
+            if (distance < nearestDistance) {
                 nearest = monitor;
                 nearestDistance = distance;
             }
@@ -65,18 +56,14 @@ public static class MonitorBehaviorModel
         return nearest;
     }
 
-    public static MonitorWorkArea? MonitorForAnchor(MonitorEnvironment environment, PersistedMonitorAnchor anchor)
-    {
-        if (environment.Monitors == null || environment.Monitors.Count == 0)
-        {
+    public static MonitorWorkArea? MonitorForAnchor(MonitorEnvironment environment, PersistedMonitorAnchor anchor) {
+        if (environment.Monitors == null || environment.Monitors.Count == 0) {
             return null;
         }
 
-        if (!string.IsNullOrEmpty(anchor.MonitorId))
-        {
+        if (!string.IsNullOrEmpty(anchor.MonitorId)) {
             var match = environment.Monitors.FirstOrDefault(m => m.Id == anchor.MonitorId);
-            if (match != null)
-            {
+            if (match != null) {
                 return match;
             }
         }
@@ -88,23 +75,19 @@ public static class MonitorBehaviorModel
         MonitorState state,
         MonitorEvent @event,
         MonitorEnvironment environment,
-        MonitorConfig config)
-    {
+        MonitorConfig config) {
         var nextState = state with { };
         var effects = new List<EffectIntent>();
         TimeSpan? nextDeadline = null;
         var animation = AnimationTarget.None;
         var previousSurface = state.State;
 
-        switch (@event.Kind)
-        {
+        switch (@event.Kind) {
             case MonitorEventKind.Start:
                 var requestedAnchor = @event.Anchor ?? nextState.Anchor;
                 var startMonitor = MonitorForAnchor(environment, requestedAnchor);
-                if (startMonitor != null)
-                {
-                    nextState = nextState with
-                    {
+                if (startMonitor != null) {
+                    nextState = nextState with {
                         Anchor = requestedAnchor,
                         PinPreference = config.Pinned,
                         State = (!config.AutoHideEnabled || config.Pinned)
@@ -112,8 +95,7 @@ public static class MonitorBehaviorModel
                             : MonitorPresentationState.CapsuleVisible
                     };
 
-                    if (requestedAnchor.MonitorId != startMonitor.Id)
-                    {
+                    if (requestedAnchor.MonitorId != startMonitor.Id) {
                         var fallbackAnchor = nextState.Anchor with { MonitorId = startMonitor.Id };
                         nextState = nextState with { Anchor = fallbackAnchor };
                         effects.Add(new EffectIntent(MonitorEffectKind.PersistAnchor, Anchor: fallbackAnchor));
@@ -122,28 +104,22 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.ConfigurationChanged:
-                nextState = nextState with
-                {
+                nextState = nextState with {
                     PinPreference = config.Pinned
                 };
 
-                if (!config.AutoHideEnabled || nextState.PinPreference)
-                {
-                    nextState = ClearDeadline(nextState) with
-                    {
+                if (!config.AutoHideEnabled || nextState.PinPreference) {
+                    nextState = ClearDeadline(nextState) with {
                         State = MonitorPresentationState.PanelVisible
                     };
-                }
-                else
-                {
+                } else {
                     (nextState, nextDeadline) = ScheduleDismiss(nextState, config);
                 }
                 break;
 
             case MonitorEventKind.EnvironmentChanged:
                 var changedMonitor = MonitorForAnchor(environment, nextState.Anchor);
-                if (changedMonitor != null && nextState.Anchor.MonitorId != changedMonitor.Id)
-                {
+                if (changedMonitor != null && nextState.Anchor.MonitorId != changedMonitor.Id) {
                     var updatedAnchor = nextState.Anchor with { MonitorId = changedMonitor.Id };
                     nextState = nextState with { Anchor = updatedAnchor };
                     effects.Add(new EffectIntent(MonitorEffectKind.PersistAnchor, Anchor: updatedAnchor));
@@ -168,8 +144,7 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.FullscreenOcclusionChanged:
-                nextState = nextState with
-                {
+                nextState = nextState with {
                     FullscreenYielded = config.YieldFullscreen && @event.IsFullscreenActive
                 };
                 break;
@@ -181,14 +156,10 @@ public static class MonitorBehaviorModel
 
         // Compute geometry
         var activeMonitor = MonitorForAnchor(environment, nextState.Anchor);
-        if (activeMonitor != null)
-        {
-            if (nextState.Dragging && @event.Kind != MonitorEventKind.PointerMove)
-            {
+        if (activeMonitor != null) {
+            if (nextState.Dragging && @event.Kind != MonitorEventKind.PointerMove) {
                 nextState = nextState with { Bounds = state.Bounds };
-            }
-            else
-            {
+            } else {
                 var bounds = MonitorLayout.BoundsFor(
                     nextState.Anchor,
                     activeMonitor,
@@ -200,8 +171,7 @@ public static class MonitorBehaviorModel
                 nextState = nextState with { Bounds = bounds };
             }
 
-            if (nextState.Dragging && @event.Kind == MonitorEventKind.PointerMove)
-            {
+            if (nextState.Dragging && @event.Kind == MonitorEventKind.PointerMove) {
                 var width = nextState.Bounds.Width;
                 var height = nextState.Bounds.Height;
                 var left = Math.Clamp(
@@ -214,8 +184,7 @@ public static class MonitorBehaviorModel
                     activeMonitor.Rect.Top,
                     Math.Max(activeMonitor.Rect.Top, activeMonitor.Rect.Bottom - height)
                 );
-                nextState = nextState with
-                {
+                nextState = nextState with {
                     Bounds = new PixelRect(left, top, left + width, top + height)
                 };
             }
@@ -226,8 +195,7 @@ public static class MonitorBehaviorModel
 
         if (nextState.State == MonitorPresentationState.PanelVisible &&
             activeMonitor != null &&
-            nextState.RankingPresentation == RankingPresentation.ReadyWithRows)
-        {
+            nextState.RankingPresentation == RankingPresentation.ReadyWithRows) {
             var dpi = activeMonitor.Dpi > 0 ? activeMonitor.Dpi : 96;
             var padding = MonitorLayout.DipToPixels(MonitorLayout.VerticalPaddingDip, dpi);
             var header = MonitorLayout.DipToPixels(MonitorLayout.HeaderRowDip, dpi);
@@ -244,18 +212,14 @@ public static class MonitorBehaviorModel
             : targetBounds;
 
         var nextSurface = nextState.State;
-        if (nextSurface != previousSurface)
-        {
-            if (nextSurface == MonitorPresentationState.PanelVisible)
-            {
+        if (nextSurface != previousSurface) {
+            if (nextSurface == MonitorPresentationState.PanelVisible) {
                 animation = new AnimationTarget(
                     MonitorAnimationKind.Reveal,
                     EasingKind.EaseOut,
                     EffectiveDuration(MonitorMotionDuration, config.ReducedMotion)
                 );
-            }
-            else if (previousSurface == MonitorPresentationState.PanelVisible)
-            {
+            } else if (previousSurface == MonitorPresentationState.PanelVisible) {
                 animation = new AnimationTarget(
                     MonitorAnimationKind.Dismiss,
                     EasingKind.EaseIn,
@@ -284,8 +248,7 @@ public static class MonitorBehaviorModel
     }
 
     private static MonitorState ClearDeadline(MonitorState state) =>
-        state with
-        {
+        state with {
             HoverPending = false,
             AutoHidePending = false,
             Deadline = MonitorDeadline.None
@@ -293,18 +256,14 @@ public static class MonitorBehaviorModel
 
     private static (MonitorState State, TimeSpan? NextDeadline) ScheduleDismiss(
         MonitorState state,
-        MonitorConfig config)
-    {
-        if (state.ContextMenuActive || state.PanelPointerInside)
-        {
+        MonitorConfig config) {
+        if (state.ContextMenuActive || state.PanelPointerInside) {
             return (state, null);
         }
 
         var isPinned = !config.AutoHideEnabled || state.PinPreference;
-        if (state.State == MonitorPresentationState.PanelVisible && !isPinned)
-        {
-            var updated = state with
-            {
+        if (state.State == MonitorPresentationState.PanelVisible && !isPinned) {
+            var updated = state with {
                 AutoHidePending = true,
                 Deadline = MonitorDeadline.Dismiss
             };
@@ -319,24 +278,21 @@ public static class MonitorBehaviorModel
         MonitorEvent @event,
         MonitorEnvironment environment,
         MonitorConfig config,
-        List<EffectIntent> effects)
-    {
+        List<EffectIntent> effects) {
         if (state.ContextMenuActive &&
             @event.Kind != MonitorEventKind.ContextMenuClosed &&
             @event.Kind != MonitorEventKind.ContextMenuOpened &&
             @event.Kind != MonitorEventKind.ToggleVisibility &&
             @event.Kind != MonitorEventKind.HideMonitorRequested &&
             @event.Kind != MonitorEventKind.ShowMonitorRequested &&
-            @event.Kind != MonitorEventKind.PinTogglePressed)
-        {
+            @event.Kind != MonitorEventKind.PinTogglePressed) {
             return (state, null);
         }
 
         var cur = state;
         TimeSpan? nextDeadline = null;
 
-        switch (@event.Kind)
-        {
+        switch (@event.Kind) {
             case MonitorEventKind.ShowCapsule:
                 cur = ClearDeadline(cur) with { State = MonitorPresentationState.CapsuleVisible };
                 break;
@@ -357,25 +313,20 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.ToggleVisibility:
-                if (cur.State == MonitorPresentationState.TrayOnly)
-                {
+                if (cur.State == MonitorPresentationState.TrayOnly) {
                     var showState = (!config.AutoHideEnabled || cur.PinPreference)
                         ? MonitorPresentationState.PanelVisible
                         : MonitorPresentationState.CapsuleVisible;
                     cur = ClearDeadline(cur) with { State = showState };
-                }
-                else
-                {
+                } else {
                     cur = ClearDeadline(cur) with { State = MonitorPresentationState.TrayOnly };
                 }
                 break;
 
             case MonitorEventKind.CapsulePointerEnter:
                 cur = cur with { AutoHidePending = false };
-                if (cur.State == MonitorPresentationState.CapsuleVisible)
-                {
-                    cur = cur with
-                    {
+                if (cur.State == MonitorPresentationState.CapsuleVisible) {
+                    cur = cur with {
                         HoverPending = true,
                         Deadline = MonitorDeadline.CapsuleReveal
                     };
@@ -384,8 +335,7 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.CapsulePointerLeave:
-                cur = cur with
-                {
+                cur = cur with {
                     HoverPending = false,
                     Deadline = MonitorDeadline.None
                 };
@@ -402,18 +352,13 @@ public static class MonitorBehaviorModel
 
             case MonitorEventKind.HoverDeadline:
             case MonitorEventKind.DismissDeadline:
-                if (cur.Deadline == MonitorDeadline.CapsuleReveal && cur.HoverPending && !cur.Dragging)
-                {
-                    cur = cur with
-                    {
+                if (cur.Deadline == MonitorDeadline.CapsuleReveal && cur.HoverPending && !cur.Dragging) {
+                    cur = cur with {
                         State = MonitorPresentationState.PanelVisible,
                         PanelPointerInside = true
                     };
-                }
-                else if (cur.Deadline == MonitorDeadline.Dismiss && cur.AutoHidePending && !cur.Dragging)
-                {
-                    if (config.AutoHideEnabled && !cur.PinPreference)
-                    {
+                } else if (cur.Deadline == MonitorDeadline.Dismiss && cur.AutoHidePending && !cur.Dragging) {
+                    if (config.AutoHideEnabled && !cur.PinPreference) {
                         cur = cur with { State = MonitorPresentationState.CapsuleVisible };
                     }
                 }
@@ -421,22 +366,19 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.PinTogglePressed:
-                if (config.AutoHideEnabled && !cur.Dragging)
-                {
+                if (config.AutoHideEnabled && !cur.Dragging) {
                     var newPin = !cur.PinPreference;
                     cur = cur with { PinPreference = newPin };
                     effects.Add(new EffectIntent(MonitorEffectKind.PersistPin, Pinned: newPin));
                     cur = ClearDeadline(cur);
-                    if (!newPin)
-                    {
+                    if (!newPin) {
                         (cur, nextDeadline) = ScheduleDismiss(cur, config);
                     }
                 }
                 break;
 
             case MonitorEventKind.CollectorDisconnected:
-                cur = cur with
-                {
+                cur = cur with {
                     RankingPresentation = RankingPresentation.Disconnected,
                     VisibleRows = 0
                 };
@@ -444,24 +386,21 @@ public static class MonitorBehaviorModel
 
             case MonitorEventKind.CollectorConnected:
             case MonitorEventKind.RankingWarming:
-                cur = cur with
-                {
+                cur = cur with {
                     RankingPresentation = RankingPresentation.WarmingUp,
                     VisibleRows = 0
                 };
                 break;
 
             case MonitorEventKind.RankingReadyIdle:
-                cur = cur with
-                {
+                cur = cur with {
                     RankingPresentation = RankingPresentation.ReadyIdle,
                     VisibleRows = 0
                 };
                 break;
 
             case MonitorEventKind.RankingReadyRows:
-                cur = cur with
-                {
+                cur = cur with {
                     RankingPresentation = RankingPresentation.ReadyWithRows,
                     VisibleRows = @event.VisibleRows
                 };
@@ -473,8 +412,7 @@ public static class MonitorBehaviorModel
 
             case MonitorEventKind.ContextMenuClosed:
                 var inside = cur.Bounds.Contains(@event.Point);
-                cur = ClearDeadline(cur) with
-                {
+                cur = ClearDeadline(cur) with {
                     ContextMenuActive = false,
                     PanelPointerInside = inside
                 };
@@ -482,8 +420,7 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.PanelPress:
-                cur = ClearDeadline(cur) with
-                {
+                cur = ClearDeadline(cur) with {
                     Pressing = true,
                     PressPoint = @event.Point,
                     PressOffset = new PixelPoint(@event.Point.X - cur.Bounds.Left, @event.Point.Y - cur.Bounds.Top),
@@ -494,17 +431,14 @@ public static class MonitorBehaviorModel
             case MonitorEventKind.PointerMove:
                 if (cur.Pressing &&
                     (Math.Abs(@event.Point.X - cur.PressPoint.X) >= config.MinimumDragDistanceXPixels ||
-                     Math.Abs(@event.Point.Y - cur.PressPoint.Y) >= config.MinimumDragDistanceYPixels))
-                {
-                    cur = cur with
-                    {
+                     Math.Abs(@event.Point.Y - cur.PressPoint.Y) >= config.MinimumDragDistanceYPixels)) {
+                    cur = cur with {
                         Dragging = true,
                         HoverPending = false
                     };
 
                     var monitor = MonitorForPoint(environment, @event.Point);
-                    if (monitor != null)
-                    {
+                    if (monitor != null) {
                         var docked = MonitorLayout.DockAt(
                             monitor,
                             @event.Point,
@@ -521,18 +455,13 @@ public static class MonitorBehaviorModel
                 break;
 
             case MonitorEventKind.PanelRelease:
-                if (cur.Pressing && !cur.Dragging)
-                {
-                    if (cur.State == MonitorPresentationState.CapsuleVisible)
-                    {
+                if (cur.Pressing && !cur.Dragging) {
+                    if (cur.State == MonitorPresentationState.CapsuleVisible) {
                         cur = cur with { State = MonitorPresentationState.PanelVisible };
                     }
-                }
-                else if (cur.Dragging)
-                {
+                } else if (cur.Dragging) {
                     var releaseMonitor = MonitorForPoint(environment, @event.Point);
-                    if (releaseMonitor != null)
-                    {
+                    if (releaseMonitor != null) {
                         var releaseAnchor = MonitorLayout.DockAt(
                             releaseMonitor,
                             @event.Point,
@@ -548,20 +477,17 @@ public static class MonitorBehaviorModel
                     }
                 }
 
-                cur = ClearDeadline(cur) with
-                {
+                cur = ClearDeadline(cur) with {
                     Pressing = false,
                     Dragging = false
                 };
                 break;
 
             case MonitorEventKind.DragCancelled:
-                if (cur.Dragging)
-                {
+                if (cur.Dragging) {
                     cur = cur with { Anchor = cur.DragOrigin };
                 }
-                cur = ClearDeadline(cur) with
-                {
+                cur = ClearDeadline(cur) with {
                     Pressing = false,
                     Dragging = false
                 };

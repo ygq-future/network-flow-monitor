@@ -14,8 +14,7 @@ using NetworkFlowMonitor.Store;
 
 namespace NetworkFlowMonitor.Views;
 
-public partial class MonitorPanelWindow : Window
-{
+public partial class MonitorPanelWindow : Window {
     private Action<MonitorEvent>? _eventDispatcher;
     private HwndSourceHookAdapter? _hookAdapter;
     private ContextMenu? _contextMenu;
@@ -26,8 +25,7 @@ public partial class MonitorPanelWindow : Window
     private MenuItem? _settingsItem;
     private MenuItem? _exitItem;
 
-    public MonitorPanelWindow()
-    {
+    public MonitorPanelWindow() {
         InitializeComponent();
         SourceInitialized += OnSourceInitialized;
         MouseEnter += OnMouseEnter;
@@ -42,29 +40,24 @@ public partial class MonitorPanelWindow : Window
         UpdateLocalizedTexts();
     }
 
-    public void Initialize(Action<MonitorEvent> eventDispatcher)
-    {
+    public void Initialize(Action<MonitorEvent> eventDispatcher) {
         _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
     }
 
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
+    private void OnSourceInitialized(object? sender, EventArgs e) {
         var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-        {
+        if (hwnd != IntPtr.Zero) {
             DwmBackdropAdapter.ApplyBackdrop(hwnd, BackdropType.Acrylic, CornerPreference.Round, darkMode: true);
             DwmBackdropAdapter.ConfigureFloatingWindowStyles(hwnd, topmost: true);
             _hookAdapter = HwndSourceHookAdapter.Attach(hwnd, ev => _eventDispatcher?.Invoke(ev));
         }
     }
 
-    private void SetupContextMenu()
-    {
+    private void SetupContextMenu() {
         var menuStyle = (Style)FindResource("FluentContextMenuStyle");
         var separatorStyle = (Style)FindResource("FluentSeparatorStyle");
 
-        _contextMenu = new ContextMenu
-        {
+        _contextMenu = new ContextMenu {
             Style = menuStyle,
             StaysOpen = false,
             Placement = PlacementMode.MousePoint
@@ -75,19 +68,16 @@ public partial class MonitorPanelWindow : Window
         _contextMenu.PreviewMouseRightButtonUp += (_, e) => e.Handled = true;
 
         _hideMenuItem = new MenuItem();
-        _hideMenuItem.Click += (_, _) =>
-        {
+        _hideMenuItem.Click += (_, _) => {
             _contextMenu.IsOpen = false;
             _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.HideMonitorRequested));
         };
         _contextMenu.Items.Add(_hideMenuItem);
 
-        _pinMenuItem = new MenuItem
-        {
+        _pinMenuItem = new MenuItem {
             IsCheckable = true
         };
-        _pinMenuItem.Click += (_, _) =>
-        {
+        _pinMenuItem.Click += (_, _) => {
             _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.PinTogglePressed));
         };
         _contextMenu.Items.Add(_pinMenuItem);
@@ -103,32 +93,25 @@ public partial class MonitorPanelWindow : Window
         _contextMenu.Items.Add(new Separator { Style = separatorStyle });
 
         _exitItem = new MenuItem();
-        _exitItem.Click += (_, _) =>
-        {
+        _exitItem.Click += (_, _) => {
             _contextMenu.IsOpen = false;
             Application.Current.Shutdown();
         };
         _contextMenu.Items.Add(_exitItem);
 
-        _contextMenu.Opened += (_, _) =>
-        {
+        _contextMenu.Opened += (_, _) => {
             _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.ContextMenuOpened));
 
             // Start global mouse hook to detect click outside context menu anywhere on screen
             _mouseHook?.Dispose();
-            _mouseHook = new GlobalMouseHook(screenPt =>
-            {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    if (_contextMenu != null && _contextMenu.IsOpen)
-                    {
+            _mouseHook = new GlobalMouseHook(screenPt => {
+                Dispatcher.BeginInvoke(() => {
+                    if (_contextMenu != null && _contextMenu.IsOpen) {
                         var source = PresentationSource.FromVisual(_contextMenu) as HwndSource;
                         if (source != null && source.Handle != IntPtr.Zero &&
-                            NativeMethods.GetWindowRect(source.Handle, out var lpRect))
-                        {
+                            NativeMethods.GetWindowRect(source.Handle, out var lpRect)) {
                             var rect = new PixelRect(lpRect.Left, lpRect.Top, lpRect.Right, lpRect.Bottom);
-                            if (!rect.Contains(screenPt))
-                            {
+                            if (!rect.Contains(screenPt)) {
                                 _contextMenu.IsOpen = false;
                             }
                         }
@@ -137,8 +120,7 @@ public partial class MonitorPanelWindow : Window
             });
         };
 
-        _contextMenu.Closed += (_, _) =>
-        {
+        _contextMenu.Closed += (_, _) => {
             _mouseHook?.Dispose();
             _mouseHook = null;
 
@@ -153,10 +135,8 @@ public partial class MonitorPanelWindow : Window
         ContextMenu = _contextMenu;
     }
 
-    private void OnMouseRightButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (_contextMenu != null)
-        {
+    private void OnMouseRightButtonUp(object sender, MouseButtonEventArgs e) {
+        if (_contextMenu != null) {
             _contextMenu.PlacementTarget = this;
             _contextMenu.Placement = PlacementMode.MousePoint;
             _contextMenu.IsOpen = true;
@@ -164,8 +144,7 @@ public partial class MonitorPanelWindow : Window
         }
     }
 
-    private void UpdateLocalizedTexts()
-    {
+    private void UpdateLocalizedTexts() {
         if (_hideMenuItem != null) _hideMenuItem.Header = LocalizationService.HideMonitor;
         if (_pinMenuItem != null) _pinMenuItem.Header = LocalizationService.Pin;
         if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
@@ -173,43 +152,33 @@ public partial class MonitorPanelWindow : Window
         if (_exitItem != null) _exitItem.Header = LocalizationService.Exit;
     }
 
-    public void UpdatePinState(bool pinned, bool autoHideEnabled)
-    {
-        if (_pinMenuItem != null)
-        {
+    public void UpdatePinState(bool pinned, bool autoHideEnabled) {
+        if (_pinMenuItem != null) {
             _pinMenuItem.IsChecked = pinned;
             _pinMenuItem.IsEnabled = autoHideEnabled;
         }
     }
 
-    public void UpdateSnapshot(TelemetrySnapshot snapshot)
-    {
+    public void UpdateSnapshot(TelemetrySnapshot snapshot) {
         HeaderDownloadText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec);
         HeaderUploadText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec);
 
-        if (snapshot.ConnectionState != CollectorConnectionState.Connected)
-        {
+        if (snapshot.ConnectionState != CollectorConnectionState.Connected) {
             StatusRowText.Text = LocalizationService.CollectorOffline;
             StatusRow.Visibility = Visibility.Visible;
             RankingItemsControl.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RetryCollector;
-        }
-        else if (snapshot.DataState == TelemetryDataState.Warmup)
-        {
+        } else if (snapshot.DataState == TelemetryDataState.Warmup) {
             StatusRowText.Text = LocalizationService.CollectingData;
             StatusRow.Visibility = Visibility.Visible;
             RankingItemsControl.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
-        }
-        else if (snapshot.DataState == TelemetryDataState.Idle)
-        {
+        } else if (snapshot.DataState == TelemetryDataState.Idle) {
             StatusRowText.Text = LocalizationService.NoNetworkActivity;
             StatusRow.Visibility = Visibility.Visible;
             RankingItemsControl.Visibility = Visibility.Collapsed;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
-        }
-        else
-        {
+        } else {
             StatusRow.Visibility = Visibility.Collapsed;
             RankingItemsControl.Visibility = Visibility.Visible;
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
@@ -227,20 +196,16 @@ public partial class MonitorPanelWindow : Window
         }
     }
 
-    private void OnMouseEnter(object sender, MouseEventArgs e)
-    {
+    private void OnMouseEnter(object sender, MouseEventArgs e) {
         _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.PanelPointerEnter));
     }
 
-    private void OnMouseLeave(object sender, MouseEventArgs e)
-    {
+    private void OnMouseLeave(object sender, MouseEventArgs e) {
         _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.PanelPointerLeave));
     }
 
-    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (_contextMenu != null && _contextMenu.IsOpen)
-        {
+    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+        if (_contextMenu != null && _contextMenu.IsOpen) {
             _contextMenu.IsOpen = false;
         }
 
@@ -253,10 +218,8 @@ public partial class MonitorPanelWindow : Window
         e.Handled = true;
     }
 
-    private void OnMouseMove(object sender, MouseEventArgs e)
-    {
-        if (IsMouseCaptured)
-        {
+    private void OnMouseMove(object sender, MouseEventArgs e) {
+        if (IsMouseCaptured) {
             var screenPoint = PointToScreen(e.GetPosition(this));
             _eventDispatcher?.Invoke(new MonitorEvent(
                 MonitorEventKind.PointerMove,
@@ -266,10 +229,8 @@ public partial class MonitorPanelWindow : Window
         }
     }
 
-    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (IsMouseCaptured)
-        {
+    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
+        if (IsMouseCaptured) {
             ReleaseMouseCapture();
             var screenPoint = PointToScreen(e.GetPosition(this));
             _eventDispatcher?.Invoke(new MonitorEvent(
@@ -280,8 +241,7 @@ public partial class MonitorPanelWindow : Window
         }
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
+    protected override void OnClosed(EventArgs e) {
         _mouseHook?.Dispose();
         _mouseHook = null;
         LocalizationService.LanguageChanged -= UpdateLocalizedTexts;

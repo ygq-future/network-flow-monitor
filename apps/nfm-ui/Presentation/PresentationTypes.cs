@@ -3,21 +3,18 @@ using System.Collections.Generic;
 
 namespace NetworkFlowMonitor.Presentation;
 
-public enum DockSide : byte
-{
+public enum DockSide : byte {
     Right = 0,
     Left = 1
 }
 
-public enum MonitorPresentationState : byte
-{
+public enum MonitorPresentationState : byte {
     TrayOnly,
     CapsuleVisible,
     PanelVisible
 }
 
-public enum MonitorEventKind : byte
-{
+public enum MonitorEventKind : byte {
     Start,
     ShowCapsule,
     ShowPanel,
@@ -50,38 +47,33 @@ public enum MonitorEventKind : byte
     PersistFailed
 }
 
-public enum MonitorEffectKind : byte
-{
+public enum MonitorEffectKind : byte {
     PersistAnchor,
     PersistPin,
     ReportPersistenceFailure,
     LogDiagnostic
 }
 
-public enum MonitorDeadline : byte
-{
+public enum MonitorDeadline : byte {
     None,
     CapsuleReveal,
     Dismiss
 }
 
-public enum RankingPresentation : byte
-{
+public enum RankingPresentation : byte {
     Disconnected,
     WarmingUp,
     ReadyIdle,
     ReadyWithRows
 }
 
-public enum EasingKind : byte
-{
+public enum EasingKind : byte {
     Linear,
     EaseOut,
     EaseIn
 }
 
-public enum MonitorAnimationKind : byte
-{
+public enum MonitorAnimationKind : byte {
     None,
     Reveal,
     Dismiss,
@@ -92,8 +84,7 @@ public readonly record struct AnimationTarget(
     MonitorAnimationKind Kind,
     EasingKind Easing,
     TimeSpan Duration
-)
-{
+) {
     public static AnimationTarget None => new(MonitorAnimationKind.None, EasingKind.EaseOut, TimeSpan.Zero);
 }
 
@@ -101,8 +92,7 @@ public readonly record struct PixelPoint(int X, int Y);
 
 public readonly record struct PixelSize(int Width, int Height);
 
-public readonly record struct PixelRect(int Left, int Top, int Right, int Bottom)
-{
+public readonly record struct PixelRect(int Left, int Top, int Right, int Bottom) {
     public int Width => Math.Max(0, Right - Left);
     public int Height => Math.Max(0, Bottom - Top);
     public PixelSize Size => new(Width, Height);
@@ -137,8 +127,7 @@ public sealed record MonitorConfig(
     byte TopN = 5,
     bool ReducedMotion = false,
     bool YieldFullscreen = true
-)
-{
+) {
     public TimeSpan HoverDelay { get; init; } = HoverDelay == default ? TimeSpan.FromMilliseconds(350) : HoverDelay;
     public TimeSpan AutoHideDelay { get; init; } = AutoHideDelay == default ? TimeSpan.FromMilliseconds(500) : AutoHideDelay;
 }
@@ -175,8 +164,7 @@ public readonly record struct MonitorEvent(
     bool IsFullscreenActive = false
 );
 
-public sealed record MonitorState
-{
+public sealed record MonitorState {
     public MonitorPresentationState State { get; init; } = MonitorPresentationState.CapsuleVisible;
     public PersistedMonitorAnchor Anchor { get; init; }
     public PixelRect Bounds { get; init; }

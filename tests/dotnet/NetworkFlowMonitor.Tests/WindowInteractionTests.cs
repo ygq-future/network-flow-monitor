@@ -10,26 +10,20 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public class WindowInteractionTests
-{
+public class WindowInteractionTests {
     [Fact]
-    public void MonitorPanelWindow_ContextMenuOpen_DoesNotThrow()
-    {
+    public void MonitorPanelWindow_ContextMenuOpen_DoesNotThrow() {
         Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                if (Application.Current == null)
-                {
+        var thread = new Thread(() => {
+            try {
+                if (Application.Current == null) {
                     _ = new Application();
                 }
 
-                var dict = new ResourceDictionary
-                {
+                var dict = new ResourceDictionary {
                     Source = new Uri("pack://application:,,,/NetworkFlowMonitor;component/Resources/FluentStyles.xaml", UriKind.Absolute)
                 };
-                Application.Current.Resources.MergedDictionaries.Add(dict);
+                Application.Current!.Resources.MergedDictionaries.Add(dict);
 
                 var window = new MonitorPanelWindow();
                 // Create HWND headlessly (SW_HIDE, zero visual popup on screen)
@@ -38,10 +32,8 @@ public class WindowInteractionTests
 
                 // Raise right button up to open context menu
                 var mouseDevice = Mouse.PrimaryDevice;
-                if (mouseDevice != null)
-                {
-                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right)
-                    {
+                if (mouseDevice != null) {
+                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right) {
                         RoutedEvent = UIElement.MouseRightButtonUpEvent,
                         Source = window
                     };
@@ -49,9 +41,7 @@ public class WindowInteractionTests
                 }
 
                 window.Close();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 error = ex;
             }
         });
@@ -60,38 +50,30 @@ public class WindowInteractionTests
         thread.Start();
         thread.Join();
 
-        if (error != null)
-        {
+        if (error != null) {
             throw new InvalidOperationException($"ContextMenu failed: {error.Message}", error);
         }
     }
 
     [Fact]
-    public void MonitorPanelWindow_MenuItemClick_DispatchesEventCorrectly()
-    {
+    public void MonitorPanelWindow_MenuItemClick_DispatchesEventCorrectly() {
         bool pinDispatched = false;
         Exception? error = null;
 
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                if (Application.Current == null)
-                {
+        var thread = new Thread(() => {
+            try {
+                if (Application.Current == null) {
                     _ = new Application();
                 }
 
-                var dict = new ResourceDictionary
-                {
+                var dict = new ResourceDictionary {
                     Source = new Uri("pack://application:,,,/NetworkFlowMonitor;component/Resources/FluentStyles.xaml", UriKind.Absolute)
                 };
-                Application.Current.Resources.MergedDictionaries.Add(dict);
+                Application.Current!.Resources.MergedDictionaries.Add(dict);
 
                 var window = new MonitorPanelWindow();
-                window.Initialize(ev =>
-                {
-                    if (ev.Kind == MonitorEventKind.PinTogglePressed)
-                    {
+                window.Initialize(ev => {
+                    if (ev.Kind == MonitorEventKind.PinTogglePressed) {
                         pinDispatched = true;
                     }
                 });
@@ -101,10 +83,8 @@ public class WindowInteractionTests
                 helper.EnsureHandle();
 
                 var mouseDevice = Mouse.PrimaryDevice;
-                if (mouseDevice != null)
-                {
-                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right)
-                    {
+                if (mouseDevice != null) {
+                    var eventArgs = new MouseButtonEventArgs(mouseDevice, 0, MouseButton.Right) {
                         RoutedEvent = UIElement.MouseRightButtonUpEvent,
                         Source = window
                     };
@@ -122,9 +102,7 @@ public class WindowInteractionTests
                 pinItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, pinItem));
 
                 window.Close();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 error = ex;
             }
         });
@@ -133,8 +111,7 @@ public class WindowInteractionTests
         thread.Start();
         thread.Join();
 
-        if (error != null)
-        {
+        if (error != null) {
             throw error;
         }
 

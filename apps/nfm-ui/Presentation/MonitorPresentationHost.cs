@@ -7,8 +7,7 @@ using NetworkFlowMonitor.Views;
 
 namespace NetworkFlowMonitor.Presentation;
 
-public sealed class MonitorPresentationHost : IDisposable
-{
+public sealed class MonitorPresentationHost : IDisposable {
     private readonly TelemetryStore _store;
     private readonly DockCapsuleWindow _capsuleWindow;
     private readonly MonitorPanelWindow _panelWindow;
@@ -26,8 +25,7 @@ public sealed class MonitorPresentationHost : IDisposable
         TelemetryStore store,
         DockCapsuleWindow capsuleWindow,
         MonitorPanelWindow panelWindow,
-        MonitorConfig? config = null)
-    {
+        MonitorConfig? config = null) {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _capsuleWindow = capsuleWindow ?? throw new ArgumentNullException(nameof(capsuleWindow));
         _panelWindow = panelWindow ?? throw new ArgumentNullException(nameof(panelWindow));
@@ -47,40 +45,32 @@ public sealed class MonitorPresentationHost : IDisposable
     public MonitorState State => _state;
     public MonitorConfig Config => _config;
 
-    public void Start(PersistedMonitorAnchor? initialAnchor = null)
-    {
+    public void Start(PersistedMonitorAnchor? initialAnchor = null) {
         _environment = MonitorEnvironmentProvider.GetCurrentEnvironment();
         Dispatch(new MonitorEvent(MonitorEventKind.Start, Anchor: initialAnchor));
     }
 
-    public void UpdateConfig(MonitorConfig config)
-    {
+    public void UpdateConfig(MonitorConfig config) {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         Dispatch(new MonitorEvent(MonitorEventKind.ConfigurationChanged));
     }
 
-    public void Dispatch(MonitorEvent @event)
-    {
+    public void Dispatch(MonitorEvent @event) {
         var transition = MonitorBehaviorModel.Transition(_state, @event, _environment, _config);
         _state = transition.State;
 
         // Manage deadlines
-        if (transition.NextDeadline.HasValue)
-        {
+        if (transition.NextDeadline.HasValue) {
             _deadlineTimer.Stop();
             _deadlineTimer.Interval = transition.NextDeadline.Value;
             _deadlineTimer.Start();
-        }
-        else if (_state.Deadline == MonitorDeadline.None)
-        {
+        } else if (_state.Deadline == MonitorDeadline.None) {
             _deadlineTimer.Stop();
         }
 
         // Apply effects
-        foreach (var effect in transition.Effects)
-        {
-            switch (effect.Kind)
-            {
+        foreach (var effect in transition.Effects) {
+            switch (effect.Kind) {
                 case MonitorEffectKind.PersistAnchor:
                     AnchorPersisted?.Invoke(effect.Anchor);
                     break;
@@ -94,10 +84,8 @@ public sealed class MonitorPresentationHost : IDisposable
         ApplyPresentationTargets(transition.Targets);
     }
 
-    private void ApplyPresentationTargets(PresentationTargets targets)
-    {
-        switch (targets.VisibilityState)
-        {
+    private void ApplyPresentationTargets(PresentationTargets targets) {
+        switch (targets.VisibilityState) {
             case MonitorPresentationState.CapsuleVisible:
                 _panelWindow.Hide();
                 PositionWindow(_capsuleWindow, targets.TargetBounds);
@@ -119,8 +107,7 @@ public sealed class MonitorPresentationHost : IDisposable
         }
     }
 
-    private static void PositionWindow(Window window, PixelRect bounds)
-    {
+    private static void PositionWindow(Window window, PixelRect bounds) {
         // Convert screen pixel bounds to WPF DIP coordinates
         var source = PresentationSource.FromVisual(window);
         var dpiX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
@@ -128,43 +115,31 @@ public sealed class MonitorPresentationHost : IDisposable
 
         window.Left = bounds.Left / dpiX;
         window.Top = bounds.Top / dpiY;
-        if (bounds.Width > 0)
-        {
+        if (bounds.Width > 0) {
             window.Width = bounds.Width / dpiX;
         }
-        if (bounds.Height > 0)
-        {
+        if (bounds.Height > 0) {
             window.Height = bounds.Height / dpiY;
         }
     }
 
-    private void OnDeadlineTimerTick(object? sender, EventArgs e)
-    {
+    private void OnDeadlineTimerTick(object? sender, EventArgs e) {
         _deadlineTimer.Stop();
         Dispatch(new MonitorEvent(MonitorEventKind.HoverDeadline));
     }
 
-    private void OnSnapshotUpdated(TelemetrySnapshot snapshot)
-    {
-        Application.Current?.Dispatcher.BeginInvoke(() =>
-        {
+    private void OnSnapshotUpdated(TelemetrySnapshot snapshot) {
+        Application.Current?.Dispatcher.BeginInvoke(() => {
             if (_disposed) return;
 
             // Map data state into behavior model event if state changed
-            if (snapshot.ConnectionState != CollectorConnectionState.Connected)
-            {
+            if (snapshot.ConnectionState != CollectorConnectionState.Connected) {
                 Dispatch(new MonitorEvent(MonitorEventKind.CollectorDisconnected));
-            }
-            else if (snapshot.DataState == TelemetryDataState.Warmup)
-            {
+            } else if (snapshot.DataState == TelemetryDataState.Warmup) {
                 Dispatch(new MonitorEvent(MonitorEventKind.RankingWarming));
-            }
-            else if (snapshot.DataState == TelemetryDataState.Idle)
-            {
+            } else if (snapshot.DataState == TelemetryDataState.Idle) {
                 Dispatch(new MonitorEvent(MonitorEventKind.RankingReadyIdle));
-            }
-            else
-            {
+            } else {
                 var visibleRows = (byte)(snapshot.LatestRanking?.Applications?.Length ?? 0);
                 Dispatch(new MonitorEvent(MonitorEventKind.RankingReadyRows, VisibleRows: visibleRows));
             }
@@ -176,10 +151,8 @@ public sealed class MonitorPresentationHost : IDisposable
         });
     }
 
-    public void Dispose()
-    {
-        if (!_disposed)
-        {
+    public void Dispose() {
+        if (!_disposed) {
             _disposed = true;
             _deadlineTimer.Stop();
             _store.SnapshotUpdated -= OnSnapshotUpdated;

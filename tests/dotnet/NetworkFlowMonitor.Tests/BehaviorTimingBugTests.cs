@@ -9,11 +9,9 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public class BehaviorTimingBugTests
-{
+public class BehaviorTimingBugTests {
     [Fact]
-    public void TelemetrySnapshot_DuringDismissDelay_MustNotCancelDismissDeadline()
-    {
+    public void TelemetrySnapshot_DuringDismissDelay_MustNotCancelDismissDeadline() {
         var store = new TelemetryStore();
         var env = new MonitorEnvironment([new MonitorWorkArea("primary", new PixelRect(0, 0, 1920, 1080), 96, true)]);
         var config = new MonitorConfig(AutoHideDelay: TimeSpan.FromMilliseconds(500));

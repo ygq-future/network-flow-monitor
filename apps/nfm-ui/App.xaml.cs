@@ -8,29 +8,25 @@ using NetworkFlowMonitor.Views;
 
 namespace NetworkFlowMonitor;
 
-public partial class App : Application
-{
+public partial class App : Application {
     private TelemetryStore? _store;
     private NamedPipeClient? _client;
     private DockCapsuleWindow? _capsuleWindow;
     private MonitorPanelWindow? _panelWindow;
     private MonitorPresentationHost? _host;
 
-    protected override void OnStartup(StartupEventArgs e)
-    {
+    protected override void OnStartup(StartupEventArgs e) {
         base.OnStartup(e);
 
         if (e.Args.Contains("--surface-spike", StringComparer.OrdinalIgnoreCase) ||
-            e.Args.Contains("--spike", StringComparer.OrdinalIgnoreCase))
-        {
+            e.Args.Contains("--spike", StringComparer.OrdinalIgnoreCase)) {
             var spikeWindow = new WpfSurfaceSpikeWindow();
             spikeWindow.Show();
             return;
         }
 
         if (e.Args.Contains("--tracer", StringComparer.OrdinalIgnoreCase) ||
-            e.Args.Contains("--tracer-bullet", StringComparer.OrdinalIgnoreCase))
-        {
+            e.Args.Contains("--tracer-bullet", StringComparer.OrdinalIgnoreCase)) {
             var mainWindow = new MainWindow();
             mainWindow.Show();
             return;
@@ -47,11 +43,9 @@ public partial class App : Application
         _client.Start();
     }
 
-    protected override async void OnExit(ExitEventArgs e)
-    {
+    protected override async void OnExit(ExitEventArgs e) {
         _host?.Dispose();
-        if (_client != null)
-        {
+        if (_client != null) {
             await _client.DisposeAsync();
         }
         base.OnExit(e);

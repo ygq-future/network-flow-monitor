@@ -4,17 +4,13 @@ using System.Text.Json;
 
 namespace NetworkFlowMonitor.Ipc;
 
-public static class ProtocolV1Codec
-{
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
+public static class ProtocolV1Codec {
+    private static readonly JsonSerializerOptions JsonOptions = new() {
         PropertyNamingPolicy = null, // uses JsonPropertyName attributes
     };
 
-    public static void EncodeHeader(MessageType type, uint payloadLength, Span<byte> destination)
-    {
-        if (destination.Length < ProtocolConstants.HeaderSize)
-        {
+    public static void EncodeHeader(MessageType type, uint payloadLength, Span<byte> destination) {
+        if (destination.Length < ProtocolConstants.HeaderSize) {
             throw new ArgumentException("Destination buffer is too small for header", nameof(destination));
         }
 
@@ -24,39 +20,33 @@ public static class ProtocolV1Codec
         BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(8, 4), payloadLength);
     }
 
-    public static bool TryDecodeHeader(ReadOnlySpan<byte> headerBytes, out FrameHeader header, out ProtocolErrorCode errorCode)
-    {
+    public static bool TryDecodeHeader(ReadOnlySpan<byte> headerBytes, out FrameHeader header, out ProtocolErrorCode errorCode) {
         header = default;
         errorCode = ProtocolErrorCode.None;
 
-        if (headerBytes.Length < ProtocolConstants.HeaderSize)
-        {
+        if (headerBytes.Length < ProtocolConstants.HeaderSize) {
             return false;
         }
 
-        if (!headerBytes[..4].SequenceEqual(ProtocolConstants.MagicBytes))
-        {
+        if (!headerBytes[..4].SequenceEqual(ProtocolConstants.MagicBytes)) {
             errorCode = ProtocolErrorCode.MalformedHeader;
             return false;
         }
 
         var version = BinaryPrimitives.ReadUInt16LittleEndian(headerBytes.Slice(4, 2));
-        if (version == 0 || version != ProtocolConstants.CurrentProtocolVersion)
-        {
+        if (version == 0 || version != ProtocolConstants.CurrentProtocolVersion) {
             errorCode = ProtocolErrorCode.VersionMismatch;
             return false;
         }
 
         var messageTypeValue = BinaryPrimitives.ReadUInt16LittleEndian(headerBytes.Slice(6, 2));
-        if (messageTypeValue < (ushort)MessageType.Hello || messageTypeValue > (ushort)MessageType.ShutdownRequest)
-        {
+        if (messageTypeValue < (ushort)MessageType.Hello || messageTypeValue > (ushort)MessageType.ShutdownRequest) {
             errorCode = ProtocolErrorCode.UnknownMessageType;
             return false;
         }
 
         var payloadLength = BinaryPrimitives.ReadUInt32LittleEndian(headerBytes.Slice(8, 4));
-        if (payloadLength > ProtocolConstants.MaxPayloadLength)
-        {
+        if (payloadLength > ProtocolConstants.MaxPayloadLength) {
             errorCode = ProtocolErrorCode.PayloadTooLarge;
             return false;
         }
@@ -70,27 +60,23 @@ public static class ProtocolV1Codec
         out FrameHeader header,
         out ReadOnlyMemory<byte> payload,
         out int requiredBytes,
-        out ProtocolErrorCode errorCode)
-    {
+        out ProtocolErrorCode errorCode) {
         header = default;
         payload = default;
         errorCode = ProtocolErrorCode.None;
 
-        if (buffer.Length < ProtocolConstants.HeaderSize)
-        {
+        if (buffer.Length < ProtocolConstants.HeaderSize) {
             requiredBytes = ProtocolConstants.HeaderSize;
             return FrameParseStatus.NeedMoreData;
         }
 
-        if (!TryDecodeHeader(buffer.Span[..ProtocolConstants.HeaderSize], out header, out errorCode))
-        {
+        if (!TryDecodeHeader(buffer.Span[..ProtocolConstants.HeaderSize], out header, out errorCode)) {
             requiredBytes = ProtocolConstants.HeaderSize;
             return FrameParseStatus.Rejected;
         }
 
         var totalRequired = ProtocolConstants.HeaderSize + (int)header.PayloadLength;
-        if (buffer.Length < totalRequired)
-        {
+        if (buffer.Length < totalRequired) {
             requiredBytes = totalRequired;
             return FrameParseStatus.NeedMoreData;
         }
@@ -100,11 +86,9 @@ public static class ProtocolV1Codec
         return FrameParseStatus.Decoded;
     }
 
-    public static byte[] EncodeMessage<T>(MessageType type, T message)
-    {
+    public static byte[] EncodeMessage<T>(MessageType type, T message) {
         var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);
-        if (payloadBytes.Length > ProtocolConstants.MaxPayloadLength)
-        {
+        if (payloadBytes.Length > ProtocolConstants.MaxPayloadLength) {
             throw new InvalidOperationException($"Payload length {payloadBytes.Length} exceeds 256 KiB maximum");
         }
 
@@ -114,8 +98,7 @@ public static class ProtocolV1Codec
         return result;
     }
 
-    public static T? DeserializePayload<T>(ReadOnlySpan<byte> payloadBytes)
-    {
+    public static T? DeserializePayload<T>(ReadOnlySpan<byte> payloadBytes) {
         return JsonSerializer.Deserialize<T>(payloadBytes, JsonOptions);
     }
 }

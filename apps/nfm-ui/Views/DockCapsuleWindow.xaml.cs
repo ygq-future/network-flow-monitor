@@ -7,13 +7,11 @@ using NetworkFlowMonitor.Presentation;
 
 namespace NetworkFlowMonitor.Views;
 
-public partial class DockCapsuleWindow : Window
-{
+public partial class DockCapsuleWindow : Window {
     private Action<MonitorEvent>? _eventDispatcher;
     private HwndSourceHookAdapter? _hookAdapter;
 
-    public DockCapsuleWindow()
-    {
+    public DockCapsuleWindow() {
         InitializeComponent();
         SourceInitialized += OnSourceInitialized;
         MouseEnter += OnMouseEnter;
@@ -23,46 +21,38 @@ public partial class DockCapsuleWindow : Window
         MouseLeftButtonUp += OnMouseLeftButtonUp;
     }
 
-    public void Initialize(Action<MonitorEvent> eventDispatcher)
-    {
+    public void Initialize(Action<MonitorEvent> eventDispatcher) {
         _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
     }
 
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
+    private void OnSourceInitialized(object? sender, EventArgs e) {
         var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-        {
+        if (hwnd != IntPtr.Zero) {
             DwmBackdropAdapter.ApplyBackdrop(hwnd, BackdropType.Acrylic, CornerPreference.RoundSmall, darkMode: true);
             DwmBackdropAdapter.ConfigureFloatingWindowStyles(hwnd, topmost: true);
             _hookAdapter = HwndSourceHookAdapter.Attach(hwnd, ev => _eventDispatcher?.Invoke(ev));
         }
     }
 
-    public void UpdateDockSide(DockSide side)
-    {
+    public void UpdateDockSide(DockSide side) {
         CapsulePill.HorizontalAlignment = side == DockSide.Right ? HorizontalAlignment.Right : HorizontalAlignment.Left;
     }
 
-    public void UpdateRates(CapsulePresentation presentation)
-    {
+    public void UpdateRates(CapsulePresentation presentation) {
         var halfHeight = Math.Max(1.0, (CapsulePill.ActualHeight > 0 ? CapsulePill.ActualHeight : CapsulePill.Height) / 2.0);
         DownloadFillRect.Height = Math.Clamp(presentation.Download.Fill * halfHeight, 0, halfHeight);
         UploadFillRect.Height = Math.Clamp(presentation.Upload.Fill * halfHeight, 0, halfHeight);
     }
 
-    private void OnMouseEnter(object sender, MouseEventArgs e)
-    {
+    private void OnMouseEnter(object sender, MouseEventArgs e) {
         _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.CapsulePointerEnter));
     }
 
-    private void OnMouseLeave(object sender, MouseEventArgs e)
-    {
+    private void OnMouseLeave(object sender, MouseEventArgs e) {
         _eventDispatcher?.Invoke(new MonitorEvent(MonitorEventKind.CapsulePointerLeave));
     }
 
-    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
+    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
         CaptureMouse();
         var screenPoint = PointToScreen(e.GetPosition(this));
         _eventDispatcher?.Invoke(new MonitorEvent(
@@ -72,10 +62,8 @@ public partial class DockCapsuleWindow : Window
         e.Handled = true;
     }
 
-    private void OnMouseMove(object sender, MouseEventArgs e)
-    {
-        if (IsMouseCaptured)
-        {
+    private void OnMouseMove(object sender, MouseEventArgs e) {
+        if (IsMouseCaptured) {
             var screenPoint = PointToScreen(e.GetPosition(this));
             _eventDispatcher?.Invoke(new MonitorEvent(
                 MonitorEventKind.PointerMove,
@@ -85,10 +73,8 @@ public partial class DockCapsuleWindow : Window
         }
     }
 
-    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (IsMouseCaptured)
-        {
+    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
+        if (IsMouseCaptured) {
             ReleaseMouseCapture();
             var screenPoint = PointToScreen(e.GetPosition(this));
             _eventDispatcher?.Invoke(new MonitorEvent(
@@ -99,8 +85,7 @@ public partial class DockCapsuleWindow : Window
         }
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
+    protected override void OnClosed(EventArgs e) {
         _hookAdapter?.Dispose();
         base.OnClosed(e);
     }

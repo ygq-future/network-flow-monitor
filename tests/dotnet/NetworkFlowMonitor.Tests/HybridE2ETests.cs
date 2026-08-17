@@ -9,11 +9,9 @@ using Xunit;
 
 namespace NetworkFlowMonitor.Tests;
 
-public class HybridE2ETests
-{
+public class HybridE2ETests {
     [Fact]
-    public async Task HybridPipeline_EndToEnd_ConnectsHandshakesStreamsAndDisconnects()
-    {
+    public async Task HybridPipeline_EndToEnd_ConnectsHandshakesStreamsAndDisconnects() {
         var sid = WindowsIdentity.GetCurrent().User?.Value ?? "S-1-5-18";
         var pipeName = $"NetworkFlowMonitor.test.{Guid.NewGuid():N}";
 
@@ -21,8 +19,7 @@ public class HybridE2ETests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         // Start synthetic collector Named Pipe server
-        var serverTask = Task.Run(async () =>
-        {
+        var serverTask = Task.Run(async () => {
             var pipeServer = new NamedPipeServerStream(
                 pipeName,
                 PipeDirection.InOut,
@@ -30,8 +27,7 @@ public class HybridE2ETests
                 PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous | PipeOptions.WriteThrough);
 
-            await using (pipeServer.ConfigureAwait(false))
-            {
+            await using (pipeServer.ConfigureAwait(false)) {
                 await pipeServer.WaitForConnectionAsync(cts.Token).ConfigureAwait(false);
 
                 // Step 1: Read Hello frame from Client
@@ -61,8 +57,7 @@ public class HybridE2ETests
                 await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
 
                 // Step 3: Stream 4 Hz ticks and 1 Hz ranking snapshot
-                for (ulong seq = 1; seq <= 3; seq++)
-                {
+                for (ulong seq = 1; seq <= 3; seq++) {
                     var tick = new TrafficTickMessage(
                         Seq: seq,
                         MonotonicMs: seq * 250,
@@ -73,8 +68,7 @@ public class HybridE2ETests
                     await pipeServer.WriteAsync(tickBytes, cts.Token).ConfigureAwait(false);
                     await pipeServer.FlushAsync(cts.Token).ConfigureAwait(false);
 
-                    if (seq == 2)
-                    {
+                    if (seq == 2) {
                         var ranking = new RankingSnapshotMessage(
                             Seq: 1,
                             MonotonicMs: 500,
@@ -99,18 +93,14 @@ public class HybridE2ETests
                 }
 
                 // Step 4: Wait for Client ShutdownRequest
-                try
-                {
+                try {
                     await pipeServer.ReadExactlyAsync(headerBuf, cts.Token).ConfigureAwait(false);
                     ProtocolV1Codec.TryDecodeFrame(headerBuf, out var shutHeader, out _, out _, out _);
-                    if (shutHeader.PayloadLength > 0)
-                    {
+                    if (shutHeader.PayloadLength > 0) {
                         var shutPayload = new byte[(int)shutHeader.PayloadLength];
                         await pipeServer.ReadExactlyAsync(shutPayload, cts.Token).ConfigureAwait(false);
                     }
-                }
-                catch
-                {
+                } catch {
                     // Clean disconnect
                 }
             }
@@ -122,10 +112,8 @@ public class HybridE2ETests
 
         // Wait until store receives all 3 ticks
         var tcs = new TaskCompletionSource<TelemetrySnapshot>();
-        store.SnapshotUpdated += snap =>
-        {
-            if (snap.Seq >= 3 && snap.ConnectionState == CollectorConnectionState.Connected)
-            {
+        store.SnapshotUpdated += snap => {
+            if (snap.Seq >= 3 && snap.ConnectionState == CollectorConnectionState.Connected) {
                 tcs.TrySetResult(snap);
             }
         };

@@ -9,63 +9,47 @@ using NetworkFlowMonitor.Store;
 
 namespace NetworkFlowMonitor.Ipc;
 
-public class NamedPipeClient : IAsyncDisposable
-{
+public class NamedPipeClient : IAsyncDisposable {
     private readonly string? _explicitPipeName;
     private readonly TelemetryStore _store;
     private readonly CancellationTokenSource _cts = new();
     private Task? _workerTask;
     private NamedPipeClientStream? _pipeStream;
 
-    public NamedPipeClient(TelemetryStore store, string? pipeName = null)
-    {
+    public NamedPipeClient(TelemetryStore store, string? pipeName = null) {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _explicitPipeName = pipeName;
     }
 
-    public static string[] GetCandidatePipeNames()
-    {
+    public static string[] GetCandidatePipeNames() {
         var candidates = new System.Collections.Generic.List<string>();
-        try
-        {
-            if (OperatingSystem.IsWindows())
-            {
+        try {
+            if (OperatingSystem.IsWindows()) {
                 var files = Directory.GetFiles(@"\\.\pipe\", "NetworkFlowMonitor.*");
-                foreach (var file in files)
-                {
+                foreach (var file in files) {
                     var name = Path.GetFileName(file);
-                    if (!string.IsNullOrEmpty(name))
-                    {
+                    if (!string.IsNullOrEmpty(name)) {
                         candidates.Add(name);
                     }
                 }
             }
-        }
-        catch
-        {
+        } catch {
             // fallback
         }
 
-        try
-        {
+        try {
             var identity = WindowsIdentity.GetCurrent();
-            if (identity.Groups != null)
-            {
-                foreach (var group in identity.Groups)
-                {
-                    if (group.Value.StartsWith("S-1-5-5-", StringComparison.OrdinalIgnoreCase))
-                    {
+            if (identity.Groups != null) {
+                foreach (var group in identity.Groups) {
+                    if (group.Value.StartsWith("S-1-5-5-", StringComparison.OrdinalIgnoreCase)) {
                         candidates.Add($"NetworkFlowMonitor.portable.{group.Value}");
                     }
                 }
             }
-            if (identity.User != null)
-            {
+            if (identity.User != null) {
                 candidates.Add($"NetworkFlowMonitor.portable.{identity.User.Value}");
             }
-        }
-        catch
-        {
+        } catch {
             // fallback
         }
 
@@ -73,43 +57,32 @@ public class NamedPipeClient : IAsyncDisposable
         return [.. candidates];
     }
 
-    public static string GetDefaultPipeName()
-    {
+    public static string GetDefaultPipeName() {
         var candidates = GetCandidatePipeNames();
         return candidates.Length > 0 ? candidates[0] : "NetworkFlowMonitor.portable.S-1-5-18";
     }
 
-    public void Start()
-    {
+    public void Start() {
         if (_workerTask != null) return;
         _workerTask = Task.Run(() => WorkerLoopAsync(_cts.Token));
     }
 
-    public async Task StopAsync()
-    {
+    public async Task StopAsync() {
         _cts.Cancel();
-        if (_pipeStream != null && _pipeStream.IsConnected)
-        {
-            try
-            {
+        if (_pipeStream != null && _pipeStream.IsConnected) {
+            try {
                 var shutdownBytes = ProtocolV1Codec.EncodeMessage(MessageType.ShutdownRequest, new ShutdownRequestMessage("ui_exit"));
                 await _pipeStream.WriteAsync(shutdownBytes).ConfigureAwait(false);
                 await _pipeStream.FlushAsync().ConfigureAwait(false);
-            }
-            catch
-            {
+            } catch {
                 // Ignored during shutdown
             }
         }
 
-        if (_workerTask != null)
-        {
-            try
-            {
+        if (_workerTask != null) {
+            try {
                 await _workerTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
+            } catch (OperationCanceledException) {
                 // Expected
             }
         }
@@ -117,24 +90,19 @@ public class NamedPipeClient : IAsyncDisposable
         _store.UpdateConnection(CollectorConnectionState.Disconnected);
     }
 
-    private async Task WorkerLoopAsync(CancellationToken ct)
-    {
+    private async Task WorkerLoopAsync(CancellationToken ct) {
         var retryDelay = TimeSpan.FromMilliseconds(250);
         var maxRetryDelay = TimeSpan.FromSeconds(5);
 
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
+        while (!ct.IsCancellationRequested) {
+            try {
                 _store.UpdateConnection(CollectorConnectionState.Connecting);
 
                 var candidatePipes = _explicitPipeName != null ? [_explicitPipeName] : GetCandidatePipeNames();
                 NamedPipeClientStream? connectedPipe = null;
 
-                foreach (var candidate in candidatePipes)
-                {
-                    try
-                    {
+                foreach (var candidate in candidatePipes) {
+                    try {
                         var pipe = new NamedPipeClientStream(
                             ".",
                             candidate,
@@ -144,15 +112,12 @@ public class NamedPipeClient : IAsyncDisposable
                         await pipe.ConnectAsync(500, ct).ConfigureAwait(false);
                         connectedPipe = pipe;
                         break;
-                    }
-                    catch
-                    {
+                    } catch {
                         // Try next candidate
                     }
                 }
 
-                if (connectedPipe == null)
-                {
+                if (connectedPipe == null) {
                     _store.UpdateConnection(CollectorConnectionState.Offline);
                     await Task.Delay(retryDelay, ct).ConfigureAwait(false);
                     retryDelay = TimeSpan.FromMilliseconds(Math.Min(retryDelay.TotalMilliseconds * 2, maxRetryDelay.TotalMilliseconds));
@@ -164,7 +129,7 @@ public class NamedPipeClient : IAsyncDisposable
 
                 // Handshake: Send Hello
                 var hello = new HelloMessage(
-                    ClientPid: Process.GetCurrentProcess().Id,
+                    ClientPid: Environment.ProcessId,
                     ProtocolVersion: ProtocolConstants.CurrentProtocolVersion,
                     ClientName: "NetworkFlowMonitor.Ui"
                 );
@@ -178,88 +143,68 @@ public class NamedPipeClient : IAsyncDisposable
 
                 retryDelay = TimeSpan.FromMilliseconds(250); // Reset on successful connect
 
-                while (!ct.IsCancellationRequested && pipeStream.IsConnected)
-                {
+                while (!ct.IsCancellationRequested && pipeStream.IsConnected) {
                     await pipeStream.ReadExactlyAsync(headerBuffer.AsMemory(0, ProtocolConstants.HeaderSize), ct).ConfigureAwait(false);
 
-                    if (!ProtocolV1Codec.TryDecodeHeader(headerBuffer, out var header, out var errorCode) || errorCode != ProtocolErrorCode.None)
-                    {
+                    if (!ProtocolV1Codec.TryDecodeHeader(headerBuffer, out var header, out var errorCode) || errorCode != ProtocolErrorCode.None) {
                         break;
                     }
 
-                    if (header.PayloadLength > ProtocolConstants.MaxPayloadLength)
-                    {
+                    if (header.PayloadLength > ProtocolConstants.MaxPayloadLength) {
                         break;
                     }
 
                     var payloadMemory = payloadBuffer.AsMemory(0, (int)header.PayloadLength);
-                    if (header.PayloadLength > 0)
-                    {
+                    if (header.PayloadLength > 0) {
                         await pipeStream.ReadExactlyAsync(payloadMemory, ct).ConfigureAwait(false);
                     }
 
-                    switch (header.MessageType)
-                    {
+                    switch (header.MessageType) {
                         case MessageType.HelloAck:
                             var ack = ProtocolV1Codec.DeserializePayload<HelloAckMessage>(payloadMemory.Span);
-                            if (ack != null)
-                            {
+                            if (ack != null) {
                                 _store.UpdateConnection(CollectorConnectionState.Connected, ack.CollectorInstanceId, ack.CollectorPid);
                             }
                             break;
 
                         case MessageType.TrafficTick:
                             var tick = ProtocolV1Codec.DeserializePayload<TrafficTickMessage>(payloadMemory.Span);
-                            if (tick != null)
-                            {
+                            if (tick != null) {
                                 _store.UpdateTrafficTick(tick);
                             }
                             break;
 
                         case MessageType.RankingSnapshot:
                             var ranking = ProtocolV1Codec.DeserializePayload<RankingSnapshotMessage>(payloadMemory.Span);
-                            if (ranking != null)
-                            {
+                            if (ranking != null) {
                                 _store.UpdateRanking(ranking);
                             }
                             break;
 
                         case MessageType.CollectorStatus:
                             var status = ProtocolV1Codec.DeserializePayload<CollectorStatusMessage>(payloadMemory.Span);
-                            if (status != null)
-                            {
+                            if (status != null) {
                                 _store.UpdateStatus(status);
                             }
                             break;
                     }
                 }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 break;
-            }
-            catch
-            {
+            } catch {
                 _store.UpdateConnection(CollectorConnectionState.Offline);
-            }
-            finally
-            {
-                if (_pipeStream != null)
-                {
+            } finally {
+                if (_pipeStream != null) {
                     try { await _pipeStream.DisposeAsync().ConfigureAwait(false); } catch { }
                     _pipeStream = null;
                 }
             }
 
-            if (!ct.IsCancellationRequested)
-            {
-                try
-                {
+            if (!ct.IsCancellationRequested) {
+                try {
                     await Task.Delay(retryDelay, ct).ConfigureAwait(false);
                     retryDelay = TimeSpan.FromMilliseconds(Math.Min(retryDelay.TotalMilliseconds * 2, maxRetryDelay.TotalMilliseconds));
-                }
-                catch (OperationCanceledException)
-                {
+                } catch (OperationCanceledException) {
                     break;
                 }
             }
@@ -268,8 +213,7 @@ public class NamedPipeClient : IAsyncDisposable
         _store.UpdateConnection(CollectorConnectionState.Disconnected);
     }
 
-    public async ValueTask DisposeAsync()
-    {
+    public async ValueTask DisposeAsync() {
         await StopAsync().ConfigureAwait(false);
         _cts.Dispose();
         GC.SuppressFinalize(this);

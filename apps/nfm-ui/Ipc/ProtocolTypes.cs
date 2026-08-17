@@ -3,16 +3,14 @@ using System.Text.Json.Serialization;
 
 namespace NetworkFlowMonitor.Ipc;
 
-public static class ProtocolConstants
-{
+public static class ProtocolConstants {
     public static ReadOnlySpan<byte> MagicBytes => "NFM1"u8;
     public const int HeaderSize = 12;
     public const ushort CurrentProtocolVersion = 1;
     public const uint MaxPayloadLength = 262_144; // 256 KiB
 }
 
-public enum MessageType : ushort
-{
+public enum MessageType : ushort {
     Hello = 1,
     HelloAck = 2,
     TrafficTick = 3,
@@ -21,8 +19,7 @@ public enum MessageType : ushort
     ShutdownRequest = 6,
 }
 
-public enum ProtocolErrorCode
-{
+public enum ProtocolErrorCode {
     None = 0,
     MalformedHeader = 1,
     UnsupportedHeader = 2,
@@ -37,8 +34,7 @@ public enum ProtocolErrorCode
     InternalFailure = 11,
 }
 
-public enum FrameParseStatus
-{
+public enum FrameParseStatus {
     NeedMoreData,
     Decoded,
     Rejected,

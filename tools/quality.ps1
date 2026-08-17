@@ -166,6 +166,9 @@ if ($Mode -eq 'Format') {
             Invoke-Native -FilePath $clangFormat -ArgumentList @('-i', '--style=file', $file.FullName)
         }
     }
+    Invoke-QualityPhase -Name 'Format .NET Solution' -LogName 'dotnet-format' -Action {
+        Invoke-Native -FilePath 'dotnet' -ArgumentList @('format', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'))
+    }
     Write-Host "Quality gate '$Mode' passed."
     exit 0
 }
@@ -174,6 +177,10 @@ Invoke-QualityPhase -Name "Check formatting for $($sourceFiles.Count) C/C++ file
     foreach ($file in $sourceFiles) {
         Invoke-Native -FilePath $clangFormat -ArgumentList @('--dry-run', '--Werror', '--style=file', $file.FullName)
     }
+}
+
+Invoke-QualityPhase -Name 'Check .NET Code Formatting' -LogName 'dotnet-format-check' -Action {
+    Invoke-Native -FilePath 'dotnet' -ArgumentList @('format', '--verify-no-changes', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'))
 }
 
 $buildArguments = @('--parallel', $Jobs.ToString())

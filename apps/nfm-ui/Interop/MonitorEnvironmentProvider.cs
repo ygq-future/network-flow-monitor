@@ -5,29 +5,23 @@ using NetworkFlowMonitor.Presentation;
 
 namespace NetworkFlowMonitor.Interop;
 
-public static class MonitorEnvironmentProvider
-{
-    public static MonitorEnvironment GetCurrentEnvironment(bool fullscreenOccluded = false)
-    {
+public static class MonitorEnvironmentProvider {
+    public static MonitorEnvironment GetCurrentEnvironment(bool fullscreenOccluded = false) {
         var monitors = new List<MonitorWorkArea>();
 
-        try
-        {
-            NativeMethods.MonitorEnumProc proc = (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.RECT lprcMonitor, IntPtr dwData) =>
-            {
+        try {
+            NativeMethods.MonitorEnumProc proc = (IntPtr hMonitor, IntPtr hdcMonitor, ref NativeMethods.RECT lprcMonitor, IntPtr dwData) => {
                 var mi = new NativeMethods.MONITORINFOEX();
-                mi.cbSize = Marshal.SizeOf(typeof(NativeMethods.MONITORINFOEX));
+                mi.cbSize = Marshal.SizeOf<NativeMethods.MONITORINFOEX>();
 
-                if (NativeMethods.GetMonitorInfo(hMonitor, ref mi))
-                {
+                if (NativeMethods.GetMonitorInfo(hMonitor, ref mi)) {
                     var isPrimary = (mi.dwFlags & NativeMethods.MONITORINFOF_PRIMARY) != 0;
                     var deviceId = string.IsNullOrWhiteSpace(mi.szDevice)
                         ? (isPrimary ? "primary" : $"mon_{monitors.Count}")
                         : mi.szDevice;
 
                     uint dpi = 96;
-                    if (NativeMethods.GetDpiForMonitor(hMonitor, NativeMethods.MDT_EFFECTIVE_DPI, out var dpiX, out var _) == 0)
-                    {
+                    if (NativeMethods.GetDpiForMonitor(hMonitor, NativeMethods.MDT_EFFECTIVE_DPI, out var dpiX, out var _) == 0) {
                         dpi = dpiX > 0 ? dpiX : 96;
                     }
 
@@ -50,14 +44,11 @@ public static class MonitorEnvironmentProvider
             };
 
             NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, proc, IntPtr.Zero);
-        }
-        catch
-        {
+        } catch {
             // Fallback for headless/sandbox testing
         }
 
-        if (monitors.Count == 0)
-        {
+        if (monitors.Count == 0) {
             monitors.Add(new MonitorWorkArea(
                 Id: "primary",
                 Rect: new PixelRect(0, 0, 1920, 1040),

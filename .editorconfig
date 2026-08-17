@@ -10,6 +10,43 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# Braces stay on the same line (Java / K&R style)
+csharp_new_line_before_open_brace = none
+csharp_new_line_before_else = false
+csharp_new_line_before_catch = false
+csharp_new_line_before_finally = false
+csharp_preserve_single_line_blocks = true
+csharp_preserve_single_line_expression_statements = true
+
+# Code style conventions
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:warning
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Code analysis severities
+dotnet_diagnostic.CA1001.severity = suggestion
+dotnet_diagnostic.CA1305.severity = suggestion
+dotnet_diagnostic.CA1806.severity = suggestion
+
+# Unit test rules (allow underscores in test method names, etc.)
+[tests/**]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1001.severity = none
+dotnet_diagnostic.CA1305.severity = none
+
+[*.{xaml,axaml}]
+indent_style = space
+indent_size = 4
+
+[*.{csproj,props,targets,xml,config,manifest}]
+indent_style = space
+indent_size = 2
+
 [*.{json,jsonc,yaml,yml}]
 indent_style = space
 indent_size = 2

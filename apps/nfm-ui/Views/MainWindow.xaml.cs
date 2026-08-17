@@ -15,17 +15,14 @@ public sealed record RankingRowItem(
     string UploadRateText
 );
 
-public partial class MainWindow : Window
-{
+public partial class MainWindow : Window {
     private readonly TelemetryStore _store;
     private readonly NamedPipeClient _client;
 
-    public MainWindow() : this(new TelemetryStore())
-    {
+    public MainWindow() : this(new TelemetryStore()) {
     }
 
-    public MainWindow(TelemetryStore store)
-    {
+    public MainWindow(TelemetryStore store) {
         InitializeComponent();
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _client = new NamedPipeClient(_store);
@@ -36,10 +33,8 @@ public partial class MainWindow : Window
         Closed += async (_, _) => await _client.DisposeAsync();
     }
 
-    private void OnSnapshotUpdated(TelemetrySnapshot snapshot)
-    {
-        Dispatcher.BeginInvoke(() =>
-        {
+    private void OnSnapshotUpdated(TelemetrySnapshot snapshot) {
+        Dispatcher.BeginInvoke(() => {
             DownloadRateText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec);
             UploadRateText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec);
             SeqText.Text = $"Seq: {snapshot.Seq}";
@@ -49,11 +44,9 @@ public partial class MainWindow : Window
                 : $"PID: {(snapshot.CollectorPid != 0 ? snapshot.CollectorPid.ToString() : "N/A")}";
             DiagnosticsText.Text = statusDiag;
 
-            switch (snapshot.ConnectionState)
-            {
+            switch (snapshot.ConnectionState) {
                 case CollectorConnectionState.Connected:
-                    switch (snapshot.DataState)
-                    {
+                    switch (snapshot.DataState) {
                         case TelemetryDataState.Warmup:
                             StatusText.Text = "Collecting data…";
                             StatusText.Foreground = new SolidColorBrush(Color.FromRgb(234, 179, 8)); // Yellow
@@ -89,26 +82,19 @@ public partial class MainWindow : Window
             }
 
             // Ranking table display
-            if (snapshot.ConnectionState != CollectorConnectionState.Connected)
-            {
+            if (snapshot.ConnectionState != CollectorConnectionState.Connected) {
                 RankingStatusText.Text = "Collector offline / Disconnected";
                 RankingStatusText.Visibility = Visibility.Visible;
                 RankingItemsList.ItemsSource = null;
-            }
-            else if (snapshot.DataState == TelemetryDataState.Warmup)
-            {
+            } else if (snapshot.DataState == TelemetryDataState.Warmup) {
                 RankingStatusText.Text = "Collecting data…";
                 RankingStatusText.Visibility = Visibility.Visible;
                 RankingItemsList.ItemsSource = null;
-            }
-            else if (snapshot.DataState == TelemetryDataState.Idle)
-            {
+            } else if (snapshot.DataState == TelemetryDataState.Idle) {
                 RankingStatusText.Text = "No network activity";
                 RankingStatusText.Visibility = Visibility.Visible;
                 RankingItemsList.ItemsSource = null;
-            }
-            else
-            {
+            } else {
                 RankingStatusText.Visibility = Visibility.Collapsed;
                 var items = snapshot.LatestRanking?.Applications?
                     .Select(app => new RankingRowItem(

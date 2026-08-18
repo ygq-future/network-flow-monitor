@@ -23,10 +23,9 @@ PublisherResult PublisherFailure(PublisherError error) noexcept {
 SnapshotPublisher::SnapshotPublisher(std::string collector_instance_id,
                                      std::chrono::steady_clock::time_point instance_started_at,
                                      SnapshotProvider& provider, IpcServer& server)
-    : SnapshotPublisher(
-          std::move(collector_instance_id), instance_started_at, provider, server,
-          ranking::RankingOptions{.window = config::DefaultAppConfig().ranking.window,
-                                  .top_n = config::DefaultAppConfig().ranking.top_n}) {}
+    : SnapshotPublisher(std::move(collector_instance_id), instance_started_at, provider, server,
+                        ranking::RankingOptions{.window = config::DefaultAppConfig().ranking.window,
+                                                .top_n = config::kMaximumTopN}) {}
 
 SnapshotPublisher::SnapshotPublisher(std::string collector_instance_id,
                                      std::chrono::steady_clock::time_point instance_started_at,

@@ -447,7 +447,7 @@ public partial class MonitorPanelWindow : Window {
         }
     }
 
-    public void UpdateSnapshot(TelemetrySnapshot snapshot, bool reducedMotion = false) {
+    public void UpdateSnapshot(TelemetrySnapshot snapshot, bool reducedMotion = false, int topN = int.MaxValue) {
         HeaderDownloadText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec, _rateUnitMode);
         HeaderUploadText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec, _rateUnitMode);
 
@@ -487,6 +487,9 @@ public partial class MonitorPanelWindow : Window {
             if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
 
             var apps = snapshot.LatestRanking?.Applications ?? [];
+            if (topN > 0 && topN < apps.Length) {
+                apps = apps[..topN];
+            }
             var targetCount = Math.Max(1, apps.Length);
             var targetHeight = Math.Min(520.0, 36.0 + (targetCount * 28.0) + 10.0);
             AnimateHeightTo(targetHeight, reducedMotion);

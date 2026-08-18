@@ -143,10 +143,9 @@ public sealed class MonitorPresentationHost : IDisposable {
                 if (prevVisibility != MonitorPresentationState.PanelVisible) {
                     _capsuleWindow.Hide();
                     _panelWindow.AnimateReveal(targets.DockSide, _config.ReducedMotion);
-                } else {
-                    _panelWindow.Hide();
-                    _panelWindow.Show();
                 }
+                // Panel already visible: position and pin state updated above.
+                // No Hide/Show cycle — that caused visible flickering on every snapshot.
                 break;
 
             case MonitorPresentationState.TrayOnly:
@@ -210,14 +209,15 @@ public sealed class MonitorPresentationHost : IDisposable {
             } else if (snapshot.DataState == TelemetryDataState.Idle) {
                 Dispatch(new MonitorEvent(MonitorEventKind.RankingReadyIdle));
             } else {
-                var visibleRows = (byte)(snapshot.LatestRanking?.Applications?.Length ?? 0);
+                var rawCount = snapshot.LatestRanking?.Applications?.Length ?? 0;
+                var visibleRows = (byte)Math.Min(rawCount, _config.TopN);
                 Dispatch(new MonitorEvent(MonitorEventKind.RankingReadyRows, VisibleRows: visibleRows));
             }
 
             // Update visuals
             var capsuleRates = MonitorLayout.MapCapsuleRates(snapshot.DownloadBytesPerSec, snapshot.UploadBytesPerSec);
             _capsuleWindow.UpdateRates(capsuleRates, _config.ReducedMotion);
-            _panelWindow.UpdateSnapshot(snapshot, _config.ReducedMotion);
+            _panelWindow.UpdateSnapshot(snapshot, _config.ReducedMotion, _config.TopN);
         });
     }
 

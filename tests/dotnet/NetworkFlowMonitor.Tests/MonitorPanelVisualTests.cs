@@ -198,4 +198,53 @@ public class MonitorPanelVisualTests {
             window.Close();
         });
     }
+
+    [Fact]
+    public void MonitorPanelWindow_TopN_FiltersApplicationsToConfiguredLimit() {
+        WpfTestRunner.Run(() => {
+            var window = new MonitorPanelWindow();
+
+            // Build a snapshot with 10 applications
+            var apps = Enumerable.Range(1, 10).Select(i =>
+                new RankingApplication(
+                    Id: $"app{i}",
+                    ExecutablePath: $@"C:\fake\app{i}.exe",
+                    DisplayName: $"Application {i}",
+                    IconKey: "",
+                    DownloadBytesPerSec: (ulong)(10000 - (i * 100)),
+                    UploadBytesPerSec: (ulong)(5000 - (i * 50))
+                )).ToArray();
+
+            var snapshot = new TelemetrySnapshot(
+                Seq: 100,
+                MonotonicMs: 12345,
+                DownloadBytesPerSec: 50000,
+                UploadBytesPerSec: 25000,
+                LastUpdated: DateTimeOffset.UtcNow,
+                ConnectionState: CollectorConnectionState.Connected,
+                CollectorInstanceId: "inst1",
+                CollectorPid: 1234,
+                LatestRanking: new RankingSnapshotMessage(
+                    Seq: 100,
+                    MonotonicMs: 12345,
+                    Status: "Ready",
+                    TotalRate: new TotalRate(50000, 25000),
+                    Applications: apps
+                ),
+                LatestStatus: null
+            );
+
+            // Act: UpdateSnapshot with topN = 3
+            window.UpdateSnapshot(snapshot, reducedMotion: true, topN: 3);
+
+            // Assert: Only 3 rows rendered, not 10
+            var items = (window.RankingItemsControl.ItemsSource as IEnumerable<RankingRowItemModel>)!.ToList();
+            Assert.Equal(3, items.Count);
+            Assert.Equal("app1", items[0].Id);
+            Assert.Equal("app2", items[1].Id);
+            Assert.Equal("app3", items[2].Id);
+
+            window.Close();
+        });
+    }
 }

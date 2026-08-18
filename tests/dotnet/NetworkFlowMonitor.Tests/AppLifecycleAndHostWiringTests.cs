@@ -228,4 +228,40 @@ public class AppLifecycleAndHostWiringTests {
             panel.Close();
         });
     }
+
+    [Fact]
+    public void MonitorPresentationHost_PanelVisible_NoHideShowCycleOnRepeatedDispatches() {
+        WpfTestRunner.Run(() => {
+            var store = new TelemetryStore();
+            var capsule = new DockCapsuleWindow();
+            var panel = new MonitorPanelWindow();
+            new WindowInteropHelper(capsule).EnsureHandle();
+            new WindowInteropHelper(panel).EnsureHandle();
+
+            var config = new MonitorConfig(AutoHideEnabled: true, Pinned: true);
+            using var host = new MonitorPresentationHost(store, capsule, panel, config);
+
+            host.Start(new PersistedMonitorAnchor("MON_PRIMARY", DockSide.Right, 50));
+
+            // Pin is on, so panel should become visible after showing
+            Assert.Equal(MonitorPresentationState.PanelVisible, host.State.State);
+
+            // Track visibility changes on the panel window
+            int visibilityChangeCount = 0;
+            panel.IsVisibleChanged += (_, _) => visibilityChangeCount++;
+
+            // Dispatch multiple snapshot-like events while panel is already visible
+            for (int i = 0; i < 10; i++) {
+                host.Dispatch(new MonitorEvent(MonitorEventKind.RankingReadyRows, VisibleRows: 5));
+            }
+
+            // If the old Hide/Show cycle were present, we'd see 20 visibility changes (10 x Hide + Show).
+            // After the fix, there should be zero changes — panel stays continuously visible.
+            Assert.Equal(0, visibilityChangeCount);
+            Assert.Equal(MonitorPresentationState.PanelVisible, host.State.State);
+
+            capsule.Close();
+            panel.Close();
+        });
+    }
 }

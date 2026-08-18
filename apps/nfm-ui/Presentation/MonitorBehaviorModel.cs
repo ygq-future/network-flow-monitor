@@ -18,6 +18,19 @@ public static class MonitorBehaviorModel {
         return environment.Monitors.FirstOrDefault(m => m.Primary) ?? environment.Monitors[0];
     }
 
+    public static MonitorWorkArea? ActiveMonitor(MonitorEnvironment environment, PersistedMonitorAnchor anchor) {
+        if (environment.Monitors == null || environment.Monitors.Count == 0) {
+            return null;
+        }
+        if (!string.IsNullOrWhiteSpace(anchor.MonitorId)) {
+            var found = environment.Monitors.FirstOrDefault(m => string.Equals(m.Id, anchor.MonitorId, StringComparison.OrdinalIgnoreCase));
+            if (found != null) {
+                return found;
+            }
+        }
+        return PrimaryMonitor(environment);
+    }
+
     public static MonitorWorkArea? MonitorForPoint(MonitorEnvironment environment, PixelPoint point) {
         if (environment.Monitors == null || environment.Monitors.Count == 0) {
             return null;

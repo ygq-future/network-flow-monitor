@@ -59,4 +59,28 @@ public static class MonitorEnvironmentProvider {
 
         return new MonitorEnvironment(monitors, fullscreenOccluded);
     }
+
+    public static bool CheckFullscreenActive(PixelRect activeMonitorRect) {
+        try {
+            var hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return false;
+
+            var buffer = new char[256];
+            var len = NativeMethods.GetClassName(hwnd, buffer, 256);
+            if (len > 0) {
+                var cls = new string(buffer, 0, len);
+                if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Windows.UI.Core.CoreWindow") {
+                    return false;
+                }
+            }
+
+            if (NativeMethods.GetWindowRect(hwnd, out var lpRect)) {
+                return lpRect.Left <= activeMonitorRect.Left &&
+                       lpRect.Top <= activeMonitorRect.Top &&
+                       lpRect.Right >= activeMonitorRect.Right &&
+                       lpRect.Bottom >= activeMonitorRect.Bottom;
+            }
+        } catch { }
+        return false;
+    }
 }

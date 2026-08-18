@@ -1,6 +1,4 @@
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Media;
 using NetworkFlowMonitor.Presentation;
 using NetworkFlowMonitor.Views;
@@ -11,9 +9,8 @@ namespace NetworkFlowMonitor.Tests;
 [Collection("WpfTestFixtureGroup")]
 public class DockCapsuleVisualTests {
     [Fact]
-    public async Task CapsuleWindow_HasZeroLayoutMutationOnRateUpdate() {
-        var tcs = new TaskCompletionSource<bool>();
-        var thread = new Thread(() => {
+    public void CapsuleWindow_HasZeroLayoutMutationOnRateUpdate() {
+        WpfTestRunner.Run(() => {
             var window = new DockCapsuleWindow();
             var presentation = MonitorLayout.MapCapsuleRates(5242880, 1048576);
             window.UpdateRates(presentation, reducedMotion: true);
@@ -29,19 +26,12 @@ public class DockCapsuleVisualTests {
             Assert.Equal(presentation.Upload.Fill * 32.0, window.UploadFillRect.Height, precision: 2);
 
             window.Close();
-            tcs.SetResult(true);
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        var result = await tcs.Task;
-        Assert.True(result);
     }
 
     [Fact]
-    public async Task CapsuleWindow_MorphsGradientStopsCorrectly() {
-        var tcs = new TaskCompletionSource<bool>();
-        var thread = new Thread(() => {
+    public void CapsuleWindow_MorphsGradientStopsCorrectly() {
+        WpfTestRunner.Run(() => {
             var window = new DockCapsuleWindow();
             // 1 GiB/s -> full saturation (Purple #8146B8 for dl, Red #D93636 for ul)
             var highPresentation = MonitorLayout.MapCapsuleRates(1073741824UL, 1073741824UL);
@@ -51,12 +41,6 @@ public class DockCapsuleVisualTests {
             Assert.Equal(Color.FromRgb(0xD9, 0x36, 0x36), window.UlStop2.Color);
 
             window.Close();
-            tcs.SetResult(true);
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        var result = await tcs.Task;
-        Assert.True(result);
     }
 }

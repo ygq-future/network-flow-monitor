@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using NetworkFlowMonitor.Ipc;
 using NetworkFlowMonitor.Services;
@@ -15,9 +13,8 @@ namespace NetworkFlowMonitor.Tests;
 [Collection("WpfTestFixtureGroup")]
 public class MonitorPanelVisualTests {
     [Fact]
-    public async Task MonitorPanelWindow_RendersHeaderAndTabularRates() {
-        var tcs = new TaskCompletionSource<bool>();
-        var thread = new Thread(() => {
+    public void MonitorPanelWindow_RendersHeaderAndTabularRates() {
+        WpfTestRunner.Run(() => {
             var window = new MonitorPanelWindow();
             var snapshot = new TelemetrySnapshot(
                 Seq: 100,
@@ -65,19 +62,12 @@ public class MonitorPanelVisualTests {
             Assert.Same(AppIconCache.FallbackIcon, list[0].Icon);
 
             window.Close();
-            tcs.SetResult(true);
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        var result = await tcs.Task;
-        Assert.True(result);
     }
 
     [Fact]
-    public async Task MonitorPanelWindow_RendersLocalizedStatus_WhenOfflineOrWarmupOrIdle() {
-        var tcs = new TaskCompletionSource<bool>();
-        var thread = new Thread(() => {
+    public void MonitorPanelWindow_RendersLocalizedStatus_WhenOfflineOrWarmupOrIdle() {
+        WpfTestRunner.Run(() => {
             var window = new MonitorPanelWindow();
 
             // Offline
@@ -135,19 +125,12 @@ public class MonitorPanelVisualTests {
             Assert.Equal(LocalizationService.NoNetworkActivity, window.StatusRowText.Text);
 
             window.Close();
-            tcs.SetResult(true);
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        var result = await tcs.Task;
-        Assert.True(result);
     }
 
     [Fact]
-    public async Task MonitorPanelWindow_AnimatesRowReordering_AndEntrantFades() {
-        var tcs = new TaskCompletionSource<bool>();
-        var thread = new Thread(() => {
+    public void MonitorPanelWindow_AnimatesRowReordering_AndEntrantFades() {
+        WpfTestRunner.Run(() => {
             var window = new MonitorPanelWindow();
 
             // Snapshot 1: App A (idx 0), App B (idx 1)
@@ -213,12 +196,6 @@ public class MonitorPanelVisualTests {
             Assert.Equal(0.0, items2[2].Opacity, precision: 1);
 
             window.Close();
-            tcs.SetResult(true);
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        var result = await tcs.Task;
-        Assert.True(result);
     }
 }

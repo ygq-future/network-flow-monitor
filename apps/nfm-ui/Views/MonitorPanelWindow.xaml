@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Network Flow Monitor"
         WindowStyle="None"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         Background="Transparent"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
@@ -11,23 +11,39 @@
         Width="340"
         Height="74"
         MaxHeight="520">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0"
+                      CornerRadius="8"
+                      GlassFrameThickness="-1"
+                      UseAeroCaptionButtons="False"
+                      NonClientFrameEdges="None"
+                      ResizeBorderThickness="0" />
+    </WindowChrome.WindowChrome>
+
     <Window.Resources>
-        <Style x:Key="HeaderRateTextStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI, sans-serif" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#F4F4F5" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Margin" Value="4,0,0,0" />
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/NetworkFlowMonitor;component/Resources/FluentStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <Style x:Key="HeaderRateTextStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI, sans-serif" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Margin" Value="4,0,0,0" />
+            </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
-    <!-- 50% Opacity Deep Dark Glass Card (0x80 = 128 Alpha) -->
+    <!-- Translucent DWM Acrylic Glass Card -->
     <Grid x:Name="RootGrid" Background="Transparent">
         <Border x:Name="PanelCard"
                 CornerRadius="8"
-                Background="#80101014"
-                BorderBrush="#38FFFFFF"
+                Background="#E6101014"
+                BorderBrush="{DynamicResource CardBorderBrush}"
                 BorderThickness="1"
                 Padding="6,4"
                 SnapsToDevicePixels="True"
@@ -59,12 +75,12 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Path Width="14" Height="14"
                               Data="M2,7 L5,2 L9,12 L12,7 L14,7"
-                              Stroke="#38BDF8" StrokeThickness="1.5"
+                              Stroke="{DynamicResource AccentTextBrush}" StrokeThickness="1.5"
                               VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBlock Text="Network Flow Monitor"
                                    FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                    FontSize="12" FontWeight="SemiBold"
-                                   Foreground="#FFFFFF" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource PrimaryTextBrush}" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" />
                     </StackPanel>
 
@@ -72,7 +88,7 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                         <Path Width="10" Height="10"
                               Data="M5,1 L5,8 M2,5 L5,8 L8,5"
-                              Stroke="#38BDF8" StrokeThickness="1.5"
+                              Stroke="{DynamicResource AccentTextBrush}" StrokeThickness="1.5"
                               VerticalAlignment="Center" />
                         <TextBlock x:Name="HeaderDownloadText" Text="0 B/s"
                                    Style="{StaticResource HeaderRateTextStyle}" />
@@ -101,7 +117,7 @@
                                    Text="正在采集数据…"
                                    FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                    FontSize="12"
-                                   Foreground="#CCCCCC"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
                                    VerticalAlignment="Center"
                                    HorizontalAlignment="Left" />
                     </Border>
@@ -139,7 +155,7 @@
                                                    Text="{Binding DisplayName}"
                                                    FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                                    FontSize="12"
-                                                   Foreground="#F4F4F5"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}"
                                                    VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
                                                    Margin="2,0,8,0" />
@@ -149,7 +165,7 @@
                                                    Text="{Binding DownloadRateText}"
                                                    FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                                    FontSize="12"
-                                                   Foreground="#38BDF8"
+                                                   Foreground="{DynamicResource AccentTextBrush}"
                                                    HorizontalAlignment="Right"
                                                    VerticalAlignment="Center" />
 

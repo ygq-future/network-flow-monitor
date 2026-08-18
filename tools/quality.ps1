@@ -266,6 +266,73 @@ if ($Mode -eq 'Full') {
             '-B', (Join-Path $projectRoot 'build/windows-x64-release')
         )
     }
+
+    $publishDir = Join-Path $projectRoot 'build\publish\nfm-ui'
+    Invoke-QualityPhase -Name 'Publish .NET 10 WPF UI' -LogName 'dotnet-publish' -Action {
+        if (Test-Path -LiteralPath $publishDir) {
+            Remove-Item -Recurse -Force -LiteralPath $publishDir
+        }
+        $dotnetPublishArguments = @(
+            'publish',
+            (Join-Path $projectRoot 'apps\nfm-ui\NetworkFlowMonitor.csproj'),
+            '-c', 'Release',
+            '-r', 'win-x64',
+            '--self-contained', 'true',
+            '/p:PublishSingleFile=true',
+            '-o', $publishDir
+        )
+        Invoke-Native -FilePath 'dotnet' -ArgumentList $dotnetPublishArguments
+    }
+
+    Invoke-QualityPhase -Name 'Package Portable Release (.NET 10 & Companion Collector)' -LogName 'package-portable' -Action {
+        $version = '0.1.0'
+        $cmakePath = Join-Path $projectRoot 'CMakeLists.txt'
+        if (Test-Path -LiteralPath $cmakePath) {
+            $cmakeText = Get-Content -LiteralPath $cmakePath -Raw
+            if ($cmakeText -match 'project\s*\([^)]*VERSION\s+([0-9]+\.[0-9]+(\.[0-9]+)?)') {
+                $version = $matches[1].Trim()
+            }
+        }
+
+        $collectorCandidates = @(
+            (Join-Path $projectRoot 'build\windows-x64-release\src\NetworkFlowMonitor.exe'),
+            (Join-Path $projectRoot 'build\windows-x64-release\NetworkFlowMonitor.exe')
+        )
+        $cppCollectorExe = $collectorCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $cppCollectorExe) {
+            throw "C++ companion collector executable was not found in release build directory"
+        }
+
+        $stageDir = Join-Path $projectRoot 'build\stage\portable'
+        if (Test-Path -LiteralPath $stageDir) {
+            Remove-Item -Recurse -Force -LiteralPath $stageDir
+        }
+        New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+
+        # Copy published .NET 10 UI artifacts
+        Copy-Item -Path (Join-Path $publishDir '*') -Destination $stageDir -Recurse -Force
+
+        # Copy C++ companion collector executable as nfm-collector.exe
+        Copy-Item -LiteralPath $cppCollectorExe -Destination (Join-Path $stageDir 'nfm-collector.exe') -Force
+
+        # Copy README.md
+        $readmePath = Join-Path $projectRoot 'README.md'
+        if (Test-Path -LiteralPath $readmePath) {
+            Copy-Item -LiteralPath $readmePath -Destination (Join-Path $stageDir 'README.md') -Force
+        }
+
+        # Create output zip in dist/
+        $distDir = Join-Path $projectRoot 'dist'
+        New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+        $zipPath = Join-Path $distDir "NetworkFlowMonitor-$version-win-x64-portable.zip"
+
+        if (Test-Path -LiteralPath $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+        }
+
+        Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
+        Write-Host "Created portable release archive: $zipPath"
+    }
 }
 
 Write-Host "Quality gate '$Mode' passed."

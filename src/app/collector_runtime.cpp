@@ -47,8 +47,19 @@ class KernelHandle final {
     }
     KernelHandle(const KernelHandle&) = delete;
     KernelHandle& operator=(const KernelHandle&) = delete;
-    KernelHandle(KernelHandle&&) = delete;
-    KernelHandle& operator=(KernelHandle&&) = delete;
+    KernelHandle(KernelHandle&& other) noexcept : handle_{other.handle_} {
+        other.handle_ = nullptr;
+    }
+    KernelHandle& operator=(KernelHandle&& other) noexcept {
+        if (this != &other) {
+            if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE) {
+                static_cast<void>(::CloseHandle(handle_));
+            }
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
+        }
+        return *this;
+    }
 
     [[nodiscard]] HANDLE get() const noexcept {
         return handle_;
@@ -230,13 +241,18 @@ collector::CollectorHostResult CollectorRuntime::Stop() noexcept {
     return host_.Stop();
 }
 
-collector::CollectorHostResult CollectorRuntime::RunPortable(
-    std::wstring_view stop_event_name) noexcept {
+collector::CollectorHostResult CollectorRuntime::RunPortable(std::wstring_view stop_event_name,
+                                                             std::uint32_t parent_pid) noexcept {
     std::uint32_t event_error{};
     auto stop_event = OpenStopEvent(stop_event_name, event_error);
     if (!stop_event_name.empty() && stop_event.get() == nullptr) {
         return {.error = collector::CollectorHostError::StopSignalFailed,
                 .source_error = event_error};
+    }
+
+    KernelHandle parent_handle{};
+    if (parent_pid != 0U) {
+        parent_handle = KernelHandle{::OpenProcess(SYNCHRONIZE, FALSE, parent_pid)};
     }
 
     const auto started = Start();
@@ -249,20 +265,31 @@ collector::CollectorHostResult CollectorRuntime::RunPortable(
     const bool handler_registered = ::SetConsoleCtrlHandler(&PortableControlHandler, TRUE) != FALSE;
     try {
         std::jthread event_waiter;
-        if (stop_event.get() != nullptr) {
-            event_waiter = std::jthread([event = stop_event.get(), &stop_source](
-                                            const std::stop_token& waiter_stop) noexcept {
-                while (!waiter_stop.stop_requested()) {
-                    const auto result = ::WaitForSingleObject(event, 50U);
-                    if (result == WAIT_OBJECT_0) {
-                        stop_source.request_stop();
-                        break;
+        if (stop_event.get() != nullptr || parent_handle.get() != nullptr) {
+            event_waiter =
+                std::jthread([event = stop_event.get(), parent = parent_handle.get(),
+                              &stop_source](const std::stop_token& waiter_stop) noexcept {
+                    std::array<HANDLE, 2> handles{};
+                    DWORD handle_count = 0;
+                    if (event != nullptr) {
+                        handles[handle_count++] = event;
                     }
-                    if (result == WAIT_FAILED) {
-                        break;
+                    if (parent != nullptr) {
+                        handles[handle_count++] = parent;
                     }
-                }
-            });
+
+                    while (!waiter_stop.stop_requested()) {
+                        const auto result =
+                            ::WaitForMultipleObjects(handle_count, handles.data(), FALSE, 50U);
+                        if (result >= WAIT_OBJECT_0 && result < WAIT_OBJECT_0 + handle_count) {
+                            stop_source.request_stop();
+                            break;
+                        }
+                        if (result == WAIT_FAILED) {
+                            break;
+                        }
+                    }
+                });
         }
         const auto run_result = Run(stop_source.get_token());
         event_waiter.request_stop();

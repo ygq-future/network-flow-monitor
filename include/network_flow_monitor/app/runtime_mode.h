@@ -32,6 +32,7 @@ enum class RuntimeMode : std::uint8_t {
 struct RuntimeArguments {
     RuntimeMode mode{RuntimeMode::Invalid};
     std::wstring_view collector_stop_event;
+    std::uint32_t parent_pid{0};
 };
 
 [[nodiscard]] RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexcept;

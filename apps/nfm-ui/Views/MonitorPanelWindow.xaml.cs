@@ -155,11 +155,55 @@ public partial class MonitorPanelWindow : Window {
 
         SetupContextMenu();
         LocalizationService.LanguageChanged += UpdateLocalizedTexts;
+        Closed += (_, _) => {
+            LocalizationService.LanguageChanged -= UpdateLocalizedTexts;
+            _outsideClickHook?.Dispose();
+            _outsideClickHook = null;
+            _mouseHook?.Dispose();
+            _mouseHook = null;
+            _hookAdapter?.Dispose();
+            _hookAdapter = null;
+        };
         UpdateLocalizedTexts();
     }
 
-    public void Initialize(Action<MonitorEvent> eventDispatcher) {
+    public void Initialize(Action<MonitorEvent> eventDispatcher, Action? onOpenSettings = null, Action? onRestartCollector = null) {
         _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
+
+        if (_settingsItem != null && onOpenSettings != null) {
+            _settingsItem.Click += (_, _) => {
+                if (_contextMenu != null) _contextMenu.IsOpen = false;
+                onOpenSettings();
+            };
+        }
+
+        if (_retryMenuItem != null && onRestartCollector != null) {
+            _retryMenuItem.Click += (_, _) => {
+                if (_contextMenu != null) _contextMenu.IsOpen = false;
+                onRestartCollector();
+            };
+        }
+    }
+
+    private RateUnitMode _rateUnitMode = RateUnitMode.AutoBytes;
+
+    public void ApplyConfig(
+        MonitorConfig config,
+        double panelOpacity = 0.85,
+        double blurStrength = 1.0,
+        RateUnitMode rateUnits = RateUnitMode.AutoBytes) {
+        _rateUnitMode = rateUnits;
+        var alpha = (byte)Math.Clamp((int)(panelOpacity * 255), 25, 255);
+        PanelCard.Background = new SolidColorBrush(Color.FromArgb(alpha, 16, 16, 20));
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero) {
+            if (blurStrength > 0.05) {
+                DwmBackdropAdapter.ApplyBackdrop(hwnd, BackdropType.Acrylic, CornerPreference.Round, darkMode: true);
+            } else {
+                DwmBackdropAdapter.ApplyBackdrop(hwnd, BackdropType.None, CornerPreference.Round, darkMode: true);
+            }
+        }
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e) {
@@ -384,6 +428,11 @@ public partial class MonitorPanelWindow : Window {
     }
 
     private void UpdateLocalizedTexts() {
+        if (!Dispatcher.CheckAccess()) {
+            Dispatcher.BeginInvoke(UpdateLocalizedTexts);
+            return;
+        }
+
         if (_hideMenuItem != null) _hideMenuItem.Header = LocalizationService.HideMonitor;
         if (_pinMenuItem != null) _pinMenuItem.Header = LocalizationService.Pin;
         if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;
@@ -399,8 +448,8 @@ public partial class MonitorPanelWindow : Window {
     }
 
     public void UpdateSnapshot(TelemetrySnapshot snapshot, bool reducedMotion = false) {
-        HeaderDownloadText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec);
-        HeaderUploadText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec);
+        HeaderDownloadText.Text = RateFormatter.FormatRate(snapshot.DownloadBytesPerSec, _rateUnitMode);
+        HeaderUploadText.Text = RateFormatter.FormatRate(snapshot.UploadBytesPerSec, _rateUnitMode);
 
         if (snapshot.ConnectionState != CollectorConnectionState.Connected) {
             StatusRowText.Text = LocalizationService.CollectorOffline;
@@ -455,8 +504,8 @@ public partial class MonitorPanelWindow : Window {
             for (int newIndex = 0; newIndex < apps.Length; newIndex++) {
                 var app = apps[newIndex];
                 activeKeys.Add(app.Id);
-                var dlText = RateFormatter.FormatRate(app.DownloadBytesPerSec);
-                var ulText = RateFormatter.FormatRate(app.UploadBytesPerSec);
+                var dlText = RateFormatter.FormatRate(app.DownloadBytesPerSec, _rateUnitMode);
+                var ulText = RateFormatter.FormatRate(app.UploadBytesPerSec, _rateUnitMode);
                 var name = string.IsNullOrWhiteSpace(app.DisplayName) ? app.Id : app.DisplayName;
 
                 if (_existingRows.TryGetValue(app.Id, out var existingRow)) {

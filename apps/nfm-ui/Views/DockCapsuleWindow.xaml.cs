@@ -40,11 +40,47 @@ public partial class DockCapsuleWindow : Window {
 
         SetupContextMenu();
         LocalizationService.LanguageChanged += UpdateLocalizedTexts;
+        Closed += (_, _) => {
+            LocalizationService.LanguageChanged -= UpdateLocalizedTexts;
+            _mouseHook?.Dispose();
+            _mouseHook = null;
+            _hookAdapter?.Dispose();
+            _hookAdapter = null;
+        };
         UpdateLocalizedTexts();
     }
 
-    public void Initialize(Action<MonitorEvent> eventDispatcher) {
+    public void Initialize(Action<MonitorEvent> eventDispatcher, Action? onOpenSettings = null, Action? onRestartCollector = null) {
         _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
+
+        if (_settingsItem != null && onOpenSettings != null) {
+            _settingsItem.Click += (_, _) => {
+                if (_contextMenu != null) _contextMenu.IsOpen = false;
+                onOpenSettings();
+            };
+        }
+
+        if (_retryMenuItem != null && onRestartCollector != null) {
+            _retryMenuItem.Click += (_, _) => {
+                if (_contextMenu != null) _contextMenu.IsOpen = false;
+                onRestartCollector();
+            };
+        }
+    }
+
+    public void ApplyConfig(MonitorConfig config) {
+        if (config == null) return;
+        Width = config.CapsuleWidthDip;
+        Height = config.CapsuleHeightDip;
+        CapsulePill.Width = config.CapsuleWidthDip;
+        CapsulePill.Height = config.CapsuleHeightDip;
+        CapsulePill.CornerRadius = new CornerRadius(config.CapsuleWidthDip / 2.0);
+
+        var halfHeight = config.CapsuleHeightDip / 2.0;
+        if (CapsulePill.Child is Grid grid && grid.RowDefinitions.Count >= 2) {
+            grid.RowDefinitions[0].Height = new GridLength(halfHeight);
+            grid.RowDefinitions[1].Height = new GridLength(halfHeight);
+        }
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e) {
@@ -158,6 +194,11 @@ public partial class DockCapsuleWindow : Window {
     }
 
     private void UpdateLocalizedTexts() {
+        if (!Dispatcher.CheckAccess()) {
+            Dispatcher.BeginInvoke(UpdateLocalizedTexts);
+            return;
+        }
+
         if (_hideMenuItem != null) _hideMenuItem.Header = LocalizationService.HideMonitor;
         if (_pinMenuItem != null) _pinMenuItem.Header = LocalizationService.Pin;
         if (_retryMenuItem != null) _retryMenuItem.Header = LocalizationService.RestartCollector;

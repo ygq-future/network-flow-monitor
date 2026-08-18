@@ -42,7 +42,7 @@ class CollectorRuntime final : public service::ServiceHost {
 
     // Runs until a console/session control requests the stop token or the host fails.
     [[nodiscard]] collector::CollectorHostResult RunPortable(
-        std::wstring_view stop_event_name = {}) noexcept;
+        std::wstring_view stop_event_name = {}, std::uint32_t parent_pid = 0U) noexcept;
 
   private:
     std::string instance_;

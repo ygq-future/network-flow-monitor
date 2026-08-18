@@ -277,6 +277,9 @@ internal static class NativeMethods {
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyIcon(IntPtr hIcon);
 
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern int GetClassName(IntPtr hWnd, [Out] char[] lpClassName, int nMaxCount);
+
     [DllImport("shcore.dll")]
     public static extern int GetDpiForMonitor(
         IntPtr hmonitor,

@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using NetworkFlowMonitor.Interop;
 using NetworkFlowMonitor.Store;
@@ -12,20 +13,25 @@ public sealed class MonitorPresentationHost : IDisposable {
     private readonly DockCapsuleWindow _capsuleWindow;
     private readonly MonitorPanelWindow _panelWindow;
     private readonly DispatcherTimer _deadlineTimer;
+    private readonly DispatcherTimer _fullscreenTimer;
 
     private MonitorState _state = new();
     private MonitorConfig _config = new();
     private MonitorEnvironment _environment;
     private bool _disposed;
+    private bool _lastFullscreenActive;
 
     public event Action<PersistedMonitorAnchor>? AnchorPersisted;
     public event Action<bool>? PinPersisted;
+    public event Action<MonitorState>? StateChanged;
 
     public MonitorPresentationHost(
         TelemetryStore store,
         DockCapsuleWindow capsuleWindow,
         MonitorPanelWindow panelWindow,
-        MonitorConfig? config = null) {
+        MonitorConfig? config = null,
+        Action? onOpenSettings = null,
+        Action? onRestartCollector = null) {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _capsuleWindow = capsuleWindow ?? throw new ArgumentNullException(nameof(capsuleWindow));
         _panelWindow = panelWindow ?? throw new ArgumentNullException(nameof(panelWindow));
@@ -33,25 +39,44 @@ public sealed class MonitorPresentationHost : IDisposable {
 
         _environment = MonitorEnvironmentProvider.GetCurrentEnvironment();
 
-        _capsuleWindow.Initialize(Dispatch);
-        _panelWindow.Initialize(Dispatch);
+        _capsuleWindow.Initialize(Dispatch, onOpenSettings, onRestartCollector);
+        _panelWindow.Initialize(Dispatch, onOpenSettings, onRestartCollector);
 
         _deadlineTimer = new DispatcherTimer();
         _deadlineTimer.Tick += OnDeadlineTimerTick;
 
+        _fullscreenTimer = new DispatcherTimer {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _fullscreenTimer.Tick += OnFullscreenTimerTick;
+        _fullscreenTimer.Start();
+
         _store.SnapshotUpdated += OnSnapshotUpdated;
+
+        _capsuleWindow.ApplyConfig(_config);
     }
 
     public MonitorState State => _state;
     public MonitorConfig Config => _config;
+
+    public void ShowMonitor() => Dispatch(new MonitorEvent(MonitorEventKind.ShowMonitorRequested));
+    public void HideMonitor() => Dispatch(new MonitorEvent(MonitorEventKind.HideMonitorRequested));
+    public void ToggleVisibility() => Dispatch(new MonitorEvent(MonitorEventKind.ToggleVisibility));
+    public void TogglePin() => Dispatch(new MonitorEvent(MonitorEventKind.PinTogglePressed));
 
     public void Start(PersistedMonitorAnchor? initialAnchor = null) {
         _environment = MonitorEnvironmentProvider.GetCurrentEnvironment();
         Dispatch(new MonitorEvent(MonitorEventKind.Start, Anchor: initialAnchor));
     }
 
-    public void UpdateConfig(MonitorConfig config) {
+    public void UpdateConfig(
+        MonitorConfig config,
+        double panelOpacity = 0.85,
+        double blurStrength = 1.0,
+        RateUnitMode rateUnits = RateUnitMode.AutoBytes) {
         _config = config ?? throw new ArgumentNullException(nameof(config));
+        _capsuleWindow.ApplyConfig(_config);
+        _panelWindow.ApplyConfig(_config, panelOpacity, blurStrength, rateUnits);
         Dispatch(new MonitorEvent(MonitorEventKind.ConfigurationChanged));
     }
 
@@ -82,6 +107,8 @@ public sealed class MonitorPresentationHost : IDisposable {
 
         // Apply Presentation Targets
         ApplyPresentationTargets(transition.Targets);
+
+        StateChanged?.Invoke(_state);
     }
 
     private MonitorPresentationState _currentVisibility = MonitorPresentationState.CapsuleVisible;
@@ -89,6 +116,10 @@ public sealed class MonitorPresentationHost : IDisposable {
     private void ApplyPresentationTargets(PresentationTargets targets) {
         var prevVisibility = _currentVisibility;
         _currentVisibility = targets.VisibilityState;
+
+        // Update topmost state on windows
+        ApplyTopmostState(_capsuleWindow, targets.Topmost);
+        ApplyTopmostState(_panelWindow, targets.Topmost);
 
         switch (targets.VisibilityState) {
             case MonitorPresentationState.CapsuleVisible:
@@ -113,7 +144,7 @@ public sealed class MonitorPresentationHost : IDisposable {
                     _capsuleWindow.Hide();
                     _panelWindow.AnimateReveal(targets.DockSide, _config.ReducedMotion);
                 } else {
-                    _capsuleWindow.Hide();
+                    _panelWindow.Hide();
                     _panelWindow.Show();
                 }
                 break;
@@ -125,8 +156,15 @@ public sealed class MonitorPresentationHost : IDisposable {
         }
     }
 
+    private static void ApplyTopmostState(Window window, bool topmost) {
+        window.Topmost = topmost;
+        var source = PresentationSource.FromVisual(window) as HwndSource;
+        if (source != null && source.Handle != IntPtr.Zero) {
+            DwmBackdropAdapter.SetTopmostState(source.Handle, topmost);
+        }
+    }
+
     private static void PositionWindow(Window window, PixelRect bounds, bool isCapsule) {
-        // Convert screen pixel bounds to WPF DIP coordinates
         var source = PresentationSource.FromVisual(window);
         var dpiX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
         var dpiY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
@@ -144,6 +182,20 @@ public sealed class MonitorPresentationHost : IDisposable {
     private void OnDeadlineTimerTick(object? sender, EventArgs e) {
         _deadlineTimer.Stop();
         Dispatch(new MonitorEvent(MonitorEventKind.HoverDeadline));
+    }
+
+    private void OnFullscreenTimerTick(object? sender, EventArgs e) {
+        if (_disposed || !_config.YieldFullscreen) return;
+
+        var activeMonitor = MonitorBehaviorModel.ActiveMonitor(_environment, _state.Anchor);
+        if (activeMonitor == null) return;
+
+        var isFullscreen = MonitorEnvironmentProvider.CheckFullscreenActive(activeMonitor.Rect);
+        if (isFullscreen != _lastFullscreenActive) {
+            _lastFullscreenActive = isFullscreen;
+            _environment = new MonitorEnvironment(_environment.Monitors, isFullscreen);
+            Dispatch(new MonitorEvent(MonitorEventKind.FullscreenOcclusionChanged, IsFullscreenActive: isFullscreen));
+        }
     }
 
     private void OnSnapshotUpdated(TelemetrySnapshot snapshot) {
@@ -173,6 +225,7 @@ public sealed class MonitorPresentationHost : IDisposable {
         if (!_disposed) {
             _disposed = true;
             _deadlineTimer.Stop();
+            _fullscreenTimer.Stop();
             _store.SnapshotUpdated -= OnSnapshotUpdated;
             _capsuleWindow.Close();
             _panelWindow.Close();

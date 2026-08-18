@@ -52,14 +52,14 @@ int CurrentExecutablePath(std::wstring& path) noexcept {
     }
 }
 
-int RunPortableCollector(std::wstring_view stop_event_name) {
+int RunPortableCollector(std::wstring_view stop_event_name, std::uint32_t parent_pid) {
     const auto principal =
         nfm::app::BuildCollectorPrincipal(nfm::ipc::CollectorEndpointMode::Portable);
     if (!principal.ok()) {
         return ResultCode(principal.source_error);
     }
     nfm::app::CollectorRuntime runtime{nfm::ipc::CollectorEndpointMode::Portable};
-    return CollectorResultCode(runtime.RunPortable(stop_event_name));
+    return CollectorResultCode(runtime.RunPortable(stop_event_name, parent_pid));
 }
 
 int RunServiceCollector() {
@@ -174,7 +174,7 @@ int RunMode(nfm::app::RuntimeMode mode, HINSTANCE instance, bool smoke_test) {
     try {
         switch (mode) {
         case nfm::app::RuntimeMode::Collector:
-            return RunPortableCollector({});
+            return RunPortableCollector({}, 0U);
         case nfm::app::RuntimeMode::Service:
             return RunServiceCollector();
         case nfm::app::RuntimeMode::AuthorizeCollector:
@@ -214,19 +214,19 @@ nfm::app::RuntimeArguments ParseCommandLineArguments(wchar_t** arguments,
     if (argument_count == 1) {
         return {.mode = nfm::app::RuntimeMode::Ui};
     }
-    if (argument_count != 2 && argument_count != 4) {
+
+    try {
+        std::vector<std::wstring_view> parsed;
+        parsed.reserve(static_cast<std::size_t>(argument_count - 1));
+        for (int i = 1; i < argument_count; ++i) {
+            if (arguments[i] != nullptr) {
+                parsed.emplace_back(arguments[i]);
+            }
+        }
+        return nfm::app::ParseRuntimeArguments(parsed);
+    } catch (...) {
         return {};
     }
-
-    std::array<std::wstring_view, 3> parsed{};
-    parsed[0] = arguments[1];
-    if (argument_count == 2) {
-        return nfm::app::ParseRuntimeArguments(
-            std::span<const std::wstring_view>{parsed.data(), 1});
-    }
-    parsed[1] = arguments[2];
-    parsed[2] = arguments[3];
-    return nfm::app::ParseRuntimeArguments(parsed);
 }
 
 bool IsUiSmokeTestArguments(wchar_t** arguments, int argument_count) noexcept {
@@ -261,7 +261,7 @@ int WINAPI wWinMain(
         return RunMode(arguments.mode, hInstance, smoke_test);
     }
     if (arguments.mode == nfm::app::RuntimeMode::Collector) {
-        return RunPortableCollector(arguments.collector_stop_event);
+        return RunPortableCollector(arguments.collector_stop_event, arguments.parent_pid);
     }
     return RunMode(arguments.mode, hInstance, smoke_test);
 }

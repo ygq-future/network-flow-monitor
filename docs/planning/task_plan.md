@@ -16,8 +16,8 @@ Deliver a portable Windows 11 per-application network monitor using a C++20 Coll
 | Order | Ticket | Status | Completion gate |
 |---:|---|---|---|
 | 0 | Collector baseline cleanup | complete | Independent `nfm-collector.exe`, core tests and quality gate pass |
-| 1 | Project foundation and live tracer | ready | Planned module structure, maintainability rules, theme/i18n foundation, Collector-to-React TrafficTick and combined gate |
-| 2 | Settings platform and application shell | blocked by 01 | Authoritative live settings, tray/single-instance shell and Collector lifecycle |
+| 1 | Project foundation and live tracer | complete | Planned module structure, maintainability rules, theme/i18n foundation, Collector-to-React TrafficTick and combined gate |
+| 2 | Settings platform and application shell | ready | Authoritative live settings, tray/single-instance shell and Collector lifecycle |
 | 3 | Complete Dock Capsule experience | blocked by 02 | Configurable Dock Capsule, traffic visuals, drag/dock, basic panel, context menu, Settings route and surface ADR |
 | 4 | Monitor panel and product delivery | blocked by 03 | Production ranking panel, complete interactions, portable package and target-host acceptance |
 

@@ -187,8 +187,9 @@ std::optional<ConfigError> ValidateGroupKeys(yyjson_val* object, std::string_vie
     return std::nullopt;
 }
 
-std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind,
+std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind kind,
                                              bool development_schema) {
+    static_cast<void>(kind);
     const std::span<const std::string_view> allowed_root{kUserRootKeys};
 
     yyjson_obj_iter iterator{};
@@ -500,7 +501,7 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
             return MakeError(ConfigErrorCode::OutOfRange, "floating.anchor_monitor_id",
                              "monitor identifier exceeds the supported length");
         }
-        std::copy(identifier.begin(), identifier.end(), config.floating.anchor_monitor_id.begin());
+        std::ranges::copy(identifier, config.floating.anchor_monitor_id.begin());
     }
     if (auto error = ReadEnum(group, "anchor_side", "floating.anchor_side", kDockSides,
                               config.floating.anchor_side, &complete)) {

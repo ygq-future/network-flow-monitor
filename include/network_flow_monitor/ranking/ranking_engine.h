@@ -81,7 +81,7 @@ class RankingEngine {
         friend RankingEngineCreateResult CreateRankingEngine(RankingOptions options);
     };
 
-    explicit RankingEngine(ConstructionToken, RankingOptions options) noexcept;
+    explicit RankingEngine(ConstructionToken token, RankingOptions options) noexcept;
     [[nodiscard]] RankingResult PushSnapshot(CounterSnapshot snapshot);
     [[nodiscard]] RankingError UpdateOptions(RankingOptions options) noexcept;
 

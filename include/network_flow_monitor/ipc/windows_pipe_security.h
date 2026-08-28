@@ -12,7 +12,8 @@
 
 namespace nfm::ipc {
 
-inline constexpr DWORD kPipeClientAccessMask = FILE_GENERIC_READ | FILE_GENERIC_WRITE;
+inline constexpr DWORD kPipeClientAccessMask =
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE; // NOLINT(misc-redundant-expression)
 
 struct QueriedClientIdentity {
     std::vector<std::byte> user_sid;

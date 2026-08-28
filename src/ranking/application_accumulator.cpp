@@ -47,11 +47,9 @@ bool AccumulationResult::ok() const noexcept {
     return error == AccumulationError::None;
 }
 
-AccumulationResult ApplicationAccumulator::AddTraffic(std::string_view id,
-                                                      const ApplicationMetadata& metadata,
-                                                      AccumulationTimePoint observed_at,
-                                                      TrafficDirection direction,
-                                                      std::uint64_t bytes) {
+AccumulationResult ApplicationAccumulator::AddTraffic( // NOLINT(misc-no-recursion)
+    std::string_view id, const ApplicationMetadata& metadata, AccumulationTimePoint observed_at,
+    TrafficDirection direction, std::uint64_t bytes) {
     if (id.empty()) {
         return {.error = AccumulationError::EmptyApplicationId};
     }

@@ -75,12 +75,13 @@ Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系�
 - Bun lockfile 是唯一 package lockfile。
 - 稳定状态不得运行永久 JavaScript animation loop。
 - Ticket 01 建立 theme token 与 i18n 基础；所有用户可见文本使用 locale key，所有主题相关颜色使用语义 token。
+- 严格执行《Deprecation & API Freshness Contract》：禁止使用已弃用的配置（如 tsconfig 的 `baseUrl`、`ignoreDeprecations`）或 API，禁止 blanket warning suppression，禁止复制旧博客/StackOverflow 过时模板。
 
 ## 质量门
 
 统一入口是 `tools/quality.ps1`。当前 Collector baseline 验证格式、Debug build、核心/Collector/Protocol tests、clang-tidy/Clang Static Analyzer；Full 追加 `/analyze`、Release build/tests 和 collector staging。
 
-Ticket 01 建立 frontend 后，Fast/Full 追加 Bun deterministic install、typecheck、ESLint、Prettier check、Vite production build 和已有 frontend tests。
+Ticket 01 建立 frontend 后，Fast 包含 Deprecation policy check、C++ 格式与测试、Bun deterministic install、Prettier、type-aware ESLint (`no-deprecated`)、TypeScript typecheck、已有 frontend tests 和 Vite production build。Full 包含完整的 clang-tidy (0 diagnostics)、MSVC /analyze (0 warnings)、Release 测试与 CPack 打包。
 
 Fast/Full 必须 headless：不显示 HWND/WebView、无 UAC、无人工交互、无 Vite server。
 

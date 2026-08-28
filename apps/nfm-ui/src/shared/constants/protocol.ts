@@ -1,0 +1,4 @@
+export const BRIDGE_PROTOCOL_VERSION = 1
+export const MAX_BRIDGE_PAYLOAD_BYTES = 262144 // 256 KiB
+export const TRAFFIC_TICK_RATE_HZ = 4
+export const RANKING_SNAPSHOT_RATE_HZ = 1

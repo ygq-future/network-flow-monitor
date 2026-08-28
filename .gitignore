@@ -78,6 +78,12 @@ install_manifest.txt
 *.gcno
 /coverage/
 
+# Node / Frontend
+node_modules/
+/apps/nfm-ui/dist/
+/apps/nfm-ui/node_modules/
+/apps/nfm-ui/.vite/
+
 # Local runtime configuration
 /NetworkFlowMonitor.json
 /NetworkFlowMonitor.json.*

@@ -12,10 +12,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ProjectOptions)
 include(StaticAnalysis)
+include(WebView2)
 include(CTest)
 
 set(NFM_YYJSON_VERSION "0.12.0")
@@ -35,8 +37,13 @@ endif()
 include(GNUInstallDirs)
 
 install(
-    TARGETS nfm_collector_executable
+    TARGETS nfm_collector_executable nfm_host_executable
     RUNTIME DESTINATION .
+    COMPONENT runtime
+)
+install(
+    DIRECTORY "${PROJECT_SOURCE_DIR}/apps/nfm-ui/dist/"
+    DESTINATION ui
     COMPONENT runtime
 )
 install(

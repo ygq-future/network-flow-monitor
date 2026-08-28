@@ -14,7 +14,7 @@
 namespace nfm::collector {
 namespace {
 
-wchar_t kSessionName[] = L"NetworkFlowMonitor.SystemTrace";
+constexpr wchar_t kSessionName[] = L"NetworkFlowMonitor.SystemTrace";
 constexpr GUID kSessionId = {.Data1 = 0x1473ea71U,
                              .Data2 = 0xa063U,
                              .Data3 = 0x4396U,
@@ -108,12 +108,12 @@ WindowsEtwSession::~WindowsEtwSession() {
 }
 
 WindowsEtwSessionResult WindowsEtwSession::Start() noexcept {
-    std::scoped_lock lock{lifecycle_mutex_};
+    const std::scoped_lock lock{lifecycle_mutex_};
     if (running_) {
         return {};
     }
     {
-        std::scoped_lock core_lock{core_mutex_};
+        const std::scoped_lock core_lock{core_mutex_};
         core_.SetState(CollectorState::Starting);
     }
     stop_requested_.store(false);
@@ -166,7 +166,7 @@ WindowsEtwSessionResult WindowsEtwSession::Start() noexcept {
     }
 
     logfile_ = {};
-    logfile_.LoggerName = kSessionName;
+    logfile_.LoggerName = const_cast<LPWSTR>(kSessionName);
     logfile_.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     logfile_.EventRecordCallback = &WindowsEtwSession::EventRecordCallback;
     logfile_.BufferCallback = &WindowsEtwSession::BufferCallback;
@@ -217,14 +217,14 @@ WindowsEtwSessionResult WindowsEtwSession::Start() noexcept {
     }
     running_ = true;
     {
-        std::scoped_lock core_lock{core_mutex_};
+        const std::scoped_lock core_lock{core_mutex_};
         core_.SetState(CollectorState::Running);
     }
     return {};
 }
 
 WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
-    std::scoped_lock lock{lifecycle_mutex_};
+    const std::scoped_lock lock{lifecycle_mutex_};
     if (!running_) {
         return {.error = WindowsEtwSessionError::NotRunning};
     }
@@ -233,7 +233,7 @@ WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
         api_.ControlController(controller_handle_, kSessionName, Properties(properties_buffer_),
                                EVENT_TRACE_CONTROL_FLUSH);
     if (status != ERROR_SUCCESS) {
-        std::scoped_lock core_lock{core_mutex_};
+        const std::scoped_lock core_lock{core_mutex_};
         core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
                                    .stage = CollectorErrorStage::FlushSession,
                                    .code = status},
@@ -244,7 +244,7 @@ WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
     status = api_.ControlController(controller_handle_, kSessionName,
                                     Properties(properties_buffer_), EVENT_TRACE_CONTROL_QUERY);
     if (status != ERROR_SUCCESS) {
-        std::scoped_lock core_lock{core_mutex_};
+        const std::scoped_lock core_lock{core_mutex_};
         core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
                                    .stage = CollectorErrorStage::QuerySession,
                                    .code = status},
@@ -259,13 +259,13 @@ WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
                         .realtime_buffers_lost = properties->RealTimeBuffersLost};
     latest_log_buffers_lost_.store(statistics_.loss.log_buffers_lost);
     latest_realtime_buffers_lost_.store(statistics_.loss.realtime_buffers_lost);
-    std::scoped_lock core_lock{core_mutex_};
+    const std::scoped_lock core_lock{core_mutex_};
     core_.UpdateEtwStatistics(statistics_.loss);
     return {};
 }
 
 WindowsEtwSessionResult WindowsEtwSession::Stop() noexcept {
-    std::scoped_lock lock{lifecycle_mutex_};
+    const std::scoped_lock lock{lifecycle_mutex_};
     if (!running_ && controller_handle_ == 0U && consumer_handle_ == INVALID_PROCESSTRACE_HANDLE) {
         return {};
     }

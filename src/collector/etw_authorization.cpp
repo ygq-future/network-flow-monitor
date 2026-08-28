@@ -105,7 +105,11 @@ std::uint32_t AuthorizeCollectorForCurrentUser() noexcept {
     // 3. Allow the user to enable the SystemTraceProvider (kernel network events). The GUID's
     // library definition is not linked, so keep the documented value inline.
     GUID provider_guid{
-        0x9e814aad, 0x3204, 0x11d2, {0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39}};
+        .Data1 = 0x9e814aad,
+        .Data2 = 0x3204,
+        .Data3 = 0x11d2,
+        .Data4 = {0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39},
+    };
     return ::EventAccessControl(&provider_guid, EventSecurityAddDACL, sid_ptr, TRACELOG_GUID_ENABLE,
                                 TRUE);
 }

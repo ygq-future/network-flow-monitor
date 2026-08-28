@@ -80,3 +80,49 @@ set_target_properties(nfm_collector_executable PROPERTIES OUTPUT_NAME "nfm-colle
 nfm_configure_target(nfm_collector_executable)
 nfm_enable_static_analysis(nfm_collector_executable ENABLE_EXCEPTIONS)
 target_link_libraries(nfm_collector_executable PRIVATE nfm_runtime Shell32)
+
+add_library(
+    nfm_host
+    STATIC
+        host/bridge/bridge_types.cpp
+        host/bridge/bridge_dispatcher.cpp
+        host/bridge/native_bridge.cpp
+        host/lifecycle/collector_companion.cpp
+        host/platform/webview2_environment.cpp
+        host/platform/win32_window.cpp
+        host/webview/webview_controller.cpp
+        host/app/product_host.cpp
+)
+target_include_directories(nfm_host PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_link_libraries(
+    nfm_host
+    PUBLIC
+        nfm_ipc
+        nfm_config
+        nfm_webview2_sdk
+    PRIVATE
+        nfm_yyjson
+        User32
+        Gdi32
+        Shell32
+        Ole32
+        Advapi32
+)
+nfm_configure_target(nfm_host)
+nfm_enable_static_analysis(nfm_host ENABLE_EXCEPTIONS)
+
+add_executable(nfm_host_executable WIN32 host/app/main.cpp)
+set_target_properties(nfm_host_executable PROPERTIES OUTPUT_NAME "NetworkFlowMonitor")
+nfm_configure_target(nfm_host_executable)
+nfm_enable_static_analysis(nfm_host_executable ENABLE_EXCEPTIONS)
+target_link_libraries(nfm_host_executable PRIVATE nfm_host Shell32 Ole32)
+
+add_custom_command(
+    TARGET nfm_host_executable POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:nfm_host_executable>/ui"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PROJECT_SOURCE_DIR}/apps/nfm-ui/dist"
+        "$<TARGET_FILE_DIR:nfm_host_executable>/ui"
+    COMMENT "Copying frontend assets to build ui/ directory"
+)
+

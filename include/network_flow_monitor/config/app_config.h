@@ -68,52 +68,52 @@ struct RankingConfig {
 };
 
 struct DisplayConfig {
-    std::chrono::milliseconds refresh_interval;
-    SpeedUnit speed_unit;
-    bool show_upload;
-    bool show_download;
+    std::chrono::milliseconds refresh_interval{250};
+    SpeedUnit speed_unit{SpeedUnit::Auto};
+    bool show_upload{true};
+    bool show_download{true};
 
     bool operator==(const DisplayConfig&) const = default;
 };
 
 struct InteractionConfig {
-    std::chrono::milliseconds hover_delay;
-    std::chrono::milliseconds dismiss_delay;
+    std::chrono::milliseconds hover_delay{350};
+    std::chrono::milliseconds dismiss_delay{500};
 
     bool operator==(const InteractionConfig&) const = default;
 };
 
 struct FloatingConfig {
-    bool auto_hide_enabled;
-    std::chrono::milliseconds auto_hide_delay;
-    std::uint8_t opacity_percent;
-    std::uint8_t blur_strength_percent;
-    std::int32_t capsule_width_dip;
-    std::int32_t capsule_height_dip;
-    bool nfm_pinned;
-    bool yield_topmost_when_fullscreen;
+    bool auto_hide_enabled{false};
+    std::chrono::milliseconds auto_hide_delay{5000};
+    std::uint8_t opacity_percent{100};
+    std::uint8_t blur_strength_percent{0};
+    std::int32_t capsule_width_dip{10};
+    std::int32_t capsule_height_dip{64};
+    bool nfm_pinned{false};
+    bool yield_topmost_when_fullscreen{true};
     std::array<char, kMaximumMonitorIdentifierBytes + 1U> anchor_monitor_id{};
-    DockSide anchor_side;
-    std::int32_t anchor_vertical_offset_dip;
+    DockSide anchor_side{DockSide::Right};
+    std::int32_t anchor_vertical_offset_dip{0};
 
     bool operator==(const FloatingConfig&) const = default;
 };
 
 struct AppearanceConfig {
-    LanguageMode language;
-    ThemeMode theme;
+    LanguageMode language{LanguageMode::System};
+    ThemeMode theme{ThemeMode::System};
 
     bool operator==(const AppearanceConfig&) const = default;
 };
 
 struct StartupConfig {
-    bool ui_at_login;
+    bool ui_at_login{false};
 
     bool operator==(const StartupConfig&) const = default;
 };
 
 struct DiagnosticsConfig {
-    LogLevel log_level;
+    LogLevel log_level{LogLevel::Info};
 
     bool operator==(const DiagnosticsConfig&) const = default;
 };

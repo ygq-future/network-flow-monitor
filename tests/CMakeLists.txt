@@ -44,3 +44,8 @@ nfm_add_repository_test(nfm_windows_etw_record_decoder_tests windows_etw_record_
 nfm_add_repository_test(nfm_windows_etw_session_tests windows_etw_session_tests.cpp collector.windows_session "collector" nfm_collector)
 nfm_add_repository_test(nfm_etw_collector_integration_tests etw_collector_integration_tests.cpp collector.etw_integration "collector;requires-admin" nfm_collector Advapi32 Ws2_32)
 set_tests_properties(collector.etw_integration PROPERTIES RUN_SERIAL TRUE)
+
+nfm_add_repository_test(nfm_host_bridge_tests host_bridge_tests.cpp host.bridge "host" nfm_host)
+nfm_add_repository_test(nfm_host_webview_policy_tests host_webview_policy_tests.cpp host.webview_policy "host" nfm_host)
+nfm_add_repository_test(nfm_host_lifecycle_tests host_lifecycle_tests.cpp host.lifecycle "host" nfm_host)
+

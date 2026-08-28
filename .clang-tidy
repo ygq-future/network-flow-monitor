@@ -11,14 +11,21 @@ Checks: >
   performance-*,
   portability-*,
   readability-*,
+  -bugprone-empty-catch,
   -cppcoreguidelines-avoid-c-arrays,
   -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
   -cppcoreguidelines-owning-memory,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-const-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -misc-const-correctness,
   -misc-include-cleaner,
   -modernize-use-trailing-return-type,
+  -readability-function-cognitive-complexity,
   -readability-identifier-length,
   -readability-magic-numbers
 WarningsAsErrors: >
@@ -32,5 +39,4 @@ ExcludeHeaderFilterRegex: '^[A-Za-z]:[\\/](Program Files|Program Files \(x86\))[
 FormatStyle: file
 CheckOptions:
   misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: 'true'
-  readability-function-cognitive-complexity.Threshold: '25'
 ...

@@ -22,6 +22,28 @@
 
 Fast and Full display no HWND, WebView, context menu or UAC prompt; start no development server; move no pointer; require no human input.
 
+## Deprecation & API Freshness Contract
+
+The repository enforces a strict deprecation and freshness policy across all layers:
+
+1. **General Principle**:
+   - `deprecated -> actionable finding -> migrate to supported replacement`.
+   - Blanket suppression (`ignoreDeprecations`, `_CRT_SECURE_NO_WARNINGS` on first-party code, global warning disables) is strictly forbidden.
+
+2. **TypeScript & Toolchain Freshness**:
+   - `tsconfig.json` adheres to the installed TypeScript major version. Deprecated compiler options like `baseUrl` are removed in favor of modern relative path mappings (`"@/*": ["./src/*"]`).
+   - `ignoreDeprecations` is forbidden.
+   - ESLint enables type-aware `@typescript-eslint/no-deprecated` to surface deprecated source APIs.
+   - React, Vite, Tailwind CSS, Prettier, and Bun toolchains must follow their currently installed versions without legacy compatibility shims.
+
+3. **C++ & Windows SDK / WebView2 Freshness**:
+   - C++ compiler and SDK deprecation warnings are actionable findings requiring migration rather than global silencing.
+   - WebView2 integrations target APIs in the repository's active WebView2 SDK version.
+
+4. **Quality Gate Deprecation Policy**:
+   - Fast gate starts with an authoritative `Deprecation policy` check on configuration files.
+   - Deprecation diagnostics from compilers, linters, and static analyzers are never filtered out in compact mode.
+
 ## Structure and maintainability gate
 
 - Product rules, limits, timings, geometry, protocol identifiers and theme values have one named owner and are not repeated as unexplained literals.

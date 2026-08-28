@@ -80,8 +80,10 @@ bool RankingResult::accepted() const noexcept {
     return error == RankingError::None;
 }
 
-RankingEngine::RankingEngine(ConstructionToken, RankingOptions options) noexcept
-    : options_{options}, retention_window_{options.window} {}
+RankingEngine::RankingEngine(ConstructionToken token, RankingOptions options) noexcept
+    : options_{options}, retention_window_{options.window} {
+    static_cast<void>(token);
+}
 
 RankingResult RankingEngine::PushSnapshot(CounterSnapshot snapshot) {
     if (!history_.empty() && snapshot.captured_at <= history_.back().captured_at) {
@@ -192,7 +194,7 @@ RankingResult RankingEngine::PushSnapshot(CounterSnapshot snapshot) {
             return static_cast<double>(current_value - baseline_value) / seconds;
         };
 
-        TransferRate rate{
+        const TransferRate rate{
             .upload_bytes_per_second =
                 calculate_direction(application_baseline->upload_bytes, application_baseline_time,
                                     current_application.upload_bytes, application_epochs.upload),

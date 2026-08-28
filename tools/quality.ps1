@@ -103,6 +103,12 @@ function Filter-OutputLines {
         $line = $rawLine.ToString().TrimEnd()
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
 
+        # Always preserve deprecation and obsolescence diagnostics
+        if ($line -match '(?i)\b(?:deprecated|obsolete|will stop functioning|will be removed)\b') {
+            $filtered.Add($line)
+            continue
+        }
+
         # Filter MSVC /showIncludes (Chinese and English)
         if ($line -match '^(?:注意:\s*包含文件:\s*|Note:\s*including\s*file:\s*)') { continue }
 
@@ -123,9 +129,9 @@ function Extract-Diagnostics {
 
     $diagnostics = [System.Collections.Generic.List[string]]::new()
 
-    # Pass 1: look for explicit error / warning / failure patterns
+    # Pass 1: look for explicit error / warning / failure / deprecation patterns
     foreach ($line in $Lines) {
-        if ($line -match '(?::\s*(?:fatal )?error\b|:\s*warning\b|error\s+[A-Z]\d+|warning\s+[A-Z]\d+|\bFAILED\b|Assertion failed|Expected:|Received:|error\s+TS\d+:|\bFAIL\b)') {
+        if ($line -match '(?::\s*(?:fatal )?error\b|:\s*warning\b|error\s+[A-Z]\d+|warning\s+[A-Z]\d+|\bFAILED\b|Assertion failed|Expected:|Received:|error\s+TS\d+:|\bFAIL\b|(?i)\b(?:deprecated|obsolete|will stop functioning|will be removed)\b)') {
             $diagnostics.Add($line)
         }
     }
@@ -188,9 +194,13 @@ function Invoke-GateStep {
     $captured = @()
     $stepFailed = $false
     $failureException = $null
+    $global:LASTEXITCODE = 0
 
     try {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         $captured = & $Action 2>&1
+        $ErrorActionPreference = $prevEAP
         $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
         if ($exitCode -ne 0) {
             $stepFailed = $true
@@ -217,10 +227,10 @@ function Invoke-GateStep {
         $global:PassCount++
     } else {
         $global:FailCount++
-        $diagnostics = Extract-Diagnostics -Lines $filteredLines -MaxDiagnostics 30
+        $diagnostics = @(Extract-Diagnostics -Lines @($filteredLines) -MaxDiagnostics 30)
         Write-Host ("[FAIL] {0}" -f $paddedName) -ForegroundColor Red
         Write-Host ''
-        if ($diagnostics.Count -gt 0) {
+        if ($diagnostics.Length -gt 0) {
             foreach ($diag in $diagnostics) {
                 Write-Host "  $diag" -ForegroundColor Red
             }
@@ -263,6 +273,47 @@ if ($Mode -eq 'Format') {
 # ------------------------------------------------------------------------------
 # 2. Fast Mode (Headless development quality gate)
 # ------------------------------------------------------------------------------
+
+# Phase 0: Deprecation policy check (authoritative config file validation)
+Invoke-GateStep -Name 'Deprecation policy' -Action {
+    $policyViolations = [System.Collections.Generic.List[string]]::new()
+
+    # Check frontend tsconfig
+    if (Test-Path -LiteralPath $frontendRoot) {
+        $tsconfigs = @(Get-ChildItem -Path $frontendRoot -Filter 'tsconfig*.json' -File -ErrorAction SilentlyContinue)
+        foreach ($cfg in $tsconfigs) {
+            $content = Get-Content -LiteralPath $cfg.FullName -Raw -ErrorAction SilentlyContinue
+            if ($content -match '"ignoreDeprecations"') {
+                $policyViolations.Add("Forbidden deprecation suppression in $($cfg.Name): 'ignoreDeprecations'")
+            }
+            if ($content -match '"baseUrl"') {
+                $policyViolations.Add("Deprecated compiler option in $($cfg.Name): 'baseUrl' is deprecated in modern TypeScript")
+            }
+        }
+
+        # Check frontend eslint config
+        $eslintConfigs = @(Get-ChildItem -Path $frontendRoot -Filter 'eslint.config.*' -File -ErrorAction SilentlyContinue)
+        foreach ($cfg in $eslintConfigs) {
+            $content = Get-Content -LiteralPath $cfg.FullName -Raw -ErrorAction SilentlyContinue
+            if ($content -match 'eslint-disable\s+(@typescript-eslint/)?no-deprecated') {
+                $policyViolations.Add("Forbidden blanket deprecation suppression in $($cfg.Name)")
+            }
+        }
+    }
+
+    # Check root and cmake files for blanket suppressions
+    $cmakeFiles = @(Get-ChildItem -Path (Join-Path $projectRoot 'cmake'), (Join-Path $projectRoot 'CMakeLists.txt') -File -ErrorAction SilentlyContinue)
+    foreach ($cfg in $cmakeFiles) {
+        $content = Get-Content -LiteralPath $cfg.FullName -Raw -ErrorAction SilentlyContinue
+        if ($content -match '/_CRT_SECURE_NO_WARNINGS\b' -and $content -match 'add_compile_definitions') {
+            $policyViolations.Add("Forbidden blanket CRT warning suppression in $($cfg.Name)")
+        }
+    }
+
+    if ($policyViolations.Count -gt 0) {
+        throw ($policyViolations -join "`n")
+    }
+} -ParseDetail { '0 violations' }
 
 # Phase A: C++ formatting check
 Invoke-GateStep -Name 'C++ format' -Action {
@@ -315,6 +366,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
         Push-Location $frontendRoot
         try {
             & bun install --frozen-lockfile
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            return 0
         } finally {
             Pop-Location
         }
@@ -325,6 +378,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
         Push-Location $frontendRoot
         try {
             & bun run format:check
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            return 0
         } finally {
             Pop-Location
         }
@@ -335,6 +390,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
         Push-Location $frontendRoot
         try {
             & bun run lint --max-warnings 0
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            return 0
         } finally {
             Pop-Location
         }
@@ -345,6 +402,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
         Push-Location $frontendRoot
         try {
             & bun run typecheck
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            return 0
         } finally {
             Pop-Location
         }
@@ -356,6 +415,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
             Push-Location $frontendRoot
             try {
                 & bun run test
+                if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+                return 0
             } finally {
                 Pop-Location
             }
@@ -374,6 +435,8 @@ if (Test-Path -LiteralPath $frontendManifest) {
         Push-Location $frontendRoot
         try {
             & bun run build
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            return 0
         } finally {
             Pop-Location
         }

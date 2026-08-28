@@ -12,7 +12,6 @@ inline constexpr std::size_t kMaximumPipeNameCharacters = 256U;
 
 enum class CollectorEndpointMode : std::uint8_t {
     Portable = 0U,
-    Service = 1U,
     Invalid = 0xFFU,
 };
 

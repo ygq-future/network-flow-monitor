@@ -43,11 +43,9 @@ struct JsonBufferDeleter {
 
 using UniqueJsonBuffer = std::unique_ptr<char, JsonBufferDeleter>;
 
-constexpr std::array<std::string_view, 9> kUserRootKeys{
-    "schema_version", "ranking", "display",   "interaction", "floating",
-    "appearance",     "startup", "collector", "diagnostics"};
-constexpr std::array<std::string_view, 3> kServiceRootKeys{"schema_version", "service",
-                                                           "diagnostics"};
+constexpr std::array<std::string_view, 8> kUserRootKeys{
+    "schema_version", "ranking",    "display", "interaction",
+    "floating",       "appearance", "startup", "diagnostics"};
 constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
@@ -78,8 +76,6 @@ constexpr std::array<std::string_view, 13> kDevelopmentFloatingKeys{"snap_distan
                                                                     "anchor_vertical_offset_dip"};
 constexpr std::array<std::string_view, 2> kAppearanceKeys{"language", "theme"};
 constexpr std::array<std::string_view, 1> kStartupKeys{"ui_at_login"};
-constexpr std::array<std::string_view, 1> kCollectorKeys{"preferred_mode"};
-constexpr std::array<std::string_view, 1> kServiceKeys{"start_type"};
 constexpr std::array<std::string_view, 1> kDiagnosticsKeys{"log_level"};
 
 ConfigError MakeError(ConfigErrorCode code, std::string field_path, std::string detail) {
@@ -161,12 +157,6 @@ std::span<const std::string_view> GroupKeys(std::string_view group,
     if (group == "startup") {
         return kStartupKeys;
     }
-    if (group == "collector") {
-        return kCollectorKeys;
-    }
-    if (group == "service") {
-        return kServiceKeys;
-    }
     if (group == "diagnostics") {
         return kDiagnosticsKeys;
     }
@@ -197,11 +187,9 @@ std::optional<ConfigError> ValidateGroupKeys(yyjson_val* object, std::string_vie
     return std::nullopt;
 }
 
-std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind kind,
+std::optional<ConfigError> ValidateStructure(yyjson_val* root, ConfigDocumentKind,
                                              bool development_schema) {
-    const std::span<const std::string_view> allowed_root =
-        kind == ConfigDocumentKind::User ? std::span<const std::string_view>{kUserRootKeys}
-                                         : std::span<const std::string_view>{kServiceRootKeys};
+    const std::span<const std::string_view> allowed_root{kUserRootKeys};
 
     yyjson_obj_iter iterator{};
     if (!yyjson_obj_iter_init(root, &iterator)) {
@@ -308,15 +296,6 @@ constexpr std::array kSpeedUnits{
     std::pair{std::string_view{"auto"}, SpeedUnit::Auto},
     std::pair{std::string_view{"bytes"}, SpeedUnit::Bytes},
     std::pair{std::string_view{"bits"}, SpeedUnit::Bits},
-};
-constexpr std::array kCollectorModes{
-    std::pair{std::string_view{"portable"}, CollectorMode::Portable},
-    std::pair{std::string_view{"service"}, CollectorMode::Service},
-};
-constexpr std::array kServiceStartTypes{
-    std::pair{std::string_view{"manual"}, ServiceStartType::Manual},
-    std::pair{std::string_view{"automatic"}, ServiceStartType::Automatic},
-    std::pair{std::string_view{"automatic_delayed"}, ServiceStartType::AutomaticDelayed},
 };
 constexpr std::array kLogLevels{
     std::pair{std::string_view{"off"}, LogLevel::Off},
@@ -563,24 +542,6 @@ std::optional<ConfigError> ParseStartup(yyjson_val* root, AppConfig& config, boo
                        &complete);
 }
 
-std::optional<ConfigError> ParseCollector(yyjson_val* root, AppConfig& config, bool& complete) {
-    auto* group = FindGroup(root, "collector", &complete);
-    if (group == nullptr) {
-        return std::nullopt;
-    }
-    return ReadEnum(group, "preferred_mode", "collector.preferred_mode", kCollectorModes,
-                    config.collector.preferred_mode, &complete);
-}
-
-std::optional<ConfigError> ParseService(yyjson_val* root, AppConfig& config, bool& complete) {
-    auto* group = FindGroup(root, "service", &complete);
-    if (group == nullptr) {
-        return std::nullopt;
-    }
-    return ReadEnum(group, "start_type", "service.start_type", kServiceStartTypes,
-                    config.service.start_type, &complete);
-}
-
 std::optional<ConfigError> ParseDiagnostics(yyjson_val* root, AppConfig& config, bool& complete) {
     auto* group = FindGroup(root, "diagnostics", &complete);
     if (group == nullptr) {
@@ -609,35 +570,7 @@ std::optional<ConfigError> ParseUserFields(yyjson_val* root, AppConfig& config, 
     if (auto error = ParseStartup(root, config, complete)) {
         return error;
     }
-    if (auto error = ParseCollector(root, config, complete)) {
-        return error;
-    }
     return ParseDiagnostics(root, config, complete);
-}
-
-std::optional<ConfigError> ParseServiceFields(yyjson_val* root, AppConfig& config, bool& complete) {
-    if (auto error = ParseService(root, config, complete)) {
-        return error;
-    }
-    return ParseDiagnostics(root, config, complete);
-}
-
-AppConfig SelectedScopeConfig(const AppConfig& config, ConfigDocumentKind kind) {
-    auto selected = DefaultAppConfig();
-    selected.schema_version = config.schema_version;
-    selected.diagnostics = config.diagnostics;
-    if (kind == ConfigDocumentKind::User) {
-        selected.ranking = config.ranking;
-        selected.display = config.display;
-        selected.interaction = config.interaction;
-        selected.floating = config.floating;
-        selected.appearance = config.appearance;
-        selected.startup = config.startup;
-        selected.collector = config.collector;
-    } else {
-        selected.service = config.service;
-    }
-    return selected;
 }
 
 ConfigError ValidationError(const ConfigIssue& issue) {
@@ -654,28 +587,6 @@ std::string_view SpeedUnitText(SpeedUnit value) noexcept {
         return "bytes";
     case SpeedUnit::Bits:
         return "bits";
-    }
-    return {};
-}
-
-std::string_view CollectorModeText(CollectorMode value) noexcept {
-    switch (value) {
-    case CollectorMode::Portable:
-        return "portable";
-    case CollectorMode::Service:
-        return "service";
-    }
-    return {};
-}
-
-std::string_view ServiceStartTypeText(ServiceStartType value) noexcept {
-    switch (value) {
-    case ServiceStartType::Manual:
-        return "manual";
-    case ServiceStartType::Automatic:
-        return "automatic";
-    case ServiceStartType::AutomaticDelayed:
-        return "automatic_delayed";
     }
     return {};
 }
@@ -799,19 +710,6 @@ bool AddStartup(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig&
            yyjson_mut_obj_add_bool(document, group, "ui_at_login", config.startup.ui_at_login);
 }
 
-bool AddCollector(yyjson_mut_doc* document, yyjson_mut_val* root,
-                  const AppConfig& config) noexcept {
-    auto* group = yyjson_mut_obj_add_obj(document, root, "collector");
-    return group != nullptr && AddString(document, group, "preferred_mode",
-                                         CollectorModeText(config.collector.preferred_mode));
-}
-
-bool AddService(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {
-    auto* group = yyjson_mut_obj_add_obj(document, root, "service");
-    return group != nullptr && AddString(document, group, "start_type",
-                                         ServiceStartTypeText(config.service.start_type));
-}
-
 bool AddDiagnostics(yyjson_mut_doc* document, yyjson_mut_val* root,
                     const AppConfig& config) noexcept {
     auto* group = yyjson_mut_obj_add_obj(document, root, "diagnostics");
@@ -824,12 +722,7 @@ bool AddUserDocument(yyjson_mut_doc* document, yyjson_mut_val* root,
     return AddRanking(document, root, config) && AddDisplay(document, root, config) &&
            AddInteraction(document, root, config) && AddFloating(document, root, config) &&
            AddAppearance(document, root, config) && AddStartup(document, root, config) &&
-           AddCollector(document, root, config) && AddDiagnostics(document, root, config);
-}
-
-bool AddServiceDocument(yyjson_mut_doc* document, yyjson_mut_val* root,
-                        const AppConfig& config) noexcept {
-    return AddService(document, root, config) && AddDiagnostics(document, root, config);
+           AddDiagnostics(document, root, config);
 }
 
 } // namespace
@@ -891,9 +784,7 @@ ConfigLoadResult ParseConfigJson(std::string_view json, ConfigDocumentKind kind)
 
     auto config = DefaultAppConfig();
     bool complete = true;
-    auto field_error = kind == ConfigDocumentKind::User
-                           ? ParseUserFields(root, config, complete)
-                           : ParseServiceFields(root, config, complete);
+    auto field_error = ParseUserFields(root, config, complete);
     if (field_error) {
         return MakeLoadFailure(ConfigLoadStatus::Damaged, std::move(*field_error));
     }
@@ -904,7 +795,8 @@ ConfigLoadResult ParseConfigJson(std::string_view json, ConfigDocumentKind kind)
 }
 
 ConfigJsonResult SerializeConfigJson(const AppConfig& config, ConfigDocumentKind kind) {
-    const auto validation = ValidateAppConfig(SelectedScopeConfig(config, kind));
+    static_cast<void>(kind);
+    const auto validation = ValidateAppConfig(config);
     if (!validation.ok()) {
         return ConfigJsonResult{.json = {}, .error = ValidationError(validation.issues.front())};
     }
@@ -925,8 +817,7 @@ ConfigJsonResult SerializeConfigJson(const AppConfig& config, ConfigDocumentKind
 
     const bool built =
         yyjson_mut_obj_add_uint(document.get(), root, "schema_version", config.schema_version) &&
-        (kind == ConfigDocumentKind::User ? AddUserDocument(document.get(), root, config)
-                                          : AddServiceDocument(document.get(), root, config));
+        AddUserDocument(document.get(), root, config);
     if (!built) {
         return ConfigJsonResult{
             .json = {},

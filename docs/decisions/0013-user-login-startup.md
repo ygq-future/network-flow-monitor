@@ -1,23 +1,15 @@
-# ADR 0013：使用当前用户 Run 项管理 UI 登录自启
+# ADR 0013：使用当前用户 Run 项启动 native host
 
 - 状态：已接受
 - 日期：2026-08-12
-
-## 背景
-
-`startup.ui_at_login` 是用户级设置。它只负责启动普通权限的 UI，不应因为开机启动而
-要求管理员权限，也不应把后台采集服务和 UI 生命周期混为一谈。
+- 修订：2026-08-28
 
 ## 决策
 
-设置窗口保存该选项时，在
-`HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` 下维护固定值名
-`NetworkFlowMonitor`。启用时写入带引号的当前可执行文件绝对路径；禁用时移除该值。
-注册表操作由独立的可注入边界负责，失败通过设置保存错误返回，并回滚内存配置和已完成的
-运行时切换。该动作不触发 UAC。
+`startup.ui_at_login` 由普通权限 native host 管理。启用时在 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下写入固定值名 `NetworkFlowMonitor`，数据为带引号的 `NetworkFlowMonitor.exe` 绝对路径；禁用时删除该值。失败必须反馈给设置页并保持配置与注册表状态一致。
 
 ## 后果
 
-- 登录自启只影响当前用户，服务开机启动仍由 SCM 的独立启动类型控制。
-- ZIP 目录必须保持稳定；移动可执行文件后应重新保存登录自启并重新安装服务。
-- 卸载服务不会自动删除用户登录自启或其他个人配置；用户可在设置中关闭它。
+- 自启只影响当前用户且不触发 UAC。
+- ZIP 所在目录移动后，用户需要重新保存自启设置。
+- 该决策由 WebView2 host ticket 05 实现和验收。

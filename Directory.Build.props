@@ -1,6 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-  </PropertyGroup>
-</Project>

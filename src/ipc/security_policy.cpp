@@ -25,8 +25,6 @@ std::wstring_view ModeName(CollectorEndpointMode mode) noexcept {
     switch (mode) {
     case CollectorEndpointMode::Portable:
         return L"portable";
-    case CollectorEndpointMode::Service:
-        return L"service";
     case CollectorEndpointMode::Invalid:
         return {};
     }
@@ -45,13 +43,11 @@ PipeSecurityError ValidateAuthorizedPrincipal(const AuthorizedPrincipal& princip
     if (!IsCanonicalSid(principal.authorized_sid)) {
         return PipeSecurityError::InvalidSid;
     }
-    if (principal.mode == CollectorEndpointMode::Portable) {
-        if (principal.server_logon_sid.empty()) {
-            return PipeSecurityError::MissingSid;
-        }
-        if (!IsCanonicalSid(principal.server_logon_sid)) {
-            return PipeSecurityError::InvalidSid;
-        }
+    if (principal.server_logon_sid.empty()) {
+        return PipeSecurityError::MissingSid;
+    }
+    if (!IsCanonicalSid(principal.server_logon_sid)) {
+        return PipeSecurityError::InvalidSid;
     }
     return PipeSecurityError::None;
 }

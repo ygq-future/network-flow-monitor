@@ -110,9 +110,6 @@ void CheckPaths(TestContext& context) {
     context.Check(nfm::config::InstalledUserConfigPath(LR"(C:\Users\Test\AppData\Local)") ==
                       LR"(C:\Users\Test\AppData\Local\NetworkFlowMonitor\config.json)",
                   "installed user config path");
-    context.Check(nfm::config::MachineServiceConfigPath(LR"(C:\ProgramData)") ==
-                      LR"(C:\ProgramData\NetworkFlowMonitor\service.json)",
-                  "machine service config path");
 }
 
 void CheckLoading(TestContext& context, const TestDirectory& directory) {

@@ -132,8 +132,6 @@ bool IdentityMatches(const AuthorizedPrincipal& principal,
         return std::ranges::any_of(identity.group_sids, [&](const auto& group_sid) {
             return SidsEqual(group_sid, principal.authorized_sid);
         });
-    case CollectorEndpointMode::Service:
-        return SidsEqual(identity.user_sid, principal.authorized_sid);
     case CollectorEndpointMode::Invalid:
         return false;
     }
@@ -210,9 +208,7 @@ PipeSecurityResult BuildPipeSecurity(const AuthorizedPrincipal& principal) {
     std::vector<EXPLICIT_ACCESSW> entries;
     entries.reserve(3U);
     entries.push_back(TrusteeEntry(FILE_ALL_ACCESS, system_storage.data()));
-    if (principal.mode == CollectorEndpointMode::Portable) {
-        entries.push_back(TrusteeEntry(FILE_ALL_ACCESS, MutableSid(principal.server_logon_sid)));
-    }
+    entries.push_back(TrusteeEntry(FILE_ALL_ACCESS, MutableSid(principal.server_logon_sid)));
     entries.push_back(TrusteeEntry(kPipeClientAccessMask, MutableSid(principal.authorized_sid)));
 
     PACL raw_acl{};

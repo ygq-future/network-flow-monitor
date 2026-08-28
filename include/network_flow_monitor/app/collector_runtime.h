@@ -4,7 +4,6 @@
 #include "network_flow_monitor/collector/collector_host.h"
 #include "network_flow_monitor/collector/etw_snapshot_provider.h"
 #include "network_flow_monitor/ipc/security_policy.h"
-#include "network_flow_monitor/service/service_entry.h"
 
 #include <chrono>
 #include <cstdint>
@@ -22,23 +21,21 @@ struct CollectorPrincipalResult {
     }
 };
 
-[[nodiscard]] CollectorPrincipalResult BuildCollectorPrincipal(
-    ipc::CollectorEndpointMode mode) noexcept;
+[[nodiscard]] CollectorPrincipalResult BuildCollectorPrincipal() noexcept;
 [[nodiscard]] std::string CreateCollectorInstanceId();
 
-class CollectorRuntime final : public service::ServiceHost {
+class CollectorRuntime final {
   public:
-    explicit CollectorRuntime(ipc::CollectorEndpointMode mode);
-    ~CollectorRuntime() override = default;
+    CollectorRuntime();
+    ~CollectorRuntime() = default;
     CollectorRuntime(const CollectorRuntime&) = delete;
     CollectorRuntime& operator=(const CollectorRuntime&) = delete;
     CollectorRuntime(CollectorRuntime&&) = delete;
     CollectorRuntime& operator=(CollectorRuntime&&) = delete;
 
-    [[nodiscard]] collector::CollectorHostResult Start() noexcept override;
-    [[nodiscard]] collector::CollectorHostResult Run(
-        const std::stop_token& stop_token) noexcept override;
-    [[nodiscard]] collector::CollectorHostResult Stop() noexcept override;
+    [[nodiscard]] collector::CollectorHostResult Start() noexcept;
+    [[nodiscard]] collector::CollectorHostResult Run(const std::stop_token& stop_token) noexcept;
+    [[nodiscard]] collector::CollectorHostResult Stop() noexcept;
 
     // Runs until a console/session control requests the stop token or the host fails.
     [[nodiscard]] collector::CollectorHostResult RunPortable(

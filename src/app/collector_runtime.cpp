@@ -147,15 +147,6 @@ std::vector<std::byte> QueryCurrentLogonSid(HANDLE token) {
     return {};
 }
 
-std::vector<std::byte> WellKnownSid(WELL_KNOWN_SID_TYPE type) {
-    std::array<std::byte, SECURITY_MAX_SID_SIZE> storage{};
-    auto size = static_cast<DWORD>(storage.size());
-    if (::CreateWellKnownSid(type, nullptr, storage.data(), &size) == FALSE) {
-        return {};
-    }
-    return {storage.begin(), storage.begin() + size};
-}
-
 CollectorPrincipalResult BuildPortablePrincipal() noexcept {
     try {
         HANDLE raw_token{};
@@ -175,39 +166,14 @@ CollectorPrincipalResult BuildPortablePrincipal() noexcept {
     }
 }
 
-CollectorPrincipalResult BuildServicePrincipal() noexcept {
-    try {
-        auto users_sid = WellKnownSid(WinBuiltinUsersSid);
-        if (users_sid.empty()) {
-            return {.source_error = ERROR_INVALID_SID};
-        }
-        return {.principal = {.mode = ipc::CollectorEndpointMode::Service,
-                              .authorized_sid = std::move(users_sid)}};
-    } catch (...) {
-        return {.source_error = ERROR_NOT_ENOUGH_MEMORY};
-    }
-}
-
-collector::WindowsEtwSessionOptions SessionOptionsFor(ipc::CollectorEndpointMode mode) noexcept {
-    // A portable collector recovers a session left behind by a prior forced kill (see ADR-0014).
-    // The service keeps the strict policy until portable/service coexistence is decided.
-    return {.existing_session_policy = mode == ipc::CollectorEndpointMode::Portable
-                                           ? collector::ExistingSessionPolicy::StopAndRetry
-                                           : collector::ExistingSessionPolicy::Fail};
+collector::WindowsEtwSessionOptions SessionOptions() noexcept {
+    return {.existing_session_policy = collector::ExistingSessionPolicy::StopAndRetry};
 }
 
 } // namespace
 
-CollectorPrincipalResult BuildCollectorPrincipal(ipc::CollectorEndpointMode mode) noexcept {
-    switch (mode) {
-    case ipc::CollectorEndpointMode::Portable:
-        return BuildPortablePrincipal();
-    case ipc::CollectorEndpointMode::Service:
-        return BuildServicePrincipal();
-    case ipc::CollectorEndpointMode::Invalid:
-        return {.source_error = ERROR_INVALID_PARAMETER};
-    }
-    return {.source_error = ERROR_INVALID_PARAMETER};
+CollectorPrincipalResult BuildCollectorPrincipal() noexcept {
+    return BuildPortablePrincipal();
 }
 
 std::string CreateCollectorInstanceId() {
@@ -222,9 +188,9 @@ std::string CreateCollectorInstanceId() {
     return std::string{buffer.data()};
 }
 
-CollectorRuntime::CollectorRuntime(ipc::CollectorEndpointMode mode)
-    : instance_{CreateCollectorInstanceId()}, principal_{BuildCollectorPrincipal(mode).principal},
-      etw_api_{}, session_{etw_api_, SessionOptionsFor(mode)}, provider_{session_},
+CollectorRuntime::CollectorRuntime()
+    : instance_{CreateCollectorInstanceId()}, principal_{BuildCollectorPrincipal().principal},
+      etw_api_{}, session_{etw_api_, SessionOptions()}, provider_{session_},
       started_at_{std::chrono::steady_clock::now()}, server_{instance_, principal_, transport_},
       publisher_{instance_, started_at_, provider_, server_}, wait_{},
       host_{session_, server_, publisher_, wait_} {}

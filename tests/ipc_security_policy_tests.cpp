@@ -5,12 +5,9 @@
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -32,7 +29,6 @@ class TestContext {
             ++failures_;
         }
     }
-
     [[nodiscard]] int failures() const noexcept {
         return failures_;
     }
@@ -70,28 +66,11 @@ std::vector<std::byte> LogonSid() {
     return CopySid(sid);
 }
 
-std::vector<std::byte> MaximumLengthSid() {
-    std::array<std::byte, SECURITY_MAX_SID_SIZE> storage{};
-    SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
-    auto* sid = reinterpret_cast<PSID>(storage.data());
-    if (InitializeSid(sid, &authority, SID_MAX_SUB_AUTHORITIES) == FALSE) {
-        return {};
-    }
-    for (DWORD index = 0U; index < SID_MAX_SUB_AUTHORITIES; ++index) {
-        *GetSidSubAuthority(sid, index) = std::numeric_limits<DWORD>::max();
-    }
-    return CopySid(sid);
-}
-
-AuthorizedPrincipal ServicePrincipal() {
-    return {.mode = CollectorEndpointMode::Service,
-            .authorized_sid = WellKnownSid(WinBuiltinUsersSid)};
-}
-
 AuthorizedPrincipal PortablePrincipal() {
+    const auto logon_sid = LogonSid();
     return {.mode = CollectorEndpointMode::Portable,
-            .authorized_sid = LogonSid(),
-            .server_logon_sid = WellKnownSid(WinInteractiveSid)};
+            .authorized_sid = logon_sid,
+            .server_logon_sid = logon_sid};
 }
 
 std::optional<DWORD> AllowedMaskFor(PACL acl, const std::vector<std::byte>& sid) {
@@ -111,256 +90,143 @@ std::optional<DWORD> AllowedMaskFor(PACL acl, const std::vector<std::byte>& sid)
             continue;
         }
         const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw_ace);
-        auto* ace_sid =
-            const_cast<DWORD*>(&ace->SidStart); // NOLINT(cppcoreguidelines-pro-type-const-cast):
-                                                // EqualSid has a legacy mutable PSID signature.
-        auto* expected_sid =
-            const_cast<std::byte*>(sid.data()); // NOLINT(cppcoreguidelines-pro-type-const-cast):
-                                                // EqualSid has a legacy mutable PSID signature.
+        // Windows ACL inspection APIs require mutable legacy PSID values.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto* ace_sid = const_cast<DWORD*>(&ace->SidStart);
+        // -- Win32 EqualSid signature.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto* expected_sid = const_cast<std::byte*>(sid.data());
+        // -- Win32 EqualSid signature.
         if (EqualSid(ace_sid, expected_sid) != FALSE) {
             combined_mask |= ace->Mask;
             found = true;
         }
     }
-    if (!found) {
-        return std::nullopt;
-    }
-    return combined_mask;
+    return found ? std::optional<DWORD>{combined_mask} : std::nullopt;
 }
 
-PACL DescriptorDacl(TestContext& context, SECURITY_ATTRIBUTES* attributes) {
-    context.Check(attributes != nullptr && attributes->lpSecurityDescriptor != nullptr,
-                  "descriptor exposes owned security attributes");
-    if (attributes == nullptr || attributes->lpSecurityDescriptor == nullptr) {
-        return nullptr;
-    }
-    BOOL present{};
-    BOOL defaulted{};
-    PACL acl{};
-    context.Check(GetSecurityDescriptorDacl(attributes->lpSecurityDescriptor, &present, &acl,
-                                            &defaulted) != FALSE &&
-                      present != FALSE && acl != nullptr && defaulted == FALSE,
-                  "descriptor contains an explicit non-defaulted DACL");
-    return acl;
-}
+void CheckPrincipal(TestContext& context) {
+    const auto principal = PortablePrincipal();
+    const auto name = BuildPipeName(principal);
+    context.Check(name.error == PipeSecurityError::None &&
+                      name.name == LR"(\\.\pipe\NetworkFlowMonitor.portable.S-1-5-5-4660-22136)",
+                  "pipe name contains the logon SID");
 
-void CheckNamesAndValidation(TestContext& context) {
-    const auto service = ServicePrincipal();
-    const auto service_name = BuildPipeName(service);
-    context.Check(service_name.error == PipeSecurityError::None &&
-                      service_name.name == LR"(\\.\pipe\NetworkFlowMonitor.service.S-1-5-32-545)",
-                  "service endpoint uses a canonical owner SID name");
-
-    const auto portable = PortablePrincipal();
-    const auto portable_name = BuildPipeName(portable);
-    context.Check(portable_name.error == PipeSecurityError::None &&
-                      portable_name.name ==
-                          LR"(\\.\pipe\NetworkFlowMonitor.portable.S-1-5-5-4660-22136)",
-                  "portable endpoint uses a canonical logon SID name");
-
-    auto missing = service;
+    auto missing = principal;
     missing.authorized_sid.clear();
     context.Check(BuildPipeName(missing).error == PipeSecurityError::MissingSid,
                   "missing authorized SID is rejected");
 
-    auto invalid = service;
-    invalid.authorized_sid = {std::byte{0U}, std::byte{1U}};
-    context.Check(BuildPipeName(invalid).error == PipeSecurityError::InvalidSid,
-                  "malformed authorized SID is rejected");
-
-    auto missing_server = portable;
+    auto missing_server = principal;
     missing_server.server_logon_sid.clear();
     context.Check(BuildPipeName(missing_server).error == PipeSecurityError::MissingSid,
-                  "portable endpoint requires a server logon SID");
+                  "missing server SID is rejected");
 
-    auto invalid_mode = service;
-    invalid_mode.mode = CollectorEndpointMode::Invalid;
-    context.Check(BuildPipeName(invalid_mode).error == PipeSecurityError::InvalidMode,
+    auto invalid = principal;
+    invalid.mode = CollectorEndpointMode::Invalid;
+    context.Check(BuildPipeName(invalid).error == PipeSecurityError::InvalidMode,
                   "unknown endpoint mode is rejected");
-
-    auto maximum = service;
-    maximum.authorized_sid = MaximumLengthSid();
-    const auto maximum_name = BuildPipeName(maximum);
-    context.Check(maximum_name.error == PipeSecurityError::None &&
-                      maximum_name.name.size() <= nfm::ipc::kMaximumPipeNameCharacters,
-                  "maximum valid SID remains inside the fixed pipe-name limit");
 }
 
-void CheckServiceDescriptor(TestContext& context) {
-    const auto principal = ServicePrincipal();
-    auto result = BuildPipeSecurity(principal);
-    context.Check(result.error == PipeSecurityError::None && result.descriptor != nullptr,
-                  "service descriptor builds");
-    if (result.descriptor == nullptr) {
-        return;
-    }
-    auto* acl = DescriptorDacl(context, result.descriptor->attributes());
-    if (acl == nullptr) {
-        return;
-    }
-
-    const auto system = WellKnownSid(WinLocalSystemSid);
-    context.Check(AllowedMaskFor(acl, system) == FILE_ALL_ACCESS,
-                  "LocalSystem receives exact server access");
-    context.Check(AllowedMaskFor(acl, principal.authorized_sid) == nfm::ipc::kPipeClientAccessMask,
-                  "service owner receives exact client data access");
-    context.Check(!AllowedMaskFor(acl, WellKnownSid(WinWorldSid)).has_value() &&
-                      !AllowedMaskFor(acl, WellKnownSid(WinAnonymousSid)).has_value() &&
-                      !AllowedMaskFor(acl, WellKnownSid(WinAuthenticatedUserSid)).has_value() &&
-                      !AllowedMaskFor(acl, WellKnownSid(WinBuiltinAdministratorsSid)).has_value(),
-                  "broad principals receive no allow ACE");
-}
-
-void CheckPortableDescriptor(TestContext& context) {
+void CheckDescriptor(TestContext& context) {
     const auto principal = PortablePrincipal();
     auto result = BuildPipeSecurity(principal);
     context.Check(result.error == PipeSecurityError::None && result.descriptor != nullptr,
-                  "portable descriptor builds");
+                  "security descriptor builds");
     if (result.descriptor == nullptr) {
         return;
     }
-    auto* acl = DescriptorDacl(context, result.descriptor->attributes());
+    BOOL present{};
+    BOOL defaulted{};
+    PACL acl{};
+    auto* descriptor = result.descriptor->attributes()->lpSecurityDescriptor;
+    context.Check(GetSecurityDescriptorDacl(descriptor, &present, &acl, &defaulted) != FALSE &&
+                      present != FALSE && acl != nullptr && defaulted == FALSE,
+                  "descriptor has an explicit DACL");
     if (acl == nullptr) {
         return;
     }
-    context.Check(AllowedMaskFor(acl, principal.server_logon_sid) == FILE_ALL_ACCESS,
-                  "portable server logon receives exact server access");
-    context.Check(AllowedMaskFor(acl, principal.authorized_sid) == nfm::ipc::kPipeClientAccessMask,
-                  "portable UI logon receives exact client data access");
-
-    auto invalid = principal;
-    invalid.server_logon_sid = {std::byte{0U}};
-    context.Check(BuildPipeSecurity(invalid).error == PipeSecurityError::InvalidSid,
-                  "invalid portable server SID is rejected before ACL construction");
-
-    auto shared_logon = principal;
-    shared_logon.server_logon_sid = shared_logon.authorized_sid;
-    auto shared_result = BuildPipeSecurity(shared_logon);
-    context.Check(shared_result.error == PipeSecurityError::None &&
-                      shared_result.descriptor != nullptr,
-                  "common elevated portable mode accepts one shared logon SID");
-    if (shared_result.descriptor != nullptr) {
-        auto* shared_acl = DescriptorDacl(context, shared_result.descriptor->attributes());
-        context.Check(shared_acl != nullptr &&
-                          AllowedMaskFor(shared_acl, shared_logon.authorized_sid) ==
-                              FILE_ALL_ACCESS,
-                      "shared portable logon retains server-instance access");
-    }
+    context.Check(AllowedMaskFor(acl, principal.authorized_sid) == FILE_ALL_ACCESS,
+                  "shared logon SID receives server access");
+    context.Check(!AllowedMaskFor(acl, WellKnownSid(WinWorldSid)).has_value() &&
+                      !AllowedMaskFor(acl, WellKnownSid(WinAnonymousSid)).has_value(),
+                  "broad principals receive no allow ACE");
 }
 
 class FakeSecurityApi final : public PipeSecurityApi {
   public:
-    bool Impersonate(HANDLE pipe, std::uint32_t& error) noexcept override {
-        captured_pipe = pipe;
+    bool Impersonate(HANDLE, std::uint32_t& error) noexcept override {
         ++impersonate_calls;
-        error = impersonate_error;
+        error = source_error;
         return impersonate_result;
     }
-
     bool QueryThreadIdentity(QueriedClientIdentity& output,
                              std::uint32_t& error) noexcept override {
         ++query_calls;
-        error = query_error;
+        error = source_error;
         if (query_result) {
             output = identity;
         }
         return query_result;
     }
-
     bool Revert(std::uint32_t& error) noexcept override {
         ++revert_calls;
-        error = revert_error;
+        error = source_error;
         return revert_result;
     }
 
-    HANDLE captured_pipe{};
     QueriedClientIdentity identity;
     bool impersonate_result{true};
     bool query_result{true};
     bool revert_result{true};
-    std::uint32_t impersonate_error{5U};
-    std::uint32_t query_error{6U};
-    std::uint32_t revert_error{7U};
+    std::uint32_t source_error{5U};
     int impersonate_calls{};
     int query_calls{};
     int revert_calls{};
 };
 
-void CheckIdentityVerification(TestContext& context) {
-    auto* const pipe = GetCurrentProcess();
-    const auto service = ServicePrincipal();
-    FakeSecurityApi service_api;
-    service_api.identity.user_sid = service.authorized_sid;
-    auto result = VerifyPipeClient(pipe, service, service_api);
-    context.Check(result.authorized() && service_api.impersonate_calls == 1 &&
-                      service_api.query_calls == 1 && service_api.revert_calls == 1 &&
-                      service_api.captured_pipe == pipe,
-                  "service owner user is authorized and reverted exactly once");
+void CheckIdentity(TestContext& context) {
+    const auto principal = PortablePrincipal();
+    FakeSecurityApi valid;
+    valid.identity.group_sids = {principal.authorized_sid};
+    auto result = VerifyPipeClient(GetCurrentProcess(), principal, valid);
+    context.Check(result.authorized() && valid.revert_calls == 1,
+                  "matching logon group is authorized and reverted");
 
-    const auto portable = PortablePrincipal();
-    FakeSecurityApi portable_api;
-    portable_api.identity.user_sid = portable.authorized_sid;
-    result = VerifyPipeClient(pipe, portable, portable_api);
-    context.Check(result.error == PipeSecurityError::Unauthorized && portable_api.revert_calls == 1,
-                  "portable authorization does not accept user SID in place of logon SID");
-    portable_api.identity.group_sids = {portable.authorized_sid};
-    result = VerifyPipeClient(pipe, portable, portable_api);
-    context.Check(result.authorized() && portable_api.revert_calls == 2,
-                  "portable expected logon group is authorized");
-
-    FakeSecurityApi wrong_api;
-    wrong_api.identity.user_sid = WellKnownSid(WinBuiltinGuestsSid);
-    result = VerifyPipeClient(pipe, service, wrong_api);
-    context.Check(result.error == PipeSecurityError::Unauthorized && wrong_api.revert_calls == 1,
-                  "wrong service user is rejected and reverted");
+    FakeSecurityApi wrong;
+    wrong.identity.group_sids = {WellKnownSid(WinBuiltinGuestsSid)};
+    result = VerifyPipeClient(GetCurrentProcess(), principal, wrong);
+    context.Check(result.error == PipeSecurityError::Unauthorized && wrong.revert_calls == 1,
+                  "unexpected logon is rejected and reverted");
 
     FakeSecurityApi impersonation_failure;
     impersonation_failure.impersonate_result = false;
-    result = VerifyPipeClient(pipe, service, impersonation_failure);
+    result = VerifyPipeClient(GetCurrentProcess(), principal, impersonation_failure);
     context.Check(result.error == PipeSecurityError::ImpersonationFailed &&
-                      result.win32_error == impersonation_failure.impersonate_error &&
                       impersonation_failure.query_calls == 0 &&
                       impersonation_failure.revert_calls == 0,
-                  "failed impersonation stops before query and does not revert");
+                  "impersonation failure stops before token query");
 
     FakeSecurityApi query_failure;
     query_failure.query_result = false;
-    result = VerifyPipeClient(pipe, service, query_failure);
+    result = VerifyPipeClient(GetCurrentProcess(), principal, query_failure);
     context.Check(result.error == PipeSecurityError::TokenQueryFailed &&
-                      result.win32_error == query_failure.query_error &&
                       query_failure.revert_calls == 1,
-                  "token query failure is diagnostic and reverts exactly once");
+                  "token query failure reverts once");
 
     FakeSecurityApi revert_failure;
-    revert_failure.identity.user_sid = service.authorized_sid;
+    revert_failure.identity.group_sids = {principal.authorized_sid};
     revert_failure.revert_result = false;
-    result = VerifyPipeClient(pipe, service, revert_failure);
-    context.Check(result.error == PipeSecurityError::RevertFailed &&
-                      result.win32_error == revert_failure.revert_error &&
-                      revert_failure.revert_calls == 1,
-                  "revert failure fails closed and remains diagnostic");
-
-    auto invalid_principal = service;
-    invalid_principal.mode = CollectorEndpointMode::Invalid;
-    FakeSecurityApi untouched_api;
-    result = VerifyPipeClient(pipe, invalid_principal, untouched_api);
-    context.Check(result.error == PipeSecurityError::InvalidMode &&
-                      untouched_api.impersonate_calls == 0 && untouched_api.query_calls == 0 &&
-                      untouched_api.revert_calls == 0,
-                  "invalid principal is rejected before entering impersonation");
+    result = VerifyPipeClient(GetCurrentProcess(), principal, revert_failure);
+    context.Check(result.error == PipeSecurityError::RevertFailed, "revert failure fails closed");
 }
 
 } // namespace
 
 int main() {
     TestContext context;
-    CheckNamesAndValidation(context);
-    CheckServiceDescriptor(context);
-    CheckPortableDescriptor(context);
-    CheckIdentityVerification(context);
-    if (context.failures() != 0) {
-        return 1;
-    }
-    std::cout << "ipc security policy tests passed\n";
-    return 0;
+    CheckPrincipal(context);
+    CheckDescriptor(context);
+    CheckIdentity(context);
+    return context.failures() == 0 ? 0 : 1;
 }

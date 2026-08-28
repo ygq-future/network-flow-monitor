@@ -35,7 +35,7 @@ endif()
 include(GNUInstallDirs)
 
 install(
-    TARGETS NetworkFlowMonitor
+    TARGETS nfm_collector_executable
     RUNTIME DESTINATION .
     COMPONENT runtime
 )

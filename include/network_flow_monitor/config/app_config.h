@@ -53,17 +53,6 @@ enum class DockSide : std::uint8_t {
     Right
 };
 
-enum class CollectorMode : std::uint8_t {
-    Portable,
-    Service,
-};
-
-enum class ServiceStartType : std::uint8_t {
-    Manual,
-    Automatic,
-    AutomaticDelayed,
-};
-
 enum class LogLevel : std::uint8_t {
     Off,
     Error,
@@ -123,18 +112,6 @@ struct StartupConfig {
     bool operator==(const StartupConfig&) const = default;
 };
 
-struct CollectorConfig {
-    CollectorMode preferred_mode;
-
-    bool operator==(const CollectorConfig&) const = default;
-};
-
-struct ServiceConfig {
-    ServiceStartType start_type;
-
-    bool operator==(const ServiceConfig&) const = default;
-};
-
 struct DiagnosticsConfig {
     LogLevel log_level;
 
@@ -149,8 +126,6 @@ struct AppConfig {
     FloatingConfig floating{};
     AppearanceConfig appearance{};
     StartupConfig startup{};
-    CollectorConfig collector{};
-    ServiceConfig service{};
     DiagnosticsConfig diagnostics{};
 
     bool operator==(const AppConfig&) const = default;

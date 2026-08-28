@@ -23,7 +23,6 @@ enum class ConfigLoadStatus : std::uint8_t {
 
 enum class ConfigDocumentKind : std::uint8_t {
     User,
-    Service,
 };
 
 enum class ConfigErrorCode : std::uint8_t {

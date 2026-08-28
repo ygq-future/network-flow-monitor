@@ -34,8 +34,6 @@ AppConfig DefaultAppConfig() noexcept {
             },
         .appearance = {.language = LanguageMode::English, .theme = ThemeMode::System},
         .startup = {.ui_at_login = false},
-        .collector = {.preferred_mode = CollectorMode::Portable},
-        .service = {.start_type = ServiceStartType::AutomaticDelayed},
         .diagnostics = {.log_level = LogLevel::Info},
     };
 }

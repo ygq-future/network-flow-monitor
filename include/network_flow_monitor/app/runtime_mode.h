@@ -8,23 +8,7 @@
 namespace nfm::app {
 
 enum class RuntimeMode : std::uint8_t {
-    Ui,
     Collector,
-    Service,
-    Install,
-    Uninstall,
-    ServiceControl,
-    ServiceInstallManual,
-    ServiceInstallAutomatic,
-    ServiceInstallAutomaticDelayed,
-    ServiceUninstall,
-    ServiceStart,
-    ServiceStop,
-    ServiceRestart,
-    ServiceConfigureManual,
-    ServiceConfigureAutomatic,
-    ServiceConfigureAutomaticDelayed,
-    ServiceQuery,
     AuthorizeCollector,
     Invalid,
 };

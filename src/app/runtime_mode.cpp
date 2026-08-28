@@ -31,7 +31,7 @@ constexpr std::size_t kMaximumStopEventNameLength = 260U;
 
 RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexcept {
     if (arguments.empty()) {
-        return RuntimeMode::Ui;
+        return RuntimeMode::Collector;
     }
     if (arguments.size() != 1) {
         return RuntimeMode::Invalid;
@@ -41,51 +41,6 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
     if (argument == L"--collector") {
         return RuntimeMode::Collector;
     }
-    if (argument == L"--service") {
-        return RuntimeMode::Service;
-    }
-    if (argument == L"--install") {
-        return RuntimeMode::Install;
-    }
-    if (argument == L"--uninstall") {
-        return RuntimeMode::Uninstall;
-    }
-    if (argument == L"--service-control") {
-        return RuntimeMode::ServiceControl;
-    }
-    if (argument == L"--service-install-manual") {
-        return RuntimeMode::ServiceInstallManual;
-    }
-    if (argument == L"--service-install-automatic") {
-        return RuntimeMode::ServiceInstallAutomatic;
-    }
-    if (argument == L"--service-install-automatic-delayed") {
-        return RuntimeMode::ServiceInstallAutomaticDelayed;
-    }
-    if (argument == L"--service-uninstall") {
-        return RuntimeMode::ServiceUninstall;
-    }
-    if (argument == L"--service-start") {
-        return RuntimeMode::ServiceStart;
-    }
-    if (argument == L"--service-stop") {
-        return RuntimeMode::ServiceStop;
-    }
-    if (argument == L"--service-restart") {
-        return RuntimeMode::ServiceRestart;
-    }
-    if (argument == L"--service-configure-manual") {
-        return RuntimeMode::ServiceConfigureManual;
-    }
-    if (argument == L"--service-configure-automatic") {
-        return RuntimeMode::ServiceConfigureAutomatic;
-    }
-    if (argument == L"--service-configure-automatic-delayed") {
-        return RuntimeMode::ServiceConfigureAutomaticDelayed;
-    }
-    if (argument == L"--service-query") {
-        return RuntimeMode::ServiceQuery;
-    }
     if (argument == L"--authorize-collector") {
         return RuntimeMode::AuthorizeCollector;
     }
@@ -93,18 +48,29 @@ RuntimeMode ParseRuntimeMode(std::span<const std::wstring_view> arguments) noexc
 }
 
 RuntimeArguments ParseRuntimeArguments(std::span<const std::wstring_view> arguments) noexcept {
-    if (!arguments.empty() && arguments[0] == kCollectorSwitch) {
-        if (arguments.size() == 1) {
-            return {.mode = RuntimeMode::Collector, .collector_stop_event = {}, .parent_pid = 0};
-        }
-        if ((arguments.size() % 2) == 0) {
-            return {.mode = RuntimeMode::Invalid};
-        }
+    if (arguments.empty()) {
+        return {.mode = RuntimeMode::Collector};
+    }
+    if (arguments.size() == 1 && arguments.front() == L"--authorize-collector") {
+        return {.mode = RuntimeMode::AuthorizeCollector};
+    }
 
+    std::size_t first_option = 0;
+    if (arguments.front() == kCollectorSwitch) {
+        first_option = 1;
+    }
+    if (((arguments.size() - first_option) % 2) != 0) {
+        if (arguments.size() == 1 && arguments.front() == kCollectorSwitch) {
+            return {.mode = RuntimeMode::Collector};
+        }
+        return {.mode = RuntimeMode::Invalid};
+    }
+
+    if (first_option < arguments.size()) {
         std::wstring_view stop_event{};
         std::uint32_t parent_pid = 0;
 
-        for (std::size_t i = 1; i + 1 < arguments.size(); i += 2) {
+        for (std::size_t i = first_option; i + 1 < arguments.size(); i += 2) {
             if (arguments[i] == kStopEventSwitch) {
                 if (!IsValidStopEventName(arguments[i + 1])) {
                     return {.mode = RuntimeMode::Invalid};
@@ -123,7 +89,11 @@ RuntimeArguments ParseRuntimeArguments(std::span<const std::wstring_view> argume
                 .collector_stop_event = stop_event,
                 .parent_pid = parent_pid};
     }
-    return {.mode = ParseRuntimeMode(arguments), .collector_stop_event = {}, .parent_pid = 0};
+
+    if (first_option == 1) {
+        return {.mode = RuntimeMode::Collector};
+    }
+    return {.mode = RuntimeMode::Invalid};
 }
 
 } // namespace nfm::app

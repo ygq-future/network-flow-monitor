@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include "support/current_logon_sid.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -112,35 +113,10 @@ bool ReadWire(NamedPipeConnection& connection, std::vector<std::byte>& wire) {
     return nfm::ipc::TryDecodeFrame(wire).status == nfm::ipc::FrameParseStatus::Decoded;
 }
 
-std::vector<std::byte> CurrentUserSid() {
-    HANDLE token{};
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE) {
-        return {};
-    }
-    DWORD required{};
-    static_cast<void>(GetTokenInformation(token, TokenUser, nullptr, 0U, &required));
-    if (required == 0U) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    std::vector<std::byte> storage(required);
-    if (GetTokenInformation(token, TokenUser, storage.data(), required, &required) == FALSE) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(storage.data());
-    const DWORD length = GetLengthSid(user->User.Sid);
-    std::vector<std::byte> sid(length);
-    if (CopySid(length, sid.data(), user->User.Sid) == FALSE) {
-        sid.clear();
-    }
-    static_cast<void>(CloseHandle(token));
-    return sid;
-}
-
 AuthorizedPrincipal Principal() {
-    const auto sid = CurrentUserSid();
-    return {.mode = CollectorEndpointMode::Service, .authorized_sid = sid, .server_logon_sid = {}};
+    const auto sid = nfm::test::CurrentLogonSid();
+    return {
+        .mode = CollectorEndpointMode::Portable, .authorized_sid = sid, .server_logon_sid = sid};
 }
 
 class FakeProvider final : public SnapshotProvider {

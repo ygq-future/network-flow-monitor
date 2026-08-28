@@ -21,14 +21,7 @@ constexpr std::string_view kCompleteUserJson = R"json({
   "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "blur_strength_percent": 75, "capsule_width_dip": 12, "capsule_height_dip": 96, "nfm_pinned": true, "yield_topmost_when_fullscreen": false, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
   "appearance": {"language": "simplified_chinese", "theme": "dark"},
   "startup": {"ui_at_login": true},
-  "collector": {"preferred_mode": "service"},
   "diagnostics": {"log_level": "debug"}
-})json";
-
-constexpr std::string_view kCompleteServiceJson = R"json({
-  "schema_version": 2,
-  "service": {"start_type": "manual"},
-  "diagnostics": {"log_level": "error"}
 })json";
 
 class TestContext {
@@ -94,9 +87,6 @@ void CheckStructuralFailures(TestContext& context) {
     context.CheckError(R"json({"schema_version":2,"service":{"start_type":"manual"}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::UnknownKey, "service", "service group in user document");
-    context.CheckError(R"json({"schema_version":2,"ranking":{"top_n":5}})json",
-                       ConfigDocumentKind::Service, ConfigLoadStatus::Damaged,
-                       ConfigErrorCode::UnknownKey, "ranking", "user group in service document");
     context.CheckError(R"json({"schema_version":2,"ranking":{"top_n":"5"}})json",
                        ConfigDocumentKind::User, ConfigLoadStatus::Damaged,
                        ConfigErrorCode::TypeMismatch, "ranking.top_n", "wrong scalar type");
@@ -136,23 +126,6 @@ void CheckEnums(TestContext& context) {
                           value + R"json("}})json";
         context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::User).error,
                       "valid speed unit");
-    }
-
-    constexpr std::array collector_modes{"portable", "service"};
-    for (const auto* value : collector_modes) {
-        const auto json =
-            std::string{R"json({"schema_version":2,"collector":{"preferred_mode":")json"} + value +
-            R"json("}})json";
-        context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::User).error,
-                      "valid collector mode");
-    }
-
-    constexpr std::array service_start_types{"manual", "automatic", "automatic_delayed"};
-    for (const auto* value : service_start_types) {
-        const auto json = std::string{R"json({"schema_version":2,"service":{"start_type":")json"} +
-                          value + R"json("}})json";
-        context.Check(!nfm::config::ParseConfigJson(json, ConfigDocumentKind::Service).error,
-                      "valid service start type");
     }
 
     constexpr std::array log_levels{"off", "error", "info", "debug"};
@@ -260,8 +233,6 @@ void CheckCompleteDocuments(TestContext& context) {
     context.Check(user.status == ConfigLoadStatus::Loaded, "complete user document loaded");
     context.Check(!user.error, "complete user document has no error");
     context.Check(user.config.ranking.top_n == 7U, "user top N decoded");
-    context.Check(user.config.collector.preferred_mode == nfm::config::CollectorMode::Service,
-                  "user collector mode decoded");
     context.Check(user.config.floating.capsule_width_dip == 12 &&
                       user.config.floating.anchor_side == nfm::config::DockSide::Left,
                   "capsule configuration and anchor decoded");
@@ -271,17 +242,6 @@ void CheckCompleteDocuments(TestContext& context) {
     context.Check(user.config.appearance.language == nfm::config::LanguageMode::SimplifiedChinese &&
                       user.config.appearance.theme == nfm::config::ThemeMode::Dark,
                   "appearance configuration decoded");
-    context.Check(user.config.service == nfm::config::DefaultAppConfig().service,
-                  "user document leaves service defaults");
-
-    const auto service =
-        nfm::config::ParseConfigJson(kCompleteServiceJson, ConfigDocumentKind::Service);
-    context.Check(service.status == ConfigLoadStatus::Loaded, "complete service document loaded");
-    context.Check(!service.error, "complete service document has no error");
-    context.Check(service.config.service.start_type == nfm::config::ServiceStartType::Manual,
-                  "service start type decoded");
-    context.Check(service.config.ranking == nfm::config::DefaultAppConfig().ranking,
-                  "service document leaves user defaults");
 }
 
 void CheckSerialization(TestContext& context) {
@@ -296,7 +256,7 @@ void CheckSerialization(TestContext& context) {
     context.Check(!first.json.empty() && first.json.back() == '\n',
                   "serialization has final newline");
     context.Check(first.json.find("\"service\":") == std::string::npos,
-                  "user serialization excludes service group");
+                  "serialization excludes unsupported groups");
     context.Check(first.json.find("snap_distance_dip") == std::string::npos &&
                       first.json.find("reveal_strip_dip") == std::string::npos,
                   "obsolete development settings are not serialized");
@@ -305,31 +265,12 @@ void CheckSerialization(TestContext& context) {
                   "serialized user document is complete");
     context.Check(user_round_trip.config == parsed_user.config, "user document round trip");
 
-    const auto parsed_service =
-        nfm::config::ParseConfigJson(kCompleteServiceJson, ConfigDocumentKind::Service);
-    const auto serialized_service =
-        nfm::config::SerializeConfigJson(parsed_service.config, ConfigDocumentKind::Service);
-    context.Check(serialized_service.ok(), "service serialization succeeds");
-    context.Check(serialized_service.json.find("\"ranking\":") == std::string::npos,
-                  "service serialization excludes user groups");
-    const auto service_round_trip =
-        nfm::config::ParseConfigJson(serialized_service.json, ConfigDocumentKind::Service);
-    context.Check(service_round_trip.config == parsed_service.config,
-                  "service document round trip");
-
     auto invalid = nfm::config::DefaultAppConfig();
     invalid.ranking.top_n = 0U;
     const auto invalid_json = nfm::config::SerializeConfigJson(invalid, ConfigDocumentKind::User);
     context.Check(!invalid_json.ok(), "invalid selected scope is not serialized");
     context.Check(invalid_json.error && invalid_json.error->code == ConfigErrorCode::OutOfRange,
                   "serialization reports range error");
-
-    invalid = nfm::config::DefaultAppConfig();
-    invalid.ranking.top_n = 0U;
-    const auto valid_service =
-        nfm::config::SerializeConfigJson(invalid, ConfigDocumentKind::Service);
-    context.Check(valid_service.ok(),
-                  "invalid out-of-scope user field does not block service JSON");
 }
 
 } // namespace

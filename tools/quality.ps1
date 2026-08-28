@@ -1,137 +1,54 @@
+<#
+.SYNOPSIS
+    Repository quality gate for Network Flow Monitor.
+
+.DESCRIPTION
+    Mode Contract:
+      Format
+        Apply C++ and frontend formatting only.
+
+      Fast
+        Fast headless development gate:
+        format verification,
+        Debug C++ build/tests,
+        frontend format/lint/typecheck/tests/build.
+
+      Full
+        Full headless validation:
+        Fast +
+        clang-tidy/static analysis +
+        MSVC analysis +
+        Release build/tests +
+        package validation.
+#>
+
 [CmdletBinding()]
 param(
-    [ValidateSet('Format', 'Fast', 'Full')]
-    [string]$Mode = 'Fast',
-    [ValidateRange(1, 64)]
-    [int]$Jobs = [Math]::Min(12, [Environment]::ProcessorCount),
-    [switch]$Clean
+    [ValidateSet('Format', 'Fast', 'Full')][string]$Mode = 'Fast',
+    [ValidateRange(1, 64)][int]$Jobs = [Math]::Min(12, [Environment]::ProcessorCount),
+    [switch]$Clean,
+    [switch]$VerboseOutput
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
-$runStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$logDirectory = Join-Path $projectRoot "build\quality-logs\$runStamp-$($Mode.ToLowerInvariant())"
-
-function Invoke-Native {
-    param(
-        [Parameter(Mandatory)]
-        [string]$FilePath,
-        [string[]]$ArgumentList = @()
-    )
-
-    & $FilePath @ArgumentList
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native command failed with exit code ${LASTEXITCODE}: $FilePath $ArgumentList"
-    }
-}
-
-function Show-FailureSummary {
-    param(
-        [Parameter(Mandatory)]
-        [string]$LogPath
-    )
-
-    $diagnosticPattern =
-        '(^FAILED:)|(^CMake Error)|(^ninja: error:)|(: fatal error )|(: error [A-Z]+[0-9]+:)|(^.*error: )|(^.*warning: )|([0-9]+% tests passed)'
-    $diagnostics = @(Select-String -LiteralPath $LogPath -Pattern $diagnosticPattern |
-            Select-Object -Last 80 |
-            ForEach-Object { $_.Line })
-
-    Write-Host ''
-    Write-Host 'Relevant diagnostics:' -ForegroundColor Red
-    if ($diagnostics.Count -gt 0) {
-        $diagnostics | ForEach-Object { Write-Host $_ }
-    } else {
-        Write-Host '(No recognized diagnostic line; showing the log tail.)'
-    }
-
-    Write-Host ''
-    Write-Host 'Last 80 log lines:' -ForegroundColor Red
-    Get-Content -LiteralPath $LogPath -Tail 80 | ForEach-Object { Write-Host $_ }
-    Write-Host ''
-    Write-Host "Complete log: $LogPath" -ForegroundColor Yellow
-}
-
-function Remove-CompilerDependencyTrace {
-    param(
-        [Parameter(Mandatory)]
-        [string]$LogPath
-    )
-
-    $filteredPath = "$LogPath.filtered"
-    $reader = [System.IO.StreamReader]::new($LogPath, $true)
-    $writer = [System.IO.StreamWriter]::new(
-        $filteredPath,
-        $false,
-        [System.Text.UTF8Encoding]::new($false)
-    )
-    try {
-        while ($null -ne ($line = $reader.ReadLine())) {
-            if ($line.StartsWith('注意: 包含文件:') -or
-                $line.StartsWith('Note: including file:')) {
-                continue
-            }
-            $writer.WriteLine($line)
-        }
-    } finally {
-        $writer.Dispose()
-        $reader.Dispose()
-    }
-    Move-Item -LiteralPath $filteredPath -Destination $LogPath -Force
-}
-
-function Invoke-QualityPhase {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Name,
-        [Parameter(Mandatory)]
-        [string]$LogName,
-        [Parameter(Mandatory)]
-        [scriptblock]$Action
-    )
-
-    $logPath = Join-Path $logDirectory "$LogName.log"
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-Host "[RUN ] $Name"
-
-    $phaseError = $null
-    try {
-        & $Action *> $logPath
-    } catch {
-        $phaseError = $_
-    }
-    # /showIncludes is required for correct Ninja header dependencies. Some localized
-    # MSVC/Ninja combinations echo every dependency even though CMake records the right
-    # prefix. Keep diagnostics and build progress, but remove those redundant path lines.
-    Remove-CompilerDependencyTrace -LogPath $logPath
-    $stopwatch.Stop()
-
-    if ($null -ne $phaseError) {
-        Write-Host ("[FAIL] {0} ({1:N1} s)" -f $Name, $stopwatch.Elapsed.TotalSeconds) -ForegroundColor Red
-        Show-FailureSummary -LogPath $logPath
-        throw $phaseError
-    }
-
-    $logBytes = (Get-Item -LiteralPath $logPath).Length
-    Write-Host ("[PASS] {0} ({1:N1} s, {2:N0} bytes logged)" -f
-        $Name, $stopwatch.Elapsed.TotalSeconds, $logBytes) -ForegroundColor Green
-}
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$frontendRoot = Join-Path $projectRoot 'apps\nfm-ui'
+$frontendManifest = Join-Path $frontendRoot 'package.json'
 
 if (-not (Test-Path -LiteralPath $vswhere)) {
     throw "Visual Studio Installer was not found at $vswhere"
 }
-
 $vsInstall = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
 if ([string]::IsNullOrWhiteSpace($vsInstall)) {
-    throw 'Visual Studio with the x64/x86 C++ tools is required'
+    throw 'Visual Studio with the x64 C++ workload is required.'
 }
-
-$devShellModule = Join-Path $vsInstall 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll'
-Import-Module $devShellModule -Force
-Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+$installerDir = Split-Path -Parent $vswhere
+$env:PATH = "$installerDir;$env:PATH"
+Import-Module (Join-Path $vsInstall 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll') -Force
+Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 
 $cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
 $ninja = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' | Select-Object -First 1)
@@ -139,200 +56,391 @@ $cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Mic
 $clangFormat = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-format.exe' | Select-Object -First 1)
 $clangTidy = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-tidy.exe' | Select-Object -First 1)
 
-foreach ($tool in @($cmake, $ninja, $cpack, $clangFormat, $clangTidy)) {
+$requiredTools = @($cmake, $ninja, $clangFormat)
+if ($Mode -eq 'Full') {
+    $requiredTools += @($cpack, $clangTidy)
+}
+foreach ($tool in $requiredTools) {
     if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool)) {
-        throw "A required build tool could not be located: $tool"
+        throw "Required build tool was not found: $tool"
     }
 }
-
 $env:PATH = "$(Split-Path -Parent $cmake);$(Split-Path -Parent $ninja);$env:PATH"
 
-$sourceFiles = @(
-    Get-ChildItem -Path (Join-Path $projectRoot 'src'),
-                        (Join-Path $projectRoot 'include'),
-                        (Join-Path $projectRoot 'tests') `
-                  -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -in '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx', '.ixx' } |
-        Sort-Object FullName
-)
+$sourceFiles = @(Get-ChildItem -Path (Join-Path $projectRoot 'src'), (Join-Path $projectRoot 'include'), (Join-Path $projectRoot 'tests') -Recurse -File |
+    Where-Object { $_.Extension -in '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx' } |
+    Sort-Object FullName)
 
-New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
-Write-Host "Quality gate: Mode=$Mode Jobs=$Jobs Clean=$($Clean.IsPresent -or $Mode -eq 'Full')"
-Write-Host "Complete logs: $logDirectory"
+# State tracking for summary
+$global:PassCount = 0
+$global:WarnCount = 0
+$global:FailCount = 0
 
+function Write-SummaryAndExit {
+    param([string]$GateMode, [int]$ExitCode)
+
+    Write-Host ''
+    Write-Host '----------------------------------------'
+    Write-Host ('PASS {0,3}' -f $global:PassCount) -ForegroundColor Green
+    Write-Host ('WARN {0,3}' -f $global:WarnCount) -ForegroundColor $(if ($global:WarnCount -gt 0) { 'Yellow' } else { 'DarkGray' })
+    Write-Host ('FAIL {0,3}' -f $global:FailCount) -ForegroundColor $(if ($global:FailCount -gt 0) { 'Red' } else { 'DarkGray' })
+    Write-Host ''
+
+    if ($ExitCode -eq 0) {
+        Write-Host ("Quality gate '{0}': PASS" -f $GateMode) -ForegroundColor Green
+    } else {
+        Write-Host ("Quality gate '{0}': FAIL" -f $GateMode) -ForegroundColor Red
+    }
+    exit $ExitCode
+}
+
+function Filter-OutputLines {
+    param([string[]]$Lines)
+
+    $filtered = [System.Collections.Generic.List[string]]::new()
+    foreach ($rawLine in $Lines) {
+        if ($null -eq $rawLine) { continue }
+        $line = $rawLine.ToString().TrimEnd()
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+
+        # Filter MSVC /showIncludes (Chinese and English)
+        if ($line -match '^(?:注意:\s*包含文件:\s*|Note:\s*including\s*file:\s*)') { continue }
+
+        # Filter normal build progress (Ninja / CMake / compiler command noise)
+        if ($line -match '^\s*\[\s*\d+/\d+\]') { continue }
+        if ($line -match '^\s*(?:Building|Linking|Generating)\b') { continue }
+
+        # Filter Bun / package manager noise
+        if ($line -match '^\s*(?:bun\s+v\d|\[\d+ms\]\s+resolved|checked\s+\d+\s+packages|Saved lockfile)') { continue }
+
+        $filtered.Add($line)
+    }
+    return $filtered.ToArray()
+}
+
+function Extract-Diagnostics {
+    param([string[]]$Lines, [int]$MaxDiagnostics = 30)
+
+    $diagnostics = [System.Collections.Generic.List[string]]::new()
+
+    # Pass 1: look for explicit error / warning / failure patterns
+    foreach ($line in $Lines) {
+        if ($line -match '(?::\s*(?:fatal )?error\b|:\s*warning\b|error\s+[A-Z]\d+|warning\s+[A-Z]\d+|\bFAILED\b|Assertion failed|Expected:|Received:|error\s+TS\d+:|\bFAIL\b)') {
+            $diagnostics.Add($line)
+        }
+    }
+
+    # Pass 2: if no explicit pattern matched, take non-empty lines
+    if ($diagnostics.Count -eq 0) {
+        foreach ($line in $Lines) {
+            $diagnostics.Add($line)
+        }
+    }
+
+    $totalFound = $diagnostics.Count
+    $output = [System.Collections.Generic.List[string]]::new()
+    $count = [Math]::Min($totalFound, $MaxDiagnostics)
+    for ($i = 0; $i -lt $count; $i++) {
+        $output.Add($diagnostics[$i])
+    }
+
+    if ($totalFound -gt $MaxDiagnostics) {
+        $omitted = $totalFound - $MaxDiagnostics
+        $output.Add("... $omitted additional diagnostics omitted")
+    }
+
+    return $output.ToArray()
+}
+
+function Invoke-GateStep {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Action,
+        [scriptblock]$ParseDetail
+    )
+
+    $colWidth = 30
+    $paddedName = $Name.PadRight($colWidth)
+
+    if ($VerboseOutput) {
+        Write-Host "[RUN ] $Name"
+        try {
+            $result = & $Action
+            $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+            if ($exitCode -ne 0) { throw "Command failed with exit code $exitCode" }
+
+            $detail = ''
+            if ($ParseDetail) {
+                $detail = & $ParseDetail @($result)
+            }
+            Write-Host ("[PASS] {0} {1}" -f $paddedName, $detail).TrimEnd() -ForegroundColor Green
+            $global:PassCount++
+        } catch {
+            Write-Host ("[FAIL] {0}" -f $paddedName) -ForegroundColor Red
+            Write-Host $_.ToString() -ForegroundColor Red
+            $global:FailCount++
+            Write-SummaryAndExit -GateMode $Mode -ExitCode 1
+        }
+        return
+    }
+
+    # Default Compact execution: capture in memory
+    $captured = @()
+    $stepFailed = $false
+    $failureException = $null
+
+    try {
+        $captured = & $Action 2>&1
+        $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($exitCode -ne 0) {
+            $stepFailed = $true
+        }
+    } catch {
+        $stepFailed = $true
+        $failureException = $_
+    }
+
+    $stringLines = @()
+    if ($null -ne $captured) {
+        foreach ($item in $captured) {
+            if ($null -ne $item) { $stringLines += $item.ToString() }
+        }
+    }
+    $filteredLines = Filter-OutputLines -Lines $stringLines
+
+    if (-not $stepFailed) {
+        $detail = ''
+        if ($ParseDetail) {
+            $detail = & $ParseDetail $filteredLines
+        }
+        Write-Host ("[PASS] {0} {1}" -f $paddedName, $detail).TrimEnd() -ForegroundColor Green
+        $global:PassCount++
+    } else {
+        $global:FailCount++
+        $diagnostics = Extract-Diagnostics -Lines $filteredLines -MaxDiagnostics 30
+        Write-Host ("[FAIL] {0}" -f $paddedName) -ForegroundColor Red
+        Write-Host ''
+        if ($diagnostics.Count -gt 0) {
+            foreach ($diag in $diagnostics) {
+                Write-Host "  $diag" -ForegroundColor Red
+            }
+        } elseif ($failureException) {
+            Write-Host "  $($failureException.ToString())" -ForegroundColor Red
+        }
+        Write-SummaryAndExit -GateMode $Mode -ExitCode 1
+    }
+}
+
+Write-Host "Quality gate: $Mode"
+Write-Host ''
+
+# ------------------------------------------------------------------------------
+# 1. Format Mode
+# ------------------------------------------------------------------------------
 if ($Mode -eq 'Format') {
-    Invoke-QualityPhase -Name "Format $($sourceFiles.Count) C/C++ files" -LogName 'format' -Action {
+    Invoke-GateStep -Name 'C++ format' -Action {
         foreach ($file in $sourceFiles) {
-            Invoke-Native -FilePath $clangFormat -ArgumentList @('-i', '--style=file', $file.FullName)
+            & $clangFormat -i --style=file $file.FullName
+            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
         }
-    }
-    Invoke-QualityPhase -Name 'Format .NET Solution' -LogName 'dotnet-format' -Action {
-        Invoke-Native -FilePath 'dotnet' -ArgumentList @('format', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'))
-    }
-    Write-Host "Quality gate '$Mode' passed."
-    exit 0
-}
+        return 0
+    } -ParseDetail { "$($sourceFiles.Count) files formatted" }
 
-Invoke-QualityPhase -Name "Check formatting for $($sourceFiles.Count) C/C++ files" -LogName 'format-check' -Action {
-    foreach ($file in $sourceFiles) {
-        Invoke-Native -FilePath $clangFormat -ArgumentList @('--dry-run', '--Werror', '--style=file', $file.FullName)
-    }
-}
-
-Invoke-QualityPhase -Name 'Check .NET Code Formatting' -LogName 'dotnet-format-check' -Action {
-    Invoke-Native -FilePath 'dotnet' -ArgumentList @('format', '--verify-no-changes', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'))
-}
-
-$buildArguments = @('--parallel', $Jobs.ToString())
-if ($Mode -eq 'Full' -or $Clean) {
-    $buildArguments += '--clean-first'
-}
-$noModuleScan = '-DCMAKE_CXX_SCAN_FOR_MODULES=OFF'
-
-Invoke-QualityPhase -Name 'Configure Debug' -LogName 'debug-configure' -Action {
-    Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-debug', $noModuleScan)
-}
-Invoke-QualityPhase -Name 'Build Debug' -LogName 'debug-build' -Action {
-    Invoke-Native -FilePath $cmake -ArgumentList (@('--build', '--preset', 'windows-x64-debug') + $buildArguments)
-}
-Invoke-QualityPhase -Name 'Test Debug' -LogName 'debug-test' -Action {
-    # Automated quality gates are strictly headless and non-interactive.
-    # Exclude legacy C++ UI tests, interactive window tests, and UAC-triggering admin tests.
-    $ctestArguments = @(
-        '-E', 'chdir', 'build/windows-x64-debug',
-        'ctest', '--output-on-failure',
-        '-LE', 'legacy-ui|interactive|requires-admin'
-    )
-    Invoke-Native -FilePath $cmake -ArgumentList $ctestArguments
-}
-
-Invoke-QualityPhase -Name 'Test .NET 10 WPF & Protocol Fixtures' -LogName 'dotnet-test' -Action {
-    Invoke-Native -FilePath 'dotnet' -ArgumentList @('test', (Join-Path $projectRoot 'NetworkFlowMonitor.sln'), '--configuration', 'Debug', '--verbosity', 'minimal')
-}
-
-$tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
-Invoke-QualityPhase -Name 'Configure clang-tidy and Clang Static Analyzer' -LogName 'tidy-configure' -Action {
-    Invoke-Native -FilePath $cmake -ArgumentList @(
-        '-S', $projectRoot,
-        '-B', $tidyBuild,
-        '-G', 'Ninja',
-        '-DCMAKE_BUILD_TYPE=Debug',
-        '-DBUILD_TESTING=ON',
-        '-DNFM_ENABLE_CLANG_TIDY=ON',
-        "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy",
-        "-DCMAKE_MAKE_PROGRAM=$ninja",
-        $noModuleScan
-    )
-}
-Invoke-QualityPhase -Name 'Run clang-tidy and Clang Static Analyzer' -LogName 'tidy-build' -Action {
-    Invoke-Native -FilePath $cmake -ArgumentList (@('--build', $tidyBuild) + $buildArguments)
-}
-
-if ($Mode -eq 'Full') {
-    $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
-    Invoke-QualityPhase -Name 'Configure MSVC static analysis' -LogName 'analyze-configure' -Action {
-        Invoke-Native -FilePath $cmake -ArgumentList @(
-            '-S', $projectRoot,
-            '-B', $analyzeBuild,
-            '-G', 'Ninja',
-            '-DCMAKE_BUILD_TYPE=Debug',
-            '-DBUILD_TESTING=ON',
-            '-DNFM_ENABLE_MSVC_ANALYZE=ON',
-            "-DCMAKE_MAKE_PROGRAM=$ninja",
-            $noModuleScan
-        )
-    }
-    Invoke-QualityPhase -Name 'Run MSVC static analysis' -LogName 'analyze-build' -Action {
-        Invoke-Native -FilePath $cmake -ArgumentList (@('--build', $analyzeBuild) + $buildArguments)
-    }
-
-    Invoke-QualityPhase -Name 'Configure Release x64' -LogName 'release-configure' -Action {
-        Invoke-Native -FilePath $cmake -ArgumentList @('--preset', 'windows-x64-release', $noModuleScan)
-    }
-    Invoke-QualityPhase -Name 'Build Release x64' -LogName 'release-build' -Action {
-        Invoke-Native -FilePath $cmake -ArgumentList (@('--build', '--preset', 'windows-x64-release') + $buildArguments)
-    }
-    Invoke-QualityPhase -Name 'Test Release x64' -LogName 'release-test' -Action {
-        $ctestArguments = @(
-            '-E', 'chdir', 'build/windows-x64-release',
-            'ctest', '--output-on-failure',
-            '-LE', 'legacy-ui|interactive|requires-admin'
-        )
-        Invoke-Native -FilePath $cmake -ArgumentList $ctestArguments
-    }
-    Invoke-QualityPhase -Name 'Package Release x64' -LogName 'package' -Action {
-        Invoke-Native -FilePath $cpack -ArgumentList @(
-            '--config', (Join-Path $projectRoot 'build/windows-x64-release/CPackConfig.cmake'),
-            '-B', (Join-Path $projectRoot 'build/windows-x64-release')
-        )
-    }
-
-    $publishDir = Join-Path $projectRoot 'build\publish\nfm-ui'
-    Invoke-QualityPhase -Name 'Publish .NET 10 WPF UI' -LogName 'dotnet-publish' -Action {
-        if (Test-Path -LiteralPath $publishDir) {
-            Remove-Item -Recurse -Force -LiteralPath $publishDir
-        }
-        $dotnetPublishArguments = @(
-            'publish',
-            (Join-Path $projectRoot 'apps\nfm-ui\NetworkFlowMonitor.csproj'),
-            '-c', 'Release',
-            '-r', 'win-x64',
-            '--self-contained', 'true',
-            '/p:PublishSingleFile=true',
-            '-o', $publishDir
-        )
-        Invoke-Native -FilePath 'dotnet' -ArgumentList $dotnetPublishArguments
-    }
-
-    Invoke-QualityPhase -Name 'Package Portable Release (.NET 10 & Companion Collector)' -LogName 'package-portable' -Action {
-        $version = '0.1.0'
-        $cmakePath = Join-Path $projectRoot 'CMakeLists.txt'
-        if (Test-Path -LiteralPath $cmakePath) {
-            $cmakeText = Get-Content -LiteralPath $cmakePath -Raw
-            if ($cmakeText -match 'project\s*\([^)]*VERSION\s+([0-9]+\.[0-9]+(\.[0-9]+)?)') {
-                $version = $matches[1].Trim()
+    if (Test-Path -LiteralPath $frontendManifest) {
+        Invoke-GateStep -Name 'Frontend format' -Action {
+            Push-Location $frontendRoot
+            try {
+                & bun run format
+            } finally {
+                Pop-Location
             }
         }
+    }
 
-        $collectorCandidates = @(
-            (Join-Path $projectRoot 'build\windows-x64-release\src\NetworkFlowMonitor.exe'),
-            (Join-Path $projectRoot 'build\windows-x64-release\NetworkFlowMonitor.exe')
-        )
-        $cppCollectorExe = $collectorCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-        if (-not $cppCollectorExe) {
-            throw "C++ companion collector executable was not found in release build directory"
+    Write-SummaryAndExit -GateMode $Mode -ExitCode 0
+}
+
+# ------------------------------------------------------------------------------
+# 2. Fast Mode (Headless development quality gate)
+# ------------------------------------------------------------------------------
+
+# Phase A: C++ formatting check
+Invoke-GateStep -Name 'C++ format' -Action {
+    foreach ($file in $sourceFiles) {
+        $out = & $clangFormat --dry-run --Werror --style=file $file.FullName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output $out
+            return $LASTEXITCODE
         }
+    }
+    return 0
+} -ParseDetail { "$($sourceFiles.Count) files" }
 
-        $stageDir = Join-Path $projectRoot 'build\stage\portable'
-        if (Test-Path -LiteralPath $stageDir) {
-            Remove-Item -Recurse -Force -LiteralPath $stageDir
+# Phase B: C++ Debug configure
+Invoke-GateStep -Name 'C++ Debug configure' -Action {
+    & $cmake --preset windows-x64-debug
+}
+
+# Phase C: C++ Debug build (incremental by default, --clean-first if $Clean)
+$debugBuildArgs = @('--build', '--preset', 'windows-x64-debug', '--parallel', $Jobs.ToString())
+if ($Clean) {
+    $debugBuildArgs += '--clean-first'
+}
+Invoke-GateStep -Name 'C++ Debug build' -Action {
+    & $cmake @debugBuildArgs
+}
+
+# Phase D: C++ automated tests (headless, non-interactive, exclude admin)
+Invoke-GateStep -Name 'C++ tests' -Action {
+    & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin'
+} -ParseDetail {
+    param($lines)
+    $text = $lines -join "`n"
+    if ($text -match '(\d+)%\s+tests\s+passed,\s+(\d+)\s+tests\s+failed\s+out\s+of\s+(\d+)') {
+        $total = [int]$matches[3]
+        $failed = [int]$matches[2]
+        $passed = $total - $failed
+        return "$passed passed"
+    }
+    return ''
+}
+
+# Phase E - J: Frontend verification (if apps/nfm-ui/package.json exists)
+if (Test-Path -LiteralPath $frontendManifest) {
+    $packageJson = Get-Content -LiteralPath $frontendManifest -Raw | ConvertFrom-Json
+    $hasFrontendTest = ($null -ne $packageJson.scripts) -and ($null -ne $packageJson.scripts.test)
+
+    # E. Frontend dependencies
+    Invoke-GateStep -Name 'Frontend dependencies' -Action {
+        Push-Location $frontendRoot
+        try {
+            & bun install --frozen-lockfile
+        } finally {
+            Pop-Location
         }
-        New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+    }
 
-        # Copy published .NET 10 UI artifacts
-        Copy-Item -Path (Join-Path $publishDir '*') -Destination $stageDir -Recurse -Force
-
-        # Copy C++ companion collector executable as nfm-collector.exe
-        Copy-Item -LiteralPath $cppCollectorExe -Destination (Join-Path $stageDir 'nfm-collector.exe') -Force
-
-        # Copy README.md
-        $readmePath = Join-Path $projectRoot 'README.md'
-        if (Test-Path -LiteralPath $readmePath) {
-            Copy-Item -LiteralPath $readmePath -Destination (Join-Path $stageDir 'README.md') -Force
+    # F. Prettier check
+    Invoke-GateStep -Name 'Prettier' -Action {
+        Push-Location $frontendRoot
+        try {
+            & bun run format:check
+        } finally {
+            Pop-Location
         }
+    }
 
-        # Create output zip in dist/
-        $distDir = Join-Path $projectRoot 'dist'
-        New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-        $zipPath = Join-Path $distDir "NetworkFlowMonitor-$version-win-x64-portable.zip"
-
-        if (Test-Path -LiteralPath $zipPath) {
-            Remove-Item -LiteralPath $zipPath -Force
+    # G. ESLint (0 warnings)
+    Invoke-GateStep -Name 'ESLint' -Action {
+        Push-Location $frontendRoot
+        try {
+            & bun run lint --max-warnings 0
+        } finally {
+            Pop-Location
         }
+    } -ParseDetail { '0 warnings' }
 
-        Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
-        Write-Host "Created portable release archive: $zipPath"
+    # H. TypeScript
+    Invoke-GateStep -Name 'TypeScript' -Action {
+        Push-Location $frontendRoot
+        try {
+            & bun run typecheck
+        } finally {
+            Pop-Location
+        }
+    } -ParseDetail { '0 errors' }
+
+    # I. Frontend tests (if defined in package.json)
+    if ($hasFrontendTest) {
+        Invoke-GateStep -Name 'Frontend tests' -Action {
+            Push-Location $frontendRoot
+            try {
+                & bun run test
+            } finally {
+                Pop-Location
+            }
+        } -ParseDetail {
+            param($lines)
+            $text = $lines -join "`n"
+            if ($text -match '(\d+)\s+passed') {
+                return "$($matches[1]) passed"
+            }
+            return ''
+        }
+    }
+
+    # J. Frontend production build
+    Invoke-GateStep -Name 'Frontend build' -Action {
+        Push-Location $frontendRoot
+        try {
+            & bun run build
+        } finally {
+            Pop-Location
+        }
     }
 }
 
-Write-Host "Quality gate '$Mode' passed."
+# If in Fast mode, finish here
+if ($Mode -eq 'Fast') {
+    Write-SummaryAndExit -GateMode $Mode -ExitCode 0
+}
+
+# ------------------------------------------------------------------------------
+# 3. Full Mode (Deep validation & Release packaging)
+# ------------------------------------------------------------------------------
+
+$fullBuildArgs = @('--parallel', $Jobs.ToString())
+if ($Clean -or $Mode -eq 'Full') {
+    $fullBuildArgs += '--clean-first'
+}
+
+# Phase 11: clang-tidy & Clang Static Analyzer
+$tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
+Invoke-GateStep -Name 'Configure clang-tidy' -Action {
+    & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
+}
+
+Invoke-GateStep -Name 'clang-tidy' -Action {
+    & $cmake (@('--build', $tidyBuild) + $fullBuildArgs)
+} -ParseDetail { '0 diagnostics' }
+
+# Phase 12: MSVC static analysis
+$analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
+Invoke-GateStep -Name 'Configure MSVC analyze' -Action {
+    & $cmake -S $projectRoot -B $analyzeBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_MSVC_ANALYZE=ON "-DCMAKE_MAKE_PROGRAM=$ninja"
+}
+
+Invoke-GateStep -Name 'MSVC analyze' -Action {
+    & $cmake (@('--build', $analyzeBuild) + $fullBuildArgs)
+} -ParseDetail { '0 warnings' }
+
+# Phase 13: C++ Release configure & build
+Invoke-GateStep -Name 'Configure Release x64' -Action {
+    & $cmake --preset windows-x64-release
+}
+
+Invoke-GateStep -Name 'C++ Release build' -Action {
+    & $cmake (@('--build', '--preset', 'windows-x64-release') + $fullBuildArgs)
+}
+
+# Phase 14: C++ Release tests
+Invoke-GateStep -Name 'C++ Release tests' -Action {
+    & $cmake -E chdir 'build/windows-x64-release' ctest --output-on-failure -LE 'requires-admin'
+} -ParseDetail {
+    param($lines)
+    $text = $lines -join "`n"
+    if ($text -match '(\d+)%\s+tests\s+passed,\s+(\d+)\s+tests\s+failed\s+out\s+of\s+(\d+)') {
+        $total = [int]$matches[3]
+        $failed = [int]$matches[2]
+        $passed = $total - $failed
+        return "$passed passed"
+    }
+    return ''
+}
+
+# Phase 15: Package Release
+Invoke-GateStep -Name 'Package Release' -Action {
+    & $cpack --config (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake') -B (Join-Path $projectRoot 'build\windows-x64-release')
+}
+
+Write-SummaryAndExit -GateMode $Mode -ExitCode 0

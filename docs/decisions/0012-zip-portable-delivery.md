@@ -1,19 +1,17 @@
-# ADR 0012：使用静态运行库 ZIP 作为首版交付物
+# ADR 0012：使用可审计的 x64 ZIP 交付
 
 - 状态：已接受
 - 日期：2026-08-12
-
-## 背景
-
-工具需要保持体积极小并支持绿色运行。当前产品没有安装器、自动更新或任务栏集成，也不应因为服务模式引入大型安装运行时。服务注册还必须引用一个不会被随意移动的可执行文件路径。
+- 修订：2026-08-28
 
 ## 决策
 
-Release 使用静态 MSVC 运行库，CMake 提供安装目标和 CPack ZIP 目标，`tools/package.ps1` 生成包含可执行文件和 README 的 x64 ZIP。服务安装不隐式复制或删除用户文件，而是把解压后稳定目录中的当前副本注册到 SCM；用户移动该目录前必须先卸载服务。
+Release 使用静态 MSVC 运行库并通过 CMake/CPack 生成 x64 ZIP。当前仓库可交付的验证基线仅包含 `nfm-collector.exe` 与 README；WebView2 host 完成后，正式产品包必须同时包含 `NetworkFlowMonitor.exe`、`nfm-collector.exe` 和相邻的 `ui/` 静态资产。
+
+生产 host 使用 WebView2 Evergreen Runtime，并通过虚拟主机目录映射加载包内资产。ZIP 不写入注册表、不创建安装记录，也不声称具备自动更新能力。
 
 ## 后果
 
-- 绿色包不依赖开发机上的 MSVC 运行库 DLL，交付内容可审计。
-- ZIP 适合当前小工具和双模式需求，但不会自动创建开始菜单、开机启动或卸载注册项。
-- 后续若需要 Program Files 安装器、升级迁移或签名发布，必须新增安装/升级设计和相应验收，不把 ZIP 行为误称为完整安装器。
-- 包体积、工作集、CPU 和排行延迟只记录实测值，不在未测量前设置宣传阈值。
+- 交付内容可枚举、可哈希且不依赖开发机可选 DLL。
+- `tools/package.ps1` 始终从干净 Release 构建调用 CPack。
+- WebView2 host 尚未实现期间，collector-only ZIP 只是核心验证产物，不是完整产品发行版。

@@ -3,6 +3,7 @@
 
 #include <windows.h>
 
+#include "support/current_logon_sid.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -118,36 +119,10 @@ class FakeWait final : public HostWait {
     bool return_true_once{};
 };
 
-std::vector<std::byte> CurrentUserSid() {
-    HANDLE token{};
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE) {
-        return {};
-    }
-    DWORD required{};
-    static_cast<void>(GetTokenInformation(token, TokenUser, nullptr, 0U, &required));
-    if (required == 0U) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    std::vector<std::byte> storage(required);
-    if (GetTokenInformation(token, TokenUser, storage.data(), required, &required) == FALSE) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(storage.data());
-    const auto length = GetLengthSid(user->User.Sid);
-    std::vector<std::byte> result(length);
-    if (::CopySid(length, result.data(), user->User.Sid) == FALSE) {
-        result.clear();
-    }
-    static_cast<void>(CloseHandle(token));
-    return result;
-}
-
 AuthorizedPrincipal Principal() {
-    return {.mode = CollectorEndpointMode::Service,
-            .authorized_sid = CurrentUserSid(),
-            .server_logon_sid = {}};
+    const auto sid = nfm::test::CurrentLogonSid();
+    return {
+        .mode = CollectorEndpointMode::Portable, .authorized_sid = sid, .server_logon_sid = sid};
 }
 
 void CheckProvider(TestContext& context) {

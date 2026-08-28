@@ -10,8 +10,4 @@ std::filesystem::path InstalledUserConfigPath(const std::filesystem::path& local
     return local_app_data / L"NetworkFlowMonitor" / L"config.json";
 }
 
-std::filesystem::path MachineServiceConfigPath(const std::filesystem::path& program_data) {
-    return program_data / L"NetworkFlowMonitor" / L"service.json";
-}
-
 } // namespace nfm::config

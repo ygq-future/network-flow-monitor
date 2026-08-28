@@ -66,10 +66,6 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.appearance.theme == nfm::config::ThemeMode::System,
                   "default theme is system");
     context.Check(!config.startup.ui_at_login, "default UI startup");
-    context.Check(config.collector.preferred_mode == nfm::config::CollectorMode::Portable,
-                  "default collector mode");
-    context.Check(config.service.start_type == nfm::config::ServiceStartType::AutomaticDelayed,
-                  "default service start type");
     context.Check(config.diagnostics.log_level == nfm::config::LogLevel::Info, "default log level");
     context.CheckValid(config, "defaults are valid");
 }

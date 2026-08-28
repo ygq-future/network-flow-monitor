@@ -58,25 +58,6 @@ bool IsValid(DockSide value) noexcept {
     return false;
 }
 
-bool IsValid(CollectorMode value) noexcept {
-    switch (value) {
-    case CollectorMode::Portable:
-    case CollectorMode::Service:
-        return true;
-    }
-    return false;
-}
-
-bool IsValid(ServiceStartType value) noexcept {
-    switch (value) {
-    case ServiceStartType::Manual:
-    case ServiceStartType::Automatic:
-    case ServiceStartType::AutomaticDelayed:
-        return true;
-    }
-    return false;
-}
-
 bool IsValid(LogLevel value) noexcept {
     switch (value) {
     case LogLevel::Off:
@@ -132,12 +113,6 @@ ConfigValidationResult ValidateAppConfig(const AppConfig& config) {
     }
     if (!IsValid(config.floating.anchor_side)) {
         AddEnumIssue(result, "floating.anchor_side");
-    }
-    if (!IsValid(config.collector.preferred_mode)) {
-        AddEnumIssue(result, "collector.preferred_mode");
-    }
-    if (!IsValid(config.service.start_type)) {
-        AddEnumIssue(result, "service.start_type");
     }
     if (!IsValid(config.diagnostics.log_level)) {
         AddEnumIssue(result, "diagnostics.log_level");

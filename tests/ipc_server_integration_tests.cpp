@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include "support/current_logon_sid.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -53,33 +54,10 @@ std::vector<std::byte> CopySid(PSID sid) {
     return result;
 }
 
-std::vector<std::byte> CurrentUserSid() {
-    HANDLE raw_token{};
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token) == FALSE) {
-        return {};
-    }
-    const auto token = raw_token;
-    DWORD required{};
-    static_cast<void>(GetTokenInformation(token, TokenUser, nullptr, 0U, &required));
-    if (required == 0U) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    std::vector<std::byte> storage(required);
-    if (GetTokenInformation(token, TokenUser, storage.data(), required, &required) == FALSE) {
-        static_cast<void>(CloseHandle(token));
-        return {};
-    }
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(storage.data());
-    const auto sid = CopySid(user->User.Sid);
-    static_cast<void>(CloseHandle(token));
-    return sid;
-}
-
-AuthorizedPrincipal ServicePrincipal() {
-    return {.mode = CollectorEndpointMode::Service,
-            .authorized_sid = CurrentUserSid(),
-            .server_logon_sid = {}};
+AuthorizedPrincipal PortablePrincipal() {
+    const auto sid = nfm::test::CurrentLogonSid();
+    return {
+        .mode = CollectorEndpointMode::Portable, .authorized_sid = sid, .server_logon_sid = sid};
 }
 
 template <typename Completion>
@@ -144,8 +122,8 @@ bool ReadWire(NamedPipeConnection& connection, std::vector<std::byte>& wire) {
 }
 
 void CheckIntegration(TestContext& context) {
-    const auto principal = ServicePrincipal();
-    context.Check(!principal.authorized_sid.empty(), "service principal SID is available");
+    const auto principal = PortablePrincipal();
+    context.Check(!principal.authorized_sid.empty(), "portable principal SID is available");
     if (principal.authorized_sid.empty()) {
         return;
     }

@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include "support/current_logon_sid.h"
 #include <aclapi.h>
 #include <algorithm>
 #include <array>
@@ -120,29 +121,10 @@ std::vector<std::byte> CopySid(PSID sid) {
     return result;
 }
 
-std::vector<std::byte> CurrentUserSid() {
-    HANDLE raw_token{};
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token) == FALSE) {
-        return {};
-    }
-    const UniqueHandle token{raw_token};
-    DWORD required{};
-    static_cast<void>(GetTokenInformation(token.get(), TokenUser, nullptr, 0U, &required));
-    if (required == 0U) {
-        return {};
-    }
-    std::vector<std::byte> storage(required);
-    if (GetTokenInformation(token.get(), TokenUser, storage.data(), required, &required) == FALSE) {
-        return {};
-    }
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(storage.data());
-    return CopySid(user->User.Sid);
-}
-
-AuthorizedPrincipal ServicePrincipal() {
-    return {.mode = CollectorEndpointMode::Service,
-            .authorized_sid = CurrentUserSid(),
-            .server_logon_sid = {}};
+AuthorizedPrincipal PortablePrincipal() {
+    const auto sid = nfm::test::CurrentLogonSid();
+    return {
+        .mode = CollectorEndpointMode::Portable, .authorized_sid = sid, .server_logon_sid = sid};
 }
 
 struct ClientObserver final : IpcClientObserver {
@@ -358,7 +340,7 @@ bool CheckLiveDacl(TestContext& context, HANDLE pipe,
 }
 
 void CheckIntegration(TestContext& context) {
-    const auto principal = ServicePrincipal();
+    const auto principal = PortablePrincipal();
     context.Check(!principal.authorized_sid.empty(), "current user SID is available");
     if (principal.authorized_sid.empty()) {
         return;

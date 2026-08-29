@@ -202,7 +202,11 @@ void IpcClient::WorkerMain(const std::stop_token& stop_token) noexcept {
             if (!connection_res.ok() || connection_res.connection == nullptr) {
                 SetState(IpcClientState::Backoff);
                 const auto delay = reconnect_policy_.NextDelay();
-                std::this_thread::sleep_for(delay);
+                const auto deadline = std::chrono::steady_clock::now() + delay;
+                while (!stop_token.stop_requested() &&
+                       std::chrono::steady_clock::now() < deadline) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+                }
                 continue;
             }
 

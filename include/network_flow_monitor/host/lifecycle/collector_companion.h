@@ -74,6 +74,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     CollectorStatusCallback collector_status_cb_;
     SessionResetCallback session_reset_cb_;
 
+    std::unique_ptr<ipc::PipeTransportFactory> transport_factory_;
     std::unique_ptr<ipc::IpcClient> ipc_client_;
     void* collector_process_handle_{nullptr};
     void* stop_event_handle_{nullptr};

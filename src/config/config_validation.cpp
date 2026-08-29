@@ -101,6 +101,9 @@ ConfigValidationResult ValidateAppConfig(const AppConfig& config) {
                           kMaximumCapsuleWidthDip, "floating.capsule_width_dip");
     AddRangeIssueIfNeeded(result, config.floating.capsule_height_dip, kMinimumCapsuleHeightDip,
                           kMaximumCapsuleHeightDip, "floating.capsule_height_dip");
+    AddRangeIssueIfNeeded(result, config.floating.capsule_end_rounding_dip,
+                          kMinimumCapsuleEndRoundingDip, kMaximumCapsuleEndRoundingDip,
+                          "floating.capsule_end_rounding_dip");
 
     if (!IsValid(config.display.speed_unit)) {
         AddEnumIssue(result, "display.speed_unit");

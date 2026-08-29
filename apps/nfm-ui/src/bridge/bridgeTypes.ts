@@ -5,8 +5,14 @@ export type WebCommandType =
   | 'hideMonitor'
   | 'setPin'
   | 'openSettings'
+  | 'requestConfig'
   | 'updateSetting'
   | 'retryCollector'
+  | 'restartCollector'
+  | 'minimizeWindow'
+  | 'toggleMaximize'
+  | 'toggleMaximizeWindow'
+  | 'startWindowDrag'
   | 'exitApp'
   | 'setTheme'
   | 'setLocale'
@@ -34,6 +40,11 @@ export interface CollectorStatusDto {
   etwSessionActive: boolean
   droppedPackets: number
   activePids: number
+  state?: 'Stopped' | 'Starting' | 'Running' | 'Failed'
+  processId?: number
+  instanceId?: string
+  isElevated?: boolean
+  lastError?: string
 }
 
 export interface SessionResetDto {
@@ -47,6 +58,93 @@ export interface ThemeChangedDto {
 
 export interface LocaleChangedDto {
   locale: 'System' | 'English' | 'SimplifiedChinese'
+}
+
+export interface NumericRangeSchema {
+  min: number
+  max: number
+  step?: number
+  unit: string
+  default: number
+}
+
+export interface ConfigSchemaDto {
+  capsuleWidth: NumericRangeSchema
+  capsuleHeight: NumericRangeSchema
+  capsuleEndRounding: NumericRangeSchema
+  hoverDelay: NumericRangeSchema
+  autoHideDelay: NumericRangeSchema
+  dismissDelay: NumericRangeSchema
+  opacity: NumericRangeSchema
+  blurStrength: NumericRangeSchema
+  topN: NumericRangeSchema
+  rankingWindow: NumericRangeSchema
+  refreshInterval: NumericRangeSchema
+  speedUnits: ('auto' | 'bytes' | 'bits')[]
+  themes: ('system' | 'light' | 'dark')[]
+  languages: ('system' | 'english' | 'simplified_chinese')[]
+  logLevels: ('off' | 'error' | 'info' | 'debug')[]
+  dockSides: ('left' | 'right')[]
+}
+
+export interface GeneralConfigDto {
+  uiAtLogin: boolean
+  speedUnit: 'auto' | 'bytes' | 'bits'
+}
+
+export interface AppearanceConfigDto {
+  theme: 'system' | 'light' | 'dark'
+  language: 'system' | 'english' | 'simplified_chinese'
+}
+
+export interface CapsuleConfigDto {
+  widthDip: number
+  heightDip: number
+  endRoundingDip: number
+  effectiveEndRoundingDip: number
+  hoverDelayMs: number
+  anchorSide: 'left' | 'right'
+  anchorMonitorId: string
+  anchorVerticalOffsetDip: number
+  autoHideEnabled: boolean
+  autoHideDelayMs: number
+}
+
+export interface MonitorConfigDto {
+  pinned: boolean
+  dismissDelayMs: number
+  opacityPercent: number
+  blurStrengthPercent: number
+  yieldTopmostWhenFullscreen: boolean
+}
+
+export interface RankingConfigDto {
+  topN: number
+  windowMs: number
+  refreshIntervalMs: number
+}
+
+export interface DiagnosticsConfigDto {
+  logLevel: 'off' | 'error' | 'info' | 'debug'
+}
+
+export interface AppConfigDto {
+  general: GeneralConfigDto
+  appearance: AppearanceConfigDto
+  capsule: CapsuleConfigDto
+  monitor: MonitorConfigDto
+  ranking: RankingConfigDto
+  diagnostics: DiagnosticsConfigDto
+}
+
+export interface ConfigChangedDto {
+  config: AppConfigDto
+  schema: ConfigSchemaDto
+}
+
+export interface UpdateSettingPayload {
+  key: string
+  value: unknown
 }
 
 export interface CommandResponseDto {

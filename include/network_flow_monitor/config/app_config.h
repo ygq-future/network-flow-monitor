@@ -30,6 +30,9 @@ inline constexpr std::int32_t kMinimumCapsuleWidthDip = 8;
 inline constexpr std::int32_t kMaximumCapsuleWidthDip = 24;
 inline constexpr std::int32_t kMinimumCapsuleHeightDip = 40;
 inline constexpr std::int32_t kMaximumCapsuleHeightDip = 160;
+inline constexpr std::int32_t kMinimumCapsuleEndRoundingDip = 0;
+inline constexpr std::int32_t kMaximumCapsuleEndRoundingDip = 12;
+inline constexpr std::int32_t kDefaultCapsuleEndRoundingDip = 5;
 inline constexpr std::size_t kMaximumMonitorIdentifierBytes = 255U;
 
 enum class SpeedUnit : std::uint8_t {
@@ -90,6 +93,7 @@ struct FloatingConfig {
     std::uint8_t blur_strength_percent{0};
     std::int32_t capsule_width_dip{10};
     std::int32_t capsule_height_dip{64};
+    std::int32_t capsule_end_rounding_dip{5};
     bool nfm_pinned{false};
     bool yield_topmost_when_fullscreen{true};
     std::array<char, kMaximumMonitorIdentifierBytes + 1U> anchor_monitor_id{};
@@ -98,6 +102,12 @@ struct FloatingConfig {
 
     bool operator==(const FloatingConfig&) const = default;
 };
+
+[[nodiscard]] inline std::int32_t EffectiveCapsuleEndRoundingDip(
+    const FloatingConfig& floating) noexcept {
+    const auto max_possible = floating.capsule_width_dip / 2;
+    return std::min(floating.capsule_end_rounding_dip, max_possible);
+}
 
 struct AppearanceConfig {
     LanguageMode language{LanguageMode::System};

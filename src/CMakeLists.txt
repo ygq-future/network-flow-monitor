@@ -107,15 +107,22 @@ target_link_libraries(
         Shell32
         Ole32
         Advapi32
+        Comctl32
+        Dwmapi
 )
 nfm_configure_target(nfm_host)
 nfm_enable_static_analysis(nfm_host ENABLE_EXCEPTIONS)
 
-add_executable(nfm_host_executable WIN32 host/app/main.cpp)
+add_executable(
+    nfm_host_executable
+    WIN32
+        host/app/main.cpp
+        "${PROJECT_SOURCE_DIR}/resources/network_flow_monitor.rc"
+)
 set_target_properties(nfm_host_executable PROPERTIES OUTPUT_NAME "NetworkFlowMonitor")
 nfm_configure_target(nfm_host_executable)
 nfm_enable_static_analysis(nfm_host_executable ENABLE_EXCEPTIONS)
-target_link_libraries(nfm_host_executable PRIVATE nfm_host Shell32 Ole32)
+target_link_libraries(nfm_host_executable PRIVATE nfm_host Shell32 Ole32 Comctl32 Dwmapi)
 
 add_custom_command(
     TARGET nfm_host_executable POST_BUILD

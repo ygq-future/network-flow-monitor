@@ -23,6 +23,7 @@ class INativeBridge {
     virtual void post_session_reset(const SessionResetDto& reset) = 0;
     virtual void post_theme_changed(const ThemeChangedDto& theme) = 0;
     virtual void post_locale_changed(const LocaleChangedDto& locale) = 0;
+    virtual void post_config_changed(const config::AppConfig& config) = 0;
     virtual void post_command_response(const CommandResponseDto& response) = 0;
     virtual void post_error(const BridgeErrorDto& error) = 0;
     virtual void post_raw_event(std::string_view event_json) = 0;
@@ -41,8 +42,13 @@ class IBridgeCommandHandler {
     virtual void on_hide_monitor() = 0;
     virtual void on_set_pin(bool pinned) = 0;
     virtual void on_open_settings(std::string_view route) = 0;
+    virtual void on_request_config() = 0;
     virtual void on_update_setting(std::string_view key, std::string_view value_json) = 0;
     virtual void on_retry_collector() = 0;
+    virtual void on_restart_collector() = 0;
+    virtual void on_minimize_window() = 0;
+    virtual void on_toggle_maximize() {}
+    virtual void on_start_window_drag() = 0;
     virtual void on_exit_app() = 0;
     virtual void on_set_theme(std::string_view theme) = 0;
     virtual void on_set_locale(std::string_view locale) = 0;
@@ -66,6 +72,7 @@ class NativeBridge : public INativeBridge {
     void post_session_reset(const SessionResetDto& reset) override;
     void post_theme_changed(const ThemeChangedDto& theme) override;
     void post_locale_changed(const LocaleChangedDto& locale) override;
+    void post_config_changed(const config::AppConfig& config) override;
     void post_command_response(const CommandResponseDto& response) override;
     void post_error(const BridgeErrorDto& error) override;
     void post_raw_event(std::string_view event_json) override;

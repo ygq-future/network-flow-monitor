@@ -46,6 +46,12 @@ class IWindowEventListener {
     virtual void on_window_dpi_changed(std::uint32_t new_dpi, const RECT* suggested_rect) = 0;
     virtual void on_window_close_requested() = 0;
     virtual void on_window_destroyed() = 0;
+
+    // Tray Menu events
+    virtual void on_tray_show_monitor() {}
+    virtual void on_tray_settings() {}
+    virtual void on_tray_retry_collector() {}
+    virtual void on_tray_exit() {}
 };
 
 class Win32Window {
@@ -63,6 +69,9 @@ class Win32Window {
     void hide();
     void close();
 
+    bool create_tray_icon();
+    void remove_tray_icon();
+
     void post_ui_task(std::function<void()> task);
 
     [[nodiscard]] HWND hwnd() const noexcept {
@@ -70,6 +79,9 @@ class Win32Window {
     }
     [[nodiscard]] std::uint32_t dpi() const noexcept;
     [[nodiscard]] double dpi_scale() const noexcept;
+    [[nodiscard]] bool has_tray_icon() const noexcept {
+        return tray_icon_active_;
+    }
 
     static int run_message_loop();
     static void exit_message_loop(int exit_code = 0);
@@ -81,6 +93,7 @@ class Win32Window {
     HWND hwnd_{nullptr};
     IWindowEventListener* listener_{nullptr};
     bool class_registered_{false};
+    bool tray_icon_active_{false};
 
     std::mutex task_mutex_;
     std::queue<std::function<void()>> task_queue_;

@@ -17,9 +17,26 @@
 int WINAPI wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevInstance*/,
                     _In_ LPWSTR lpCmdLine, _In_ int /*nShowCmd*/
 ) {
+    // 0. Enable Windows 11 Per-Monitor V2 DPI awareness for razor-sharp rendering
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(hr)) {
         return 1;
+    }
+
+    // 0. Single instance verification
+    HANDLE single_instance_mutex =
+        CreateMutexW(nullptr, FALSE, L"Local\\NetworkFlowMonitor_SingleInstance_Mutex");
+    if (single_instance_mutex != nullptr && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing_hwnd = FindWindowW(L"NetworkFlowMonitor_HostWindow", nullptr);
+        if (existing_hwnd != nullptr) {
+            ShowWindow(existing_hwnd, SW_RESTORE);
+            SetForegroundWindow(existing_hwnd);
+        }
+        CloseHandle(single_instance_mutex);
+        CoUninitialize();
+        return 0;
     }
 
     nfm::host::app::ProductHostOptions options;
@@ -74,6 +91,11 @@ int WINAPI wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevInst
         } else {
             exit_code = 1;
         }
+    }
+
+    if (single_instance_mutex != nullptr) {
+        CloseHandle(single_instance_mutex);
+        single_instance_mutex = nullptr;
     }
 
     CoUninitialize();

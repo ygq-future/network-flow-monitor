@@ -1,5 +1,6 @@
 #include "network_flow_monitor/host/bridge/bridge_dispatcher.h"
 
+#include <span>
 #include <utility>
 #include <yyjson.h>
 
@@ -66,6 +67,66 @@ std::string write_mut_doc(yyjson_mut_doc* doc) {
     return result;
 }
 
+const char* to_speed_unit_str(config::SpeedUnit unit) noexcept {
+    switch (unit) {
+    case config::SpeedUnit::Auto:
+        return "auto";
+    case config::SpeedUnit::Bytes:
+        return "bytes";
+    case config::SpeedUnit::Bits:
+        return "bits";
+    }
+    return "auto";
+}
+
+const char* to_language_str(config::LanguageMode lang) noexcept {
+    switch (lang) {
+    case config::LanguageMode::System:
+        return "system";
+    case config::LanguageMode::English:
+        return "english";
+    case config::LanguageMode::SimplifiedChinese:
+        return "simplified_chinese";
+    }
+    return "system";
+}
+
+const char* to_theme_str(config::ThemeMode theme) noexcept {
+    switch (theme) {
+    case config::ThemeMode::System:
+        return "system";
+    case config::ThemeMode::Light:
+        return "light";
+    case config::ThemeMode::Dark:
+        return "dark";
+    }
+    return "system";
+}
+
+const char* to_dock_side_str(config::DockSide side) noexcept {
+    switch (side) {
+    case config::DockSide::Left:
+        return "left";
+    case config::DockSide::Right:
+        return "right";
+    }
+    return "right";
+}
+
+const char* to_log_level_str(config::LogLevel level) noexcept {
+    switch (level) {
+    case config::LogLevel::Off:
+        return "off";
+    case config::LogLevel::Error:
+        return "error";
+    case config::LogLevel::Info:
+        return "info";
+    case config::LogLevel::Debug:
+        return "debug";
+    }
+    return "info";
+}
+
 } // namespace
 
 BridgeDispatcher::BridgeDispatcher(std::shared_ptr<IBridgeCommandHandler> handler)
@@ -91,6 +152,15 @@ bool BridgeDispatcher::parse_web_command(std::string_view raw_json, WebCommand* 
     }
 
     yyjson_val* root = yyjson_doc_get_root(doc.get());
+    std::string_view unescaped_json;
+    if (root != nullptr && yyjson_is_str(root)) {
+        unescaped_json = std::string_view{yyjson_get_str(root), yyjson_get_len(root)};
+    }
+    ScopedJsonDoc inner_doc(unescaped_json);
+    if (!unescaped_json.empty() && inner_doc.get() != nullptr) {
+        root = yyjson_doc_get_root(inner_doc.get());
+    }
+
     if (root == nullptr || !yyjson_is_obj(root)) {
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::InvalidJson);
@@ -247,12 +317,27 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::OpenSettings:
         handler_->on_open_settings(cmd.route.value_or(""));
         break;
+    case WebCommandType::RequestConfig:
+        handler_->on_request_config();
+        break;
     case WebCommandType::UpdateSetting:
         handler_->on_update_setting(cmd.setting_key.value_or(""),
                                     cmd.setting_value_json.value_or(""));
         break;
     case WebCommandType::RetryCollector:
         handler_->on_retry_collector();
+        break;
+    case WebCommandType::RestartCollector:
+        handler_->on_restart_collector();
+        break;
+    case WebCommandType::MinimizeWindow:
+        handler_->on_minimize_window();
+        break;
+    case WebCommandType::ToggleMaximizeWindow:
+        handler_->on_toggle_maximize();
+        break;
+    case WebCommandType::StartWindowDrag:
+        handler_->on_start_window_drag();
         break;
     case WebCommandType::ExitApp:
         handler_->on_exit_app();
@@ -308,6 +393,13 @@ std::string BridgeDispatcher::serialize_collector_status(const CollectorStatusDt
     yyjson_mut_obj_add_bool(doc.get(), payload, "etwSessionActive", status.etw_session_active);
     yyjson_mut_obj_add_uint(doc.get(), payload, "droppedPackets", status.dropped_packets);
     yyjson_mut_obj_add_uint(doc.get(), payload, "activePids", status.active_pids);
+    yyjson_mut_obj_add_str(doc.get(), payload, "state", status.state.c_str());
+    yyjson_mut_obj_add_uint(doc.get(), payload, "processId", status.process_id);
+    yyjson_mut_obj_add_str(doc.get(), payload, "instanceId", status.instance_id.c_str());
+    yyjson_mut_obj_add_bool(doc.get(), payload, "isElevated", status.is_elevated);
+    if (!status.last_error.empty()) {
+        yyjson_mut_obj_add_str(doc.get(), payload, "lastError", status.last_error.c_str());
+    }
 
     return write_mut_doc(doc.get());
 }
@@ -358,6 +450,144 @@ std::string BridgeDispatcher::serialize_locale_changed(const LocaleChangedDto& l
     yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
 
     yyjson_mut_obj_add_str(doc.get(), payload, "locale", locale.locale.c_str());
+
+    return write_mut_doc(doc.get());
+}
+
+std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& config) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "configChanged");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+
+    // 1. config snapshot
+    yyjson_mut_val* cfg = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), payload, "config", cfg);
+
+    // general
+    yyjson_mut_val* gen = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "general", gen);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "uiAtLogin", config.startup.ui_at_login);
+    yyjson_mut_obj_add_str(doc.get(), gen, "speedUnit",
+                           to_speed_unit_str(config.display.speed_unit));
+
+    // appearance
+    yyjson_mut_val* app = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "appearance", app);
+    yyjson_mut_obj_add_str(doc.get(), app, "theme", to_theme_str(config.appearance.theme));
+    yyjson_mut_obj_add_str(doc.get(), app, "language", to_language_str(config.appearance.language));
+
+    // capsule
+    yyjson_mut_val* cap = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "capsule", cap);
+    yyjson_mut_obj_add_sint(doc.get(), cap, "widthDip", config.floating.capsule_width_dip);
+    yyjson_mut_obj_add_sint(doc.get(), cap, "heightDip", config.floating.capsule_height_dip);
+    yyjson_mut_obj_add_sint(doc.get(), cap, "endRoundingDip",
+                            config.floating.capsule_end_rounding_dip);
+    yyjson_mut_obj_add_sint(doc.get(), cap, "effectiveEndRoundingDip",
+                            config::EffectiveCapsuleEndRoundingDip(config.floating));
+    yyjson_mut_obj_add_sint(doc.get(), cap, "hoverDelayMs", config.interaction.hover_delay.count());
+    yyjson_mut_obj_add_str(doc.get(), cap, "anchorSide",
+                           to_dock_side_str(config.floating.anchor_side));
+    yyjson_mut_obj_add_str(doc.get(), cap, "anchorMonitorId",
+                           config.floating.anchor_monitor_id.data());
+    yyjson_mut_obj_add_sint(doc.get(), cap, "anchorVerticalOffsetDip",
+                            config.floating.anchor_vertical_offset_dip);
+    yyjson_mut_obj_add_bool(doc.get(), cap, "autoHideEnabled", config.floating.auto_hide_enabled);
+    yyjson_mut_obj_add_sint(doc.get(), cap, "autoHideDelayMs",
+                            config.floating.auto_hide_delay.count());
+
+    // monitor
+    yyjson_mut_val* mon = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "monitor", mon);
+    yyjson_mut_obj_add_bool(doc.get(), mon, "pinned", config.floating.nfm_pinned);
+    yyjson_mut_obj_add_sint(doc.get(), mon, "dismissDelayMs",
+                            config.interaction.dismiss_delay.count());
+    yyjson_mut_obj_add_uint(doc.get(), mon, "opacityPercent", config.floating.opacity_percent);
+    yyjson_mut_obj_add_uint(doc.get(), mon, "blurStrengthPercent",
+                            config.floating.blur_strength_percent);
+    yyjson_mut_obj_add_bool(doc.get(), mon, "yieldTopmostWhenFullscreen",
+                            config.floating.yield_topmost_when_fullscreen);
+
+    // ranking
+    yyjson_mut_val* rnk = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "ranking", rnk);
+    yyjson_mut_obj_add_uint(doc.get(), rnk, "topN", config.ranking.top_n);
+    yyjson_mut_obj_add_sint(doc.get(), rnk, "windowMs", config.ranking.window.count());
+    yyjson_mut_obj_add_sint(doc.get(), rnk, "refreshIntervalMs",
+                            config.display.refresh_interval.count());
+
+    // diagnostics
+    yyjson_mut_val* diag = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), cfg, "diagnostics", diag);
+    yyjson_mut_obj_add_str(doc.get(), diag, "logLevel",
+                           to_log_level_str(config.diagnostics.log_level));
+
+    // 2. schema projection
+    yyjson_mut_val* schema = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), payload, "schema", schema);
+
+    auto add_range = [&](const char* key, int min_val, int max_val, int step, const char* unit,
+                         int def_val) {
+        yyjson_mut_val* item = yyjson_mut_obj(doc.get());
+        yyjson_mut_obj_add_val(doc.get(), schema, key, item);
+        yyjson_mut_obj_add_int(doc.get(), item, "min", min_val);
+        yyjson_mut_obj_add_int(doc.get(), item, "max", max_val);
+        yyjson_mut_obj_add_int(doc.get(), item, "step", step);
+        yyjson_mut_obj_add_str(doc.get(), item, "unit", unit);
+        yyjson_mut_obj_add_int(doc.get(), item, "default", def_val);
+    };
+
+    add_range("capsuleWidth", config::kMinimumCapsuleWidthDip, config::kMaximumCapsuleWidthDip, 1,
+              "DIP", 10);
+    add_range("capsuleHeight", config::kMinimumCapsuleHeightDip, config::kMaximumCapsuleHeightDip,
+              1, "DIP", 64);
+    add_range("capsuleEndRounding", config::kMinimumCapsuleEndRoundingDip,
+              config::kMaximumCapsuleEndRoundingDip, 1, "DIP",
+              config::kDefaultCapsuleEndRoundingDip);
+    add_range("hoverDelay", static_cast<int>(config::kMinimumHoverDelay.count()),
+              static_cast<int>(config::kMaximumHoverDelay.count()), 50, "ms", 350);
+    add_range("autoHideDelay", static_cast<int>(config::kMinimumAutoHideDelay.count()),
+              static_cast<int>(config::kMaximumAutoHideDelay.count()), 100, "ms", 500);
+    add_range("dismissDelay", static_cast<int>(config::kMinimumDismissDelay.count()),
+              static_cast<int>(config::kMaximumDismissDelay.count()), 50, "ms", 250);
+    add_range("opacity", config::kMinimumOpacityPercent, config::kMaximumOpacityPercent, 1, "%",
+              92);
+    add_range("blurStrength", config::kMinimumBlurStrengthPercent,
+              config::kMaximumBlurStrengthPercent, 1, "%", 60);
+    add_range("topN", config::kMinimumTopN, config::kMaximumTopN, 1, "", 5);
+    add_range("rankingWindow", static_cast<int>(config::kMinimumRankingWindow.count()),
+              static_cast<int>(config::kMaximumRankingWindow.count()), 250, "ms", 2000);
+    add_range("refreshInterval", static_cast<int>(config::kMinimumRefreshInterval.count()),
+              static_cast<int>(config::kMaximumRefreshInterval.count()), 50, "ms", 500);
+
+    auto add_enum_array = [&](const char* key, std::span<const char* const> values) {
+        yyjson_mut_val* arr = yyjson_mut_arr(doc.get());
+        yyjson_mut_obj_add_val(doc.get(), schema, key, arr);
+        for (const auto* v : values) {
+            yyjson_mut_arr_add_str(doc.get(), arr, v);
+        }
+    };
+
+    const char* const speed_units_arr[] = {"auto", "bytes", "bits"};
+    add_enum_array("speedUnits", speed_units_arr);
+
+    const char* const themes_arr[] = {"system", "light", "dark"};
+    add_enum_array("themes", themes_arr);
+
+    const char* const languages_arr[] = {"system", "english", "simplified_chinese"};
+    add_enum_array("languages", languages_arr);
+
+    const char* const log_levels_arr[] = {"off", "error", "info", "debug"};
+    add_enum_array("logLevels", log_levels_arr);
+
+    const char* const dock_sides_arr[] = {"left", "right"};
+    add_enum_array("dockSides", dock_sides_arr);
 
     return write_mut_doc(doc.get());
 }

@@ -23,6 +23,7 @@ struct ProductHostOptions {
     std::wstring dev_server_url; // Optional: e.g. L"http://localhost:5173"
 };
 
+// NOLINTNEXTLINE(misc-multiple-inheritance)
 class ProductHost : public platform::IWindowEventListener,
                     public bridge::IBridgeCommandHandler,
                     public std::enable_shared_from_this<ProductHost> {
@@ -45,14 +46,24 @@ class ProductHost : public platform::IWindowEventListener,
     void on_window_dpi_changed(std::uint32_t new_dpi, const RECT* suggested_rect) override;
     void on_window_close_requested() override;
     void on_window_destroyed() override;
+    void on_tray_show_monitor() override;
+    void on_tray_settings() override;
+    void on_tray_retry_collector() override;
+    void on_tray_exit() override;
 
     // IBridgeCommandHandler implementation
     void on_show_monitor() override;
     void on_hide_monitor() override;
     void on_set_pin(bool pinned) override;
     void on_open_settings(std::string_view route) override;
+    void on_request_config() override;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     void on_update_setting(std::string_view key, std::string_view value_json) override;
     void on_retry_collector() override;
+    void on_restart_collector() override;
+    void on_minimize_window() override;
+    void on_toggle_maximize() override;
+    void on_start_window_drag() override;
     void on_exit_app() override;
     void on_set_theme(std::string_view theme) override;
     void on_set_locale(std::string_view locale) override;

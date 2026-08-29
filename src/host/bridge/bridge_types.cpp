@@ -12,10 +12,20 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "setPin";
     case WebCommandType::OpenSettings:
         return "openSettings";
+    case WebCommandType::RequestConfig:
+        return "requestConfig";
     case WebCommandType::UpdateSetting:
         return "updateSetting";
     case WebCommandType::RetryCollector:
         return "retryCollector";
+    case WebCommandType::RestartCollector:
+        return "restartCollector";
+    case WebCommandType::MinimizeWindow:
+        return "minimizeWindow";
+    case WebCommandType::ToggleMaximizeWindow:
+        return "toggleMaximizeWindow";
+    case WebCommandType::StartWindowDrag:
+        return "startWindowDrag";
     case WebCommandType::ExitApp:
         return "exitApp";
     case WebCommandType::SetTheme:
@@ -41,11 +51,26 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     if (name == "openSettings") {
         return WebCommandType::OpenSettings;
     }
+    if (name == "requestConfig") {
+        return WebCommandType::RequestConfig;
+    }
     if (name == "updateSetting") {
         return WebCommandType::UpdateSetting;
     }
     if (name == "retryCollector") {
         return WebCommandType::RetryCollector;
+    }
+    if (name == "restartCollector") {
+        return WebCommandType::RestartCollector;
+    }
+    if (name == "minimizeWindow") {
+        return WebCommandType::MinimizeWindow;
+    }
+    if (name == "toggleMaximizeWindow" || name == "toggleMaximize") {
+        return WebCommandType::ToggleMaximizeWindow;
+    }
+    if (name == "startWindowDrag") {
+        return WebCommandType::StartWindowDrag;
     }
     if (name == "exitApp") {
         return WebCommandType::ExitApp;
@@ -134,6 +159,10 @@ std::string_view to_error_code_string(BridgeErrorCode code) noexcept {
         return "INVALID_FIELD_TYPE";
     case BridgeErrorCode::ExecutionFailed:
         return "EXECUTION_FAILED";
+    case BridgeErrorCode::InvalidSettingKey:
+        return "INVALID_SETTING_KEY";
+    case BridgeErrorCode::InvalidSettingValue:
+        return "INVALID_SETTING_VALUE";
     case BridgeErrorCode::None:
     default:
         return "NONE";

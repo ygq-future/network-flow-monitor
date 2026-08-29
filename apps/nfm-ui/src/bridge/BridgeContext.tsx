@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import { INativeBridge, defaultBridge } from './nativeBridge'
 import { TrafficTickDto, CollectorStatusDto, SessionResetDto } from './bridgeTypes'
 
-interface BridgeContextValue {
+export interface BridgeContextValue {
   bridge: INativeBridge
   trafficTick: TrafficTickDto
   collectorStatus: CollectorStatusDto
@@ -23,7 +23,7 @@ const defaultStatus: CollectorStatusDto = {
   activePids: 0,
 }
 
-const BridgeContext = createContext<BridgeContextValue | null>(null)
+export const BridgeContext = createContext<BridgeContextValue | null>(null)
 
 export interface BridgeProviderProps {
   children: React.ReactNode

@@ -61,6 +61,9 @@ void CheckDefaults(TestContext& context) {
                   "full-screen foreground windows are above the monitor by default");
     context.Check(config.floating.capsule_width_dip == 10, "default capsule width");
     context.Check(config.floating.capsule_height_dip == 64, "default capsule height");
+    context.Check(config.floating.capsule_end_rounding_dip == 5, "default capsule end rounding");
+    context.Check(nfm::config::EffectiveCapsuleEndRoundingDip(config.floating) == 5,
+                  "default effective capsule end rounding");
     context.Check(config.appearance.language == nfm::config::LanguageMode::English,
                   "default language is English");
     context.Check(config.appearance.theme == nfm::config::ThemeMode::System,
@@ -173,6 +176,25 @@ void CheckRanges(TestContext& context) {
     config.floating.capsule_height_dip = 161;
     CheckInvalidRange(context, config, "floating.capsule_height_dip",
                       "capsule height above maximum");
+
+    config = nfm::config::DefaultAppConfig();
+    config.floating.capsule_end_rounding_dip = 0;
+    context.CheckValid(config, "capsule end rounding minimum");
+    config.floating.capsule_end_rounding_dip = 12;
+    context.CheckValid(config, "capsule end rounding maximum");
+    config.floating.capsule_end_rounding_dip = -1;
+    CheckInvalidRange(context, config, "floating.capsule_end_rounding_dip",
+                      "capsule end rounding below minimum");
+    config.floating.capsule_end_rounding_dip = 13;
+    CheckInvalidRange(context, config, "floating.capsule_end_rounding_dip",
+                      "capsule end rounding above maximum");
+
+    // Test EffectiveCapsuleEndRoundingDip capping at width / 2
+    config = nfm::config::DefaultAppConfig();
+    config.floating.capsule_width_dip = 8;
+    config.floating.capsule_end_rounding_dip = 10;
+    context.Check(nfm::config::EffectiveCapsuleEndRoundingDip(config.floating) == 4,
+                  "effective capsule end rounding capped at width / 2");
 }
 
 } // namespace

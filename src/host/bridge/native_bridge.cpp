@@ -47,6 +47,13 @@ void NativeBridge::post_locale_changed(const LocaleChangedDto& locale) {
     sender_(BridgeDispatcher::serialize_locale_changed(locale));
 }
 
+void NativeBridge::post_config_changed(const config::AppConfig& config) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_config_changed(config));
+}
+
 void NativeBridge::post_command_response(const CommandResponseDto& response) {
     if (!sender_) {
         return;

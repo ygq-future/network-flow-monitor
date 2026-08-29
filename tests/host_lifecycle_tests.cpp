@@ -83,6 +83,11 @@ void CheckCollectorCompanionInjections(TestContext& context) {
     companion.inject_collector_status(status);
 
     context.Check(status_called, "collector_status injection calls callback");
+
+    // 4. Test stop and restart state
+    companion.stop();
+    context.Check(!companion.is_running(), "companion not running after stop");
+    context.Check(companion.get_info().state == CollectorState::Stopped, "state is Stopped");
 }
 
 } // namespace

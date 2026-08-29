@@ -1,6 +1,8 @@
 #ifndef NETWORK_FLOW_MONITOR_HOST_BRIDGE_BRIDGE_TYPES_H
 #define NETWORK_FLOW_MONITOR_HOST_BRIDGE_BRIDGE_TYPES_H
 
+#include "network_flow_monitor/config/app_config.h"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -26,6 +28,8 @@ enum class BridgeErrorCode : std::uint8_t {
     MissingField,
     InvalidFieldType,
     ExecutionFailed,
+    InvalidSettingKey,
+    InvalidSettingValue,
 };
 
 // Web -> Native Commands
@@ -34,8 +38,13 @@ enum class WebCommandType : std::uint8_t {
     HideMonitor,
     SetPin,
     OpenSettings,
+    RequestConfig,
     UpdateSetting,
     RetryCollector,
+    RestartCollector,
+    MinimizeWindow,
+    ToggleMaximizeWindow,
+    StartWindowDrag,
     ExitApp,
     SetTheme,
     SetLocale,
@@ -70,6 +79,11 @@ struct CollectorStatusDto {
     bool etw_session_active{true};
     std::uint64_t dropped_packets{};
     std::uint32_t active_pids{};
+    std::string state{"Running"}; // "Stopped", "Starting", "Running", "Failed"
+    std::uint32_t process_id{};
+    std::string instance_id;
+    bool is_elevated{false};
+    std::string last_error;
 
     bool operator==(const CollectorStatusDto&) const = default;
 };

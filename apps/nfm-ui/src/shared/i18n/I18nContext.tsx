@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useState, useMemo, useCallback } from 'react'
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import { LocaleMode, ResolvedLocale, TranslationSchema } from './locales'
 import { enUS } from './en-US'
 import { zhCN } from './zh-CN'
+import { BridgeContext } from '../../bridge/BridgeContext'
+import { LocaleChangedDto, ConfigChangedDto } from '../../bridge/bridgeTypes'
+import { defaultBridge } from '../../bridge/nativeBridge'
 
 interface I18nContextValue {
   locale: LocaleMode
@@ -36,6 +39,26 @@ export interface I18nProviderProps {
 export const I18nProvider: React.FC<I18nProviderProps> = ({ children, initialLocale = 'System', onLocaleChange }) => {
   const [locale, setLocaleState] = useState<LocaleMode>(initialLocale)
   const systemLocale = useMemo(() => getSystemLocale(), [])
+  const bridgeContext = useContext(BridgeContext)
+  const bridge = bridgeContext?.bridge || defaultBridge
+
+  useEffect(() => {
+    const unsubLocale = bridge.on<LocaleChangedDto>('localeChanged', data => {
+      if (data && data.locale) {
+        setLocaleState(data.locale)
+      }
+    })
+    const unsubConfig = bridge.on<ConfigChangedDto>('configChanged', data => {
+      if (data?.config?.appearance?.language) {
+        const lang = data.config.appearance.language
+        setLocaleState(lang === 'english' ? 'English' : lang === 'simplified_chinese' ? 'SimplifiedChinese' : 'System')
+      }
+    })
+    return () => {
+      unsubLocale()
+      unsubConfig()
+    }
+  }, [bridge])
 
   const resolvedLocale: ResolvedLocale = locale === 'System' ? systemLocale : locale
   const t = CATALOGS[resolvedLocale] || enUS

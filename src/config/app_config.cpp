@@ -26,6 +26,7 @@ AppConfig DefaultAppConfig() noexcept {
                 .blur_strength_percent = 60U,
                 .capsule_width_dip = 10,
                 .capsule_height_dip = 64,
+                .capsule_end_rounding_dip = 5,
                 .nfm_pinned = false,
                 .yield_topmost_when_fullscreen = true,
                 .anchor_monitor_id = {},

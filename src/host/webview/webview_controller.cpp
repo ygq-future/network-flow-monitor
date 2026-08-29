@@ -3,14 +3,85 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 #include "network_flow_monitor/host/platform/webview2_includes.h"
 
+#include <commctrl.h>
 #include <string>
 #include <utility>
+#include <windowsx.h>
 #include <wrl/client.h>
 #include <wrl/event.h>
 
 using namespace Microsoft::WRL;
 
 namespace nfm::host::webview {
+
+namespace {
+
+constexpr UINT_PTR kWebViewChildSubclassId = 0x8899;
+
+LRESULT CALLBACK WebViewChildSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+                                          UINT_PTR uIdSubclass, DWORD_PTR /*dwRefData*/) {
+    if (msg == WM_NCHITTEST) {
+        HWND parent = GetAncestor(hwnd, GA_ROOT);
+        if (parent != nullptr && !IsZoomed(parent)) {
+            POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+            RECT rc{};
+            GetWindowRect(parent, &rc);
+            constexpr int border = 8;
+            constexpr int corner_width = 16;
+            constexpr int corner_height = 16;
+
+            const bool is_corner_left = (pt.x >= rc.left && pt.x < rc.left + corner_width);
+            const bool is_corner_right = (pt.x < rc.right && pt.x >= rc.right - corner_width);
+            const bool is_corner_top = (pt.y >= rc.top && pt.y < rc.top + corner_height);
+            const bool is_corner_bottom = (pt.y < rc.bottom && pt.y >= rc.bottom - corner_height);
+
+            if ((is_corner_top && is_corner_left) || (is_corner_top && is_corner_right) ||
+                (is_corner_bottom && is_corner_left) || (is_corner_bottom && is_corner_right)) {
+                return HTTRANSPARENT;
+            }
+
+            const bool left = (pt.x >= rc.left && pt.x < rc.left + border);
+            const bool right = (pt.x < rc.right && pt.x >= rc.right - border);
+            const bool top = (pt.y >= rc.top && pt.y < rc.top + border);
+            const bool bottom = (pt.y < rc.bottom && pt.y >= rc.bottom - border);
+
+            if (left || right || top || bottom) {
+                return HTTRANSPARENT;
+            }
+        }
+    } else if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, WebViewChildSubclassProc, uIdSubclass);
+    }
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+void SubclassWebViewChildren(HWND parent_hwnd) {
+    if (parent_hwnd == nullptr) {
+        return;
+    }
+    EnumChildWindows(
+        parent_hwnd,
+        [](HWND child, LPARAM) -> BOOL {
+            SetWindowSubclass(child, WebViewChildSubclassProc, kWebViewChildSubclassId, 0);
+            return TRUE;
+        },
+        0);
+}
+
+void UnsubclassWebViewChildren(HWND parent_hwnd) {
+    if (parent_hwnd == nullptr) {
+        return;
+    }
+    EnumChildWindows(
+        parent_hwnd,
+        [](HWND child, LPARAM) -> BOOL {
+            RemoveWindowSubclass(child, WebViewChildSubclassProc, kWebViewChildSubclassId);
+            return TRUE;
+        },
+        0);
+}
+
+} // namespace
 
 struct WebView2Controller::Impl {
     HWND parent_hwnd_{nullptr};
@@ -31,6 +102,9 @@ struct WebView2Controller::Impl {
 WebView2Controller::WebView2Controller() : impl_(std::make_unique<Impl>()) {}
 
 WebView2Controller::~WebView2Controller() {
+    if (impl_->parent_hwnd_ != nullptr) {
+        UnsubclassWebViewChildren(impl_->parent_hwnd_);
+    }
     if (impl_->controller_) {
         impl_->controller_->Close();
         impl_->controller_.Reset();
@@ -134,8 +208,11 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                         ICoreWebView2* /*sender*/,
                                         ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         LPWSTR msg_raw = nullptr;
-                                        if (SUCCEEDED(args->get_WebMessageAsJson(&msg_raw)) &&
-                                            msg_raw != nullptr) {
+                                        HRESULT str_hr = args->TryGetWebMessageAsString(&msg_raw);
+                                        if (FAILED(str_hr) || msg_raw == nullptr) {
+                                            static_cast<void>(args->get_WebMessageAsJson(&msg_raw));
+                                        }
+                                        if (msg_raw != nullptr) {
                                             int size_needed =
                                                 WideCharToMultiByte(CP_UTF8, 0, msg_raw, -1,
                                                                     nullptr, 0, nullptr, nullptr);
@@ -164,6 +241,7 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                         BOOL is_success = FALSE;
                                         args->get_IsSuccess(&is_success);
                                         int http_status = 200;
+                                        SubclassWebViewChildren(impl_->parent_hwnd_);
                                         if (impl_->navigation_cb_) {
                                             impl_->navigation_cb_(is_success == TRUE, http_status);
                                         }
@@ -178,6 +256,23 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                             ctrl->put_Bounds(client_rect);
                             ctrl->put_IsVisible(TRUE);
 
+                            ComPtr<ICoreWebView2Controller2> ctrl2;
+                            if (SUCCEEDED(impl_->controller_.As(&ctrl2)) && ctrl2) {
+                                COREWEBVIEW2_COLOR bg_color{255, 15, 23, 42}; // #0F172A slate-900
+                                ctrl2->put_DefaultBackgroundColor(bg_color);
+                            }
+
+                            ComPtr<ICoreWebView2Controller3> ctrl3;
+                            if (SUCCEEDED(impl_->controller_.As(&ctrl3)) && ctrl3) {
+                                double scale =
+                                    static_cast<double>(GetDpiForWindow(impl_->parent_hwnd_)) /
+                                    96.0;
+                                if (scale > 0.1) {
+                                    ctrl3->put_RasterizationScale(scale);
+                                }
+                            }
+
+                            SubclassWebViewChildren(impl_->parent_hwnd_);
                             impl_->is_ready_ = true;
 
                             // Default navigation
@@ -196,6 +291,15 @@ void WebView2Controller::resize(int width_px, int height_px) {
     if (impl_->controller_) {
         RECT bounds{0, 0, width_px, height_px};
         impl_->controller_->put_Bounds(bounds);
+
+        ComPtr<ICoreWebView2Controller3> ctrl3;
+        if (SUCCEEDED(impl_->controller_.As(&ctrl3)) && ctrl3) {
+            double scale = static_cast<double>(GetDpiForWindow(impl_->parent_hwnd_)) / 96.0;
+            if (scale > 0.1) {
+                ctrl3->put_RasterizationScale(scale);
+            }
+        }
+        SubclassWebViewChildren(impl_->parent_hwnd_);
     }
 }
 

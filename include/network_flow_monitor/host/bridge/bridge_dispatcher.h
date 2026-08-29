@@ -43,6 +43,9 @@ class BridgeDispatcher {
     // Static helper to serialize LocaleChangedDto
     static std::string serialize_locale_changed(const LocaleChangedDto& locale);
 
+    // Static helper to serialize AppConfig + schema metadata to ConfigChangedDto
+    static std::string serialize_config_changed(const config::AppConfig& config);
+
     // Static helper to serialize CommandResponseDto
     static std::string serialize_command_response(const CommandResponseDto& response);
 

@@ -35,10 +35,15 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     bool pinned_val{false};
     bool open_settings_called{false};
     std::string route_val;
+    bool request_config_called{false};
     bool update_setting_called{false};
     std::string setting_key_val;
     std::string setting_value_val;
     bool retry_collector_called{false};
+    bool restart_collector_called{false};
+    bool minimize_window_called{false};
+    bool toggle_maximize_called{false};
+    bool start_window_drag_called{false};
     bool exit_app_called{false};
     bool set_theme_called{false};
     std::string theme_val;
@@ -59,6 +64,9 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
         open_settings_called = true;
         route_val = route;
     }
+    void on_request_config() override {
+        request_config_called = true;
+    }
     void on_update_setting(std::string_view key, std::string_view value_json) override {
         update_setting_called = true;
         setting_key_val = key;
@@ -66,6 +74,18 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     }
     void on_retry_collector() override {
         retry_collector_called = true;
+    }
+    void on_restart_collector() override {
+        restart_collector_called = true;
+    }
+    void on_minimize_window() override {
+        minimize_window_called = true;
+    }
+    void on_toggle_maximize() override {
+        toggle_maximize_called = true;
+    }
+    void on_start_window_drag() override {
+        start_window_drag_called = true;
     }
     void on_exit_app() override {
         exit_app_called = true;
@@ -85,8 +105,16 @@ void CheckEnumMappings(TestContext& context) {
 
     context.Check(to_string(WebCommandType::ShowMonitor) == "showMonitor", "ShowMonitor to string");
     context.Check(to_string(WebCommandType::SetPin) == "setPin", "SetPin to string");
+    context.Check(to_string(WebCommandType::ToggleMaximizeWindow) == "toggleMaximizeWindow",
+                  "ToggleMaximizeWindow to string");
     context.Check(parse_web_command_type("showMonitor") == WebCommandType::ShowMonitor,
                   "Parse showMonitor");
+    context.Check(parse_web_command_type("toggleMaximizeWindow") ==
+                      WebCommandType::ToggleMaximizeWindow,
+                  "Parse toggleMaximizeWindow");
+    context.Check(parse_web_command_type("toggleMaximize") ==
+                      WebCommandType::ToggleMaximizeWindow,
+                  "Parse toggleMaximize");
     context.Check(parse_web_command_type("invalidCommand") == WebCommandType::Unknown,
                   "Parse invalid command");
 
@@ -148,6 +176,70 @@ void CheckDispatchCommands(TestContext& context) {
         context.Check(ok, "dispatch setLocale succeeds");
         context.Check(handler->set_locale_called && handler->locale_val == "SimplifiedChinese",
                       "handler->on_set_locale SimplifiedChinese");
+    }
+
+    // 5. RequestConfig
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"requestConfig","version":1,"commandId":"cmd_5"})", &err, &resp);
+        context.Check(ok, "dispatch requestConfig succeeds");
+        context.Check(handler->request_config_called, "handler->on_request_config called");
+    }
+
+    // 6. UpdateSetting
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"updateSetting","version":1,"commandId":"cmd_6","payload":{"key":"floating.capsule_width_dip","value":16}})",
+            &err, &resp);
+        context.Check(ok, "dispatch updateSetting succeeds");
+        context.Check(handler->update_setting_called &&
+                          handler->setting_key_val == "floating.capsule_width_dip" &&
+                          handler->setting_value_val == "16",
+                      "handler->on_update_setting with key and value");
+    }
+
+    // 7. RestartCollector
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"restartCollector","version":1,"commandId":"cmd_7"})", &err, &resp);
+        context.Check(ok, "dispatch restartCollector succeeds");
+        context.Check(handler->restart_collector_called, "handler->on_restart_collector called");
+    }
+
+    // 8. MinimizeWindow
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"minimizeWindow","version":1,"commandId":"cmd_8"})", &err, &resp);
+        context.Check(ok, "dispatch minimizeWindow succeeds");
+        context.Check(handler->minimize_window_called, "handler->on_minimize_window called");
+    }
+
+    // 8b. ToggleMaximizeWindow
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"toggleMaximizeWindow","version":1,"commandId":"cmd_8b"})", &err, &resp);
+        context.Check(ok, "dispatch toggleMaximizeWindow succeeds");
+        context.Check(handler->toggle_maximize_called, "handler->on_toggle_maximize called");
+    }
+
+    // 9. StartWindowDrag
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"startWindowDrag","version":1,"commandId":"cmd_9"})", &err, &resp);
+        context.Check(ok, "dispatch startWindowDrag succeeds");
+        context.Check(handler->start_window_drag_called, "handler->on_start_window_drag called");
     }
 }
 
@@ -227,6 +319,18 @@ void CheckNativeSerializers(TestContext& context) {
     std::string reset_json = BridgeDispatcher::serialize_session_reset(reset);
     context.Check(reset_json.find("\"collectorInstanceId\":\"inst_123\"") != std::string::npos,
                   "contains instance id");
+
+    // ConfigChanged serialization
+    const auto default_cfg = nfm::config::DefaultAppConfig();
+    std::string cfg_json = BridgeDispatcher::serialize_config_changed(default_cfg);
+    context.Check(cfg_json.find("\"type\":\"configChanged\"") != std::string::npos,
+                  "contains configChanged type");
+    context.Check(cfg_json.find("\"capsuleWidthDip\":10") != std::string::npos ||
+                      cfg_json.find("\"widthDip\":10") != std::string::npos,
+                  "contains capsule width config");
+    context.Check(cfg_json.find("\"capsuleEndRounding\"") != std::string::npos,
+                  "contains capsuleEndRounding schema");
+    context.Check(cfg_json.find("\"schema\"") != std::string::npos, "contains schema metadata");
 }
 
 } // namespace

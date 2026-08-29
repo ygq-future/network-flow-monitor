@@ -33,7 +33,7 @@ export const LiveTracer: React.FC<LiveTracerProps> = ({ onNavigateToSettings }) 
   }
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-4 p-4 select-none">
+    <div className="mx-auto flex max-w-lg flex-col gap-4 p-4 pb-20 select-none">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">

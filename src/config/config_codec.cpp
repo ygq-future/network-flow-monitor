@@ -50,18 +50,12 @@ constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
-constexpr std::array<std::string_view, 11> kFloatingKeys{"auto_hide_enabled",
-                                                         "auto_hide_delay_ms",
-                                                         "opacity_percent",
-                                                         "blur_strength_percent",
-                                                         "capsule_width_dip",
-                                                         "capsule_height_dip",
-                                                         "nfm_pinned",
-                                                         "yield_topmost_when_fullscreen",
-                                                         "anchor_monitor_id",
-                                                         "anchor_side",
-                                                         "anchor_vertical_offset_dip"};
-constexpr std::array<std::string_view, 13> kDevelopmentFloatingKeys{"snap_distance_dip",
+constexpr std::array<std::string_view, 12> kFloatingKeys{
+    "auto_hide_enabled",        "auto_hide_delay_ms", "opacity_percent",
+    "blur_strength_percent",    "capsule_width_dip",  "capsule_height_dip",
+    "capsule_end_rounding_dip", "nfm_pinned",         "yield_topmost_when_fullscreen",
+    "anchor_monitor_id",        "anchor_side",        "anchor_vertical_offset_dip"};
+constexpr std::array<std::string_view, 14> kDevelopmentFloatingKeys{"snap_distance_dip",
                                                                     "auto_hide_enabled",
                                                                     "auto_hide_delay_ms",
                                                                     "reveal_strip_dip",
@@ -69,6 +63,7 @@ constexpr std::array<std::string_view, 13> kDevelopmentFloatingKeys{"snap_distan
                                                                     "blur_strength_percent",
                                                                     "capsule_width_dip",
                                                                     "capsule_height_dip",
+                                                                    "capsule_end_rounding_dip",
                                                                     "nfm_pinned",
                                                                     "yield_topmost_when_fullscreen",
                                                                     "anchor_monitor_id",
@@ -480,6 +475,18 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
     if (yyjson_obj_get(group, "capsule_height_dip") != nullptr) {
         config.floating.capsule_height_dip = static_cast<std::int32_t>(parsed);
     }
+    if (auto error =
+            ReadUnsigned(group,
+                         {.key = "capsule_end_rounding_dip",
+                          .path = "floating.capsule_end_rounding_dip",
+                          .minimum = static_cast<std::uint64_t>(kMinimumCapsuleEndRoundingDip),
+                          .maximum = static_cast<std::uint64_t>(kMaximumCapsuleEndRoundingDip)},
+                         parsed, &complete)) {
+        return error;
+    }
+    if (yyjson_obj_get(group, "capsule_end_rounding_dip") != nullptr) {
+        config.floating.capsule_end_rounding_dip = static_cast<std::int32_t>(parsed);
+    }
     if (auto error = ReadBoolean(group, "nfm_pinned", "floating.nfm_pinned",
                                  config.floating.nfm_pinned, &complete)) {
         return error;
@@ -687,6 +694,8 @@ bool AddFloating(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig
                                    config.floating.capsule_width_dip) &&
            yyjson_mut_obj_add_sint(document, group, "capsule_height_dip",
                                    config.floating.capsule_height_dip) &&
+           yyjson_mut_obj_add_sint(document, group, "capsule_end_rounding_dip",
+                                   config.floating.capsule_end_rounding_dip) &&
            yyjson_mut_obj_add_bool(document, group, "nfm_pinned", config.floating.nfm_pinned) &&
            yyjson_mut_obj_add_bool(document, group, "yield_topmost_when_fullscreen",
                                    config.floating.yield_topmost_when_fullscreen) &&

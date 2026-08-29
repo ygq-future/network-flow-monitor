@@ -47,6 +47,7 @@ export interface TranslationSchema {
   }
   settings: {
     title: string
+    back: string
     general: string
     appearance: string
     capsule: string
@@ -54,6 +55,105 @@ export interface TranslationSchema {
     ranking: string
     collector: string
     diagnostics: string
-    comingSoon: string
+    generalDesc: string
+    appearanceDesc: string
+    capsuleDesc: string
+    monitorDesc: string
+    rankingDesc: string
+    collectorDesc: string
+    diagnosticsDesc: string
+    // General
+    launchAtStartup: string
+    launchAtStartupDesc: string
+    speedUnit: string
+    speedUnitDesc: string
+    speedUnitAuto: string
+    speedUnitBytes: string
+    speedUnitBits: string
+    // Appearance
+    theme: string
+    themeDesc: string
+    themeSystem: string
+    themeLight: string
+    themeDark: string
+    language: string
+    languageDesc: string
+    langSystem: string
+    langEnglish: string
+    langChinese: string
+    reducedMotion: string
+    reducedMotionDesc: string
+    reducedMotionActive: string
+    reducedMotionInactive: string
+    // Capsule
+    capsuleWidth: string
+    capsuleWidthDesc: string
+    capsuleHeight: string
+    capsuleHeightDesc: string
+    capsuleEndRounding: string
+    capsuleEndRoundingDesc: string
+    effectiveRoundingNote: string
+    hoverDelay: string
+    hoverDelayDesc: string
+    anchorSide: string
+    anchorSideDesc: string
+    sideLeft: string
+    sideRight: string
+    autoHide: string
+    autoHideDesc: string
+    autoHideDelay: string
+    autoHideDelayDesc: string
+    // Monitor
+    pinned: string
+    pinnedDesc: string
+    dismissDelay: string
+    dismissDelayDesc: string
+    opacity: string
+    opacityDesc: string
+    blurStrength: string
+    blurStrengthDesc: string
+    yieldTopmost: string
+    yieldTopmostDesc: string
+    // Ranking
+    topN: string
+    topNDesc: string
+    rankingWindow: string
+    rankingWindowDesc: string
+    refreshInterval: string
+    refreshIntervalDesc: string
+    // Collector
+    collectorStatus: string
+    collectorStatusDesc: string
+    statusRunning: string
+    statusStarting: string
+    statusStopped: string
+    statusFailed: string
+    processId: string
+    instanceId: string
+    elevation: string
+    elevationYes: string
+    elevationNo: string
+    etwHealth: string
+    etwActive: string
+    etwInactive: string
+    droppedPackets: string
+    activeProcesses: string
+    lastError: string
+    none: string
+    restartCollector: string
+    retryCollector: string
+    // Diagnostics
+    logLevel: string
+    logLevelDesc: string
+    logLevelOff: string
+    logLevelError: string
+    logLevelInfo: string
+    logLevelDebug: string
+    systemDiagnostics: string
+    systemDiagnosticsDesc: string
+    webviewRuntime: string
+    assetsState: string
+    bridgeProtocol: string
+    stateOk: string
   }
 }

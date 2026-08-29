@@ -6,6 +6,8 @@ import {
   TrafficTickDto,
   CollectorStatusDto,
   SessionResetDto,
+  ConfigChangedDto,
+  UpdateSettingPayload,
 } from './bridgeTypes'
 
 declare global {
@@ -94,14 +96,178 @@ export class NativeBridge implements INativeBridge {
   }
 }
 
+export const defaultMockConfigChanged: ConfigChangedDto = {
+  config: {
+    general: {
+      uiAtLogin: false,
+      speedUnit: 'auto',
+    },
+    appearance: {
+      theme: 'system',
+      language: 'english',
+    },
+    capsule: {
+      widthDip: 10,
+      heightDip: 64,
+      endRoundingDip: 5,
+      effectiveEndRoundingDip: 5,
+      hoverDelayMs: 350,
+      anchorSide: 'right',
+      anchorMonitorId: '',
+      anchorVerticalOffsetDip: 64,
+      autoHideEnabled: true,
+      autoHideDelayMs: 500,
+    },
+    monitor: {
+      pinned: false,
+      dismissDelayMs: 250,
+      opacityPercent: 92,
+      blurStrengthPercent: 60,
+      yieldTopmostWhenFullscreen: true,
+    },
+    ranking: {
+      topN: 5,
+      windowMs: 2000,
+      refreshIntervalMs: 500,
+    },
+    diagnostics: {
+      logLevel: 'info',
+    },
+  },
+  schema: {
+    capsuleWidth: { min: 8, max: 24, unit: 'DIP', default: 10 },
+    capsuleHeight: { min: 40, max: 160, unit: 'DIP', default: 64 },
+    capsuleEndRounding: { min: 0, max: 12, unit: 'DIP', default: 5 },
+    hoverDelay: { min: 0, max: 2000, step: 50, unit: 'ms', default: 350 },
+    autoHideDelay: { min: 0, max: 5000, step: 100, unit: 'ms', default: 500 },
+    dismissDelay: { min: 0, max: 2000, step: 50, unit: 'ms', default: 250 },
+    opacity: { min: 0, max: 100, step: 1, unit: '%', default: 92 },
+    blurStrength: { min: 0, max: 100, step: 1, unit: '%', default: 60 },
+    topN: { min: 1, max: 20, step: 1, unit: '', default: 5 },
+    rankingWindow: { min: 500, max: 10000, step: 250, unit: 'ms', default: 2000 },
+    refreshInterval: { min: 100, max: 5000, step: 50, unit: 'ms', default: 500 },
+    speedUnits: ['auto', 'bytes', 'bits'],
+    themes: ['system', 'light', 'dark'],
+    languages: ['system', 'english', 'simplified_chinese'],
+    logLevels: ['off', 'error', 'info', 'debug'],
+    dockSides: ['left', 'right'],
+  },
+}
+
 export class MockBridge extends NativeBridge {
   private timer: number | null = null
   private seq = 1
+  private currentMockConfig: ConfigChangedDto = JSON.parse(JSON.stringify(defaultMockConfigChanged))
 
   constructor(autoTick = false) {
     super()
     if (autoTick && typeof window !== 'undefined') {
       this.startMockTicks()
+    }
+  }
+
+  public override sendCommand<T = unknown>(type: WebCommandType, payload?: T, commandId?: string): void {
+    super.sendCommand(type, payload, commandId)
+    if (type === 'requestConfig') {
+      setTimeout(() => {
+        this.emit('configChanged', this.currentMockConfig)
+      }, 0)
+    } else if (type === 'updateSetting' && payload) {
+      const p = payload as unknown as UpdateSettingPayload
+      this.applyMockSettingUpdate(p.key, p.value)
+      setTimeout(() => {
+        this.emit('configChanged', this.currentMockConfig)
+      }, 0)
+    } else if (type === 'setTheme' && payload) {
+      const t = (payload as unknown as { theme: 'System' | 'Light' | 'Dark' }).theme
+      setTimeout(() => {
+        this.emit('themeChanged', { theme: t })
+      }, 0)
+    } else if (type === 'setLocale' && payload) {
+      const l = (payload as unknown as { locale: 'System' | 'English' | 'SimplifiedChinese' }).locale
+      setTimeout(() => {
+        this.emit('localeChanged', { locale: l })
+      }, 0)
+    } else if (type === 'retryCollector' || type === 'restartCollector') {
+      setTimeout(() => {
+        this.emit('collectorStatus', {
+          monotonicMs: Date.now(),
+          etwSessionActive: true,
+          droppedPackets: 0,
+          activePids: 20,
+          state: 'Running',
+          processId: 4321,
+          instanceId: 'mock_restarted_inst',
+          isElevated: true,
+        })
+      }, 50)
+    }
+  }
+
+  private applyMockSettingUpdate(key: string, value: unknown): void {
+    const cfg = this.currentMockConfig.config
+    if (key === 'startup.ui_at_login' || key === 'general.uiAtLogin' || key === 'uiAtLogin') {
+      cfg.general.uiAtLogin = Boolean(value)
+    } else if (key === 'display.speed_unit' || key === 'general.speedUnit' || key === 'speedUnit') {
+      cfg.general.speedUnit = value as 'auto' | 'bytes' | 'bits'
+    } else if (key === 'appearance.theme' || key === 'theme') {
+      cfg.appearance.theme = value as 'system' | 'light' | 'dark'
+    } else if (key === 'appearance.language' || key === 'language') {
+      cfg.appearance.language = value as 'system' | 'english' | 'simplified_chinese'
+    } else if (key === 'floating.capsule_width_dip' || key === 'capsule.widthDip' || key === 'capsuleWidthDip') {
+      cfg.capsule.widthDip = Number(value)
+      cfg.capsule.effectiveEndRoundingDip = Math.min(cfg.capsule.endRoundingDip, Math.floor(cfg.capsule.widthDip / 2))
+    } else if (key === 'floating.capsule_height_dip' || key === 'capsule.heightDip' || key === 'capsuleHeightDip') {
+      cfg.capsule.heightDip = Number(value)
+    } else if (
+      key === 'floating.capsule_end_rounding_dip' ||
+      key === 'capsule.endRoundingDip' ||
+      key === 'capsuleEndRoundingDip'
+    ) {
+      cfg.capsule.endRoundingDip = Number(value)
+      cfg.capsule.effectiveEndRoundingDip = Math.min(cfg.capsule.endRoundingDip, Math.floor(cfg.capsule.widthDip / 2))
+    } else if (key === 'interaction.hover_delay_ms' || key === 'capsule.hoverDelayMs' || key === 'hoverDelayMs') {
+      cfg.capsule.hoverDelayMs = Number(value)
+    } else if (key === 'floating.anchor_side' || key === 'capsule.anchorSide' || key === 'anchorSide') {
+      cfg.capsule.anchorSide = value as 'left' | 'right'
+    } else if (key === 'floating.auto_hide_enabled' || key === 'capsule.autoHideEnabled' || key === 'autoHideEnabled') {
+      cfg.capsule.autoHideEnabled = Boolean(value)
+    } else if (
+      key === 'floating.auto_hide_delay_ms' ||
+      key === 'capsule.autoHideDelayMs' ||
+      key === 'autoHideDelayMs'
+    ) {
+      cfg.capsule.autoHideDelayMs = Number(value)
+    } else if (key === 'floating.nfm_pinned' || key === 'monitor.pinned' || key === 'pinned') {
+      cfg.monitor.pinned = Boolean(value)
+    } else if (key === 'interaction.dismiss_delay_ms' || key === 'monitor.dismissDelayMs' || key === 'dismissDelayMs') {
+      cfg.monitor.dismissDelayMs = Number(value)
+    } else if (key === 'floating.opacity_percent' || key === 'monitor.opacityPercent' || key === 'opacityPercent') {
+      cfg.monitor.opacityPercent = Number(value)
+    } else if (
+      key === 'floating.blur_strength_percent' ||
+      key === 'monitor.blurStrengthPercent' ||
+      key === 'blurStrengthPercent'
+    ) {
+      cfg.monitor.blurStrengthPercent = Number(value)
+    } else if (
+      key === 'floating.yield_topmost_when_fullscreen' ||
+      key === 'monitor.yieldTopmostWhenFullscreen' ||
+      key === 'yieldTopmostWhenFullscreen'
+    ) {
+      cfg.monitor.yieldTopmostWhenFullscreen = Boolean(value)
+    } else if (key === 'ranking.top_n' || key === 'ranking.topN' || key === 'topN') {
+      cfg.ranking.topN = Number(value)
+    } else if (key === 'ranking.window_ms' || key === 'ranking.windowMs' || key === 'windowMs') {
+      cfg.ranking.windowMs = Number(value)
+    } else if (
+      key === 'display.refresh_interval_ms' ||
+      key === 'ranking.refreshIntervalMs' ||
+      key === 'refreshIntervalMs'
+    ) {
+      cfg.ranking.refreshIntervalMs = Number(value)
+    } else if (key === 'diagnostics.log_level' || key === 'diagnostics.logLevel' || key === 'logLevel') {
+      cfg.diagnostics.logLevel = value as 'off' | 'error' | 'info' | 'debug'
     }
   }
 
@@ -123,6 +289,10 @@ export class MockBridge extends NativeBridge {
           etwSessionActive: true,
           droppedPackets: 0,
           activePids: 18,
+          state: 'Running',
+          processId: 2844,
+          instanceId: 'mock_collector_session',
+          isElevated: true,
         }
         this.emit('collectorStatus', mockStatus)
       }

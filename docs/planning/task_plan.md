@@ -17,15 +17,15 @@ Deliver a portable Windows 11 per-application network monitor using a C++20 Coll
 |---:|---|---|---|
 | 0 | Collector baseline cleanup | complete | Independent `nfm-collector.exe`, core tests and quality gate pass |
 | 1 | Project foundation and live tracer | complete | Planned module structure, maintainability rules, theme/i18n foundation, Collector-to-React TrafficTick and combined gate |
-| 2 | Settings platform and application shell | ready | Authoritative live settings, tray/single-instance shell and Collector lifecycle |
-| 3 | Complete Dock Capsule experience | blocked by 02 | Configurable Dock Capsule, traffic visuals, drag/dock, basic panel, context menu, Settings route and surface ADR |
+| 2 | Settings platform and application shell | complete | Authoritative live settings, tray/single-instance shell and Collector lifecycle |
+| 3 | Complete Dock Capsule experience | ready | Configurable Dock Capsule, traffic visuals, drag/dock, basic panel, context menu, Settings route and surface ADR |
 | 4 | Monitor panel and product delivery | blocked by 03 | Production ranking panel, complete interactions, portable package and target-host acceptance |
 
 The implementation queue contains four sequential, feature-oriented vertical slices.
 
 ## Immediate work
 
-Ticket 01 is the next implementation unit. It establishes the C++ Win32/WebView2 host, React workspace, module/reuse constraints, theme/localization foundations and the live-rate tracer.
+Ticket 02 is complete. Ticket 03 is the next implementation unit. It establishes the configurable Dock Capsule, bidirectional traffic fill gradients, drag & snap docking, and hover/click panel expansion.
 
 ## Completion discipline
 

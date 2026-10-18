@@ -10,6 +10,7 @@
 html,
 body {
   font-family: var(--font-sans);
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -23,6 +24,7 @@ body {
 }
 
 #root {
+  background: transparent;
   height: 100%;
   width: 100%;
   overflow: hidden;
@@ -41,16 +43,16 @@ body {
 /* Modern sleek custom scrollbar for WebKit & Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  scrollbar-color: rgba(113, 113, 122, 0.35) transparent;
 }
 
 .dark * {
-  scrollbar-color: rgba(71, 85, 105, 0.5) transparent;
+  scrollbar-color: rgba(161, 161, 170, 0.25) transparent;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -58,19 +60,18 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(113, 113, 122, 0.3);
   border-radius: 9999px;
-  transition: background-color 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.7);
+  background: rgba(113, 113, 122, 0.55);
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.5);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.8);
+  background: rgba(255, 255, 255, 0.32);
 }

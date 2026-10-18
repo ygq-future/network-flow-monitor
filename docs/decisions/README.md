@@ -14,3 +14,4 @@
 | [0014](0014-portable-collector-stop-signal.md) | 使用宿主创建的命名事件停止 portable Collector | 已接受 |
 | [0015](0015-portable-collector-one-time-authorization.md) | portable Collector 使用一次性授权 | 已接受 |
 | [0019](0019-cpp-webview2-react-product-architecture.md) | C++ Win32 Host、WebView2 与 React 产品架构 | 已接受 |
+| [0020](0020-dock-capsule-surface-topology-and-composition.md) | 贴边胶囊 Surface 拓扑、视觉合成与交互协调模型 | 已接受 |

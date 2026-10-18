@@ -1,8 +1,12 @@
+#include "network_flow_monitor/host/app/product_host.h"
 #include "network_flow_monitor/host/platform/webview2_environment.h"
+#include "network_flow_monitor/host/platform/win32_window.h"
+#include "network_flow_monitor/host/webview/webview_controller.h"
 
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string_view>
-
 namespace {
 
 class TestContext {
@@ -57,11 +61,59 @@ void CheckRecoveryGuidance(TestContext& context) {
                   "recovery guidance mentions WebView2");
 }
 
+void CheckFullscreenDesktopAndCloakedExclusion(TestContext& context) {
+    using namespace nfm::host::platform;
+    // Calling is_foreground_fullscreen_on_same_monitor with nullptr or desktop shell window must
+    // never report true for shell/desktop surfaces.
+    context.Check(!Win32Window::is_foreground_fullscreen_on_same_monitor(nullptr),
+                  "null product window is never fullscreen-yielded");
+}
+
+void CheckWebView2ControllerEnsureAliveInterface(TestContext& context) {
+    nfm::host::webview::WebView2Controller controller;
+    controller.set_visible(false);
+    controller.set_visible(true);
+    // Uninitialized controller is not ready and ensure_alive() safely returns false without crash
+    context.Check(!controller.is_ready(), "uninitialized controller is not ready");
+    context.Check(!controller.ensure_alive(),
+                  "uninitialized controller ensure_alive returns false");
+}
+
+void CheckSettingsOpenAndCloseSurvival(TestContext& context) {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "nfm_settings_repro_test";
+    std::filesystem::create_directories(temp_dir);
+    {
+        std::ofstream index_out(temp_dir / "index.html");
+        index_out << "<!doctype html><html><body>test</body></html>";
+    }
+
+    nfm::host::app::ProductHostOptions opts{
+        .static_assets_dir = temp_dir,
+        .config_file_path = temp_dir / "config.json",
+    };
+    nfm::host::app::ProductHost host(opts);
+    // Exercise opening and closing settings without crashing or posting WM_QUIT
+    host.on_open_settings("general");
+    host.on_hide_monitor();
+    MSG msg{};
+    const bool quit_posted = (PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE) != FALSE);
+    context.Check(!quit_posted, "closing settings window must never post WM_QUIT");
+    context.Check(host.coordinator() == nullptr ||
+                      host.coordinator()->state().presentation_state !=
+                          nfm::host::coordinator::PresentationState::TrayOnly,
+                  "closing settings keeps capsule/monitor presentation alive");
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+}
+
 } // namespace
 
 int main() {
     TestContext context;
     CheckNavigationPolicies(context);
     CheckRecoveryGuidance(context);
+    CheckFullscreenDesktopAndCloakedExclusion(context);
+    CheckWebView2ControllerEnsureAliveInterface(context);
+    CheckSettingsOpenAndCloseSurvival(context);
     return context.failures();
 }

@@ -23,6 +23,7 @@ export interface TranslationSchema {
     hideMonitor: string
     retryCollector: string
     exitApp: string
+    close: string
   }
   tracer: {
     title: string
@@ -103,7 +104,11 @@ export interface TranslationSchema {
     autoHideDesc: string
     autoHideDelay: string
     autoHideDelayDesc: string
-    // Monitor
+    capsuleColors: string
+    capsuleColorsDesc: string
+    downloadColor: string
+    uploadColor: string
+    colorPresets: string
     pinned: string
     pinnedDesc: string
     dismissDelay: string

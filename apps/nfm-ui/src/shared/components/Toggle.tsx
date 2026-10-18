@@ -26,12 +26,14 @@ export const Toggle: React.FC<ToggleProps> = ({ checked, onChange, disabled = fa
       disabled={disabled}
       onClick={() => onChange(!checked)}
       onKeyDown={handleKeyDown}
-      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? 'bg-blue-600 dark:bg-blue-500' : 'bg-slate-300 dark:bg-slate-700'
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-all duration-150 ease-out focus-visible:ring-1 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
+        checked
+          ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100'
+          : 'border-black/25 bg-black/[0.06] hover:bg-black/[0.1] dark:border-white/25 dark:bg-white/[0.06] dark:hover:bg-white/[0.1]'
       } ${className}`}>
       <span
-        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out dark:bg-slate-100 ${
-          checked ? 'translate-x-4' : 'translate-x-0'
+        className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full transition duration-150 ease-out ${
+          checked ? 'translate-x-4 bg-white dark:bg-zinc-950' : 'translate-x-0.5 bg-zinc-600 dark:bg-zinc-300'
         }`}
       />
     </button>

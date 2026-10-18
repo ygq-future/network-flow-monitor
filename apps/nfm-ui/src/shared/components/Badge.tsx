@@ -5,16 +5,19 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 export const Badge: React.FC<BadgeProps> = ({ children, variant = 'default', className = '', ...props }) => {
-  const baseStyles = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium'
+  const baseStyles =
+    'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors'
 
   const variantStyles = {
-    default: 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
-    success: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300',
-    warning: 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300',
-    info: 'bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300',
-    danger: 'bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300',
+    default:
+      'border-black/[0.08] bg-black/[0.04] text-zinc-700 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-zinc-300',
+    success:
+      'border-black/[0.1] bg-zinc-900/[0.06] text-zinc-900 dark:border-white/[0.14] dark:bg-white/[0.09] dark:text-zinc-100',
+    warning:
+      'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200',
+    info: 'border-black/[0.08] bg-black/[0.04] text-zinc-800 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-zinc-200',
+    danger: 'border-red-500/25 bg-red-500/10 text-red-700 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-200',
   }
-
   return (
     <span className={`${baseStyles} ${variantStyles[variant]} ${className}`} {...props}>
       {children}

@@ -29,6 +29,7 @@ struct CollectorInfo {
 };
 
 using TrafficTickCallback = std::function<void(const bridge::TrafficTickDto&)>;
+using RankingSnapshotCallback = std::function<void(const bridge::RankingSnapshotDto&)>;
 using CollectorStatusCallback = std::function<void(const bridge::CollectorStatusDto&)>;
 using SessionResetCallback = std::function<void(const bridge::SessionResetDto&)>;
 
@@ -43,6 +44,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     CollectorCompanion& operator=(CollectorCompanion&&) = delete;
 
     void set_traffic_tick_callback(TrafficTickCallback callback);
+    void set_ranking_snapshot_callback(RankingSnapshotCallback callback);
     void set_collector_status_callback(CollectorStatusCallback callback);
     void set_session_reset_callback(SessionResetCallback callback);
 
@@ -62,6 +64,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
 
     // Test seams / Mocking helpers
     void inject_traffic_tick(const ipc::TrafficTickMessage& tick);
+    void inject_ranking_snapshot(const ipc::RankingSnapshotMessage& snapshot);
     void inject_collector_status(const ipc::CollectorStatusMessage& status);
     void inject_hello_ack(const ipc::HelloAckMessage& ack);
 
@@ -71,6 +74,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     CollectorInfo info_;
 
     TrafficTickCallback traffic_tick_cb_;
+    RankingSnapshotCallback ranking_snapshot_cb_;
     CollectorStatusCallback collector_status_cb_;
     SessionResetCallback session_reset_cb_;
 

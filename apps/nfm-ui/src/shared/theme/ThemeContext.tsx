@@ -7,6 +7,7 @@ import { defaultBridge } from '../../bridge/nativeBridge'
 interface ThemeContextValue {
   theme: ThemeMode
   resolvedTheme: ResolvedTheme
+  prefersReducedMotion: boolean
   setTheme: (theme: ThemeMode) => void
 }
 
@@ -19,6 +20,13 @@ function getSystemTheme(): ResolvedTheme {
   return 'Light'
 }
 
+function getPrefersReducedMotion(): boolean {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  }
+  return false
+}
+
 export interface ThemeProviderProps {
   children: React.ReactNode
   initialTheme?: ThemeMode
@@ -28,17 +36,30 @@ export interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, initialTheme = 'System', onThemeChange }) => {
   const [theme, setThemeState] = useState<ThemeMode>(initialTheme)
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(getSystemTheme)
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(getPrefersReducedMotion)
   const bridgeContext = useContext(BridgeContext)
   const bridge = bridgeContext?.bridge || defaultBridge
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const listener = (e: MediaQueryListEvent) => {
+    const mediaTheme = window.matchMedia('(prefers-color-scheme: dark)')
+    setSystemTheme(mediaTheme.matches ? 'Dark' : 'Light')
+    const listenerTheme = (e: MediaQueryListEvent) => {
       setSystemTheme(e.matches ? 'Dark' : 'Light')
     }
-    media.addEventListener('change', listener)
-    return () => media.removeEventListener('change', listener)
+    mediaTheme.addEventListener('change', listenerTheme)
+
+    const mediaMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setPrefersReducedMotion(mediaMotion.matches)
+    const listenerMotion = (e: MediaQueryListEvent) => {
+      setPrefersReducedMotion(e.matches)
+    }
+    mediaMotion.addEventListener('change', listenerMotion)
+
+    return () => {
+      mediaTheme.removeEventListener('change', listenerTheme)
+      mediaMotion.removeEventListener('change', listenerMotion)
+    }
   }, [])
 
   useEffect(() => {
@@ -65,8 +86,10 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, initialT
     const root = document.documentElement
     if (resolvedTheme === 'Dark') {
       root.classList.add('dark')
+      root.style.colorScheme = 'dark'
     } else {
       root.classList.remove('dark')
+      root.style.colorScheme = 'light'
     }
   }, [resolvedTheme])
 
@@ -82,9 +105,10 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, initialT
     () => ({
       theme,
       resolvedTheme,
+      prefersReducedMotion,
       setTheme,
     }),
-    [theme, resolvedTheme, setTheme],
+    [theme, resolvedTheme, prefersReducedMotion, setTheme],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

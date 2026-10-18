@@ -34,7 +34,9 @@ inline constexpr std::int32_t kMinimumCapsuleEndRoundingDip = 0;
 inline constexpr std::int32_t kMaximumCapsuleEndRoundingDip = 12;
 inline constexpr std::int32_t kDefaultCapsuleEndRoundingDip = 5;
 inline constexpr std::size_t kMaximumMonitorIdentifierBytes = 255U;
-
+inline constexpr std::size_t kMaximumColorHexBytes = 15U;
+inline constexpr std::string_view kDefaultDownloadColorHex = "#38bdf8";
+inline constexpr std::string_view kDefaultUploadColorHex = "#2dd4bf";
 enum class SpeedUnit : std::uint8_t {
     Auto,
     Bytes,
@@ -88,7 +90,7 @@ struct InteractionConfig {
 
 struct FloatingConfig {
     bool auto_hide_enabled{false};
-    std::chrono::milliseconds auto_hide_delay{5000};
+    std::chrono::milliseconds auto_hide_delay{500};
     std::uint8_t opacity_percent{100};
     std::uint8_t blur_strength_percent{0};
     std::int32_t capsule_width_dip{10};
@@ -99,6 +101,8 @@ struct FloatingConfig {
     std::array<char, kMaximumMonitorIdentifierBytes + 1U> anchor_monitor_id{};
     DockSide anchor_side{DockSide::Right};
     std::int32_t anchor_vertical_offset_dip{0};
+    std::array<char, kMaximumColorHexBytes + 1U> download_color_hex{"#38bdf8"};
+    std::array<char, kMaximumColorHexBytes + 1U> upload_color_hex{"#2dd4bf"};
 
     bool operator==(const FloatingConfig&) const = default;
 };

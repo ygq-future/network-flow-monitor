@@ -48,6 +48,9 @@ enum class WebCommandType : std::uint8_t {
     ExitApp,
     SetTheme,
     SetLocale,
+    OpenContextMenu,
+    ResizePanel,
+    ResizeSettingsWindow,
     Unknown,
 };
 
@@ -60,10 +63,28 @@ enum class NativeEventType : std::uint8_t {
     ThemeChanged,
     LocaleChanged,
     ConfigChanged,
+    SurfaceChanged,
     CommandResponse,
     Error,
     Unknown,
 };
+
+enum class SurfaceKind : std::uint8_t {
+    Tray,
+    Capsule,
+    Panel,
+    Settings,
+};
+
+struct SurfaceChangedDto {
+    SurfaceKind surface{SurfaceKind::Capsule};
+    bool pinned{false};
+    config::DockSide dock_side{config::DockSide::Right};
+    bool auto_hidden{false};
+    bool operator==(const SurfaceChangedDto&) const = default;
+};
+
+[[nodiscard]] std::string_view to_string(SurfaceKind surface) noexcept;
 
 struct TrafficTickDto {
     std::uint64_t seq{};
@@ -72,6 +93,28 @@ struct TrafficTickDto {
     std::uint64_t upload_bytes_per_sec{};
 
     bool operator==(const TrafficTickDto&) const = default;
+};
+
+struct RankingAppDto {
+    std::string id;
+    std::string executable_path;
+    std::string display_name;
+    std::string icon_key;
+    std::uint64_t download_bytes_per_sec{};
+    std::uint64_t upload_bytes_per_sec{};
+
+    bool operator==(const RankingAppDto&) const = default;
+};
+
+struct RankingSnapshotDto {
+    std::uint64_t seq{};
+    std::uint64_t monotonic_ms{};
+    std::string status{"Ready"};
+    std::uint64_t total_download_bytes_per_sec{};
+    std::uint64_t total_upload_bytes_per_sec{};
+    std::vector<RankingAppDto> applications;
+
+    bool operator==(const RankingSnapshotDto&) const = default;
 };
 
 struct CollectorStatusDto {
@@ -135,6 +178,9 @@ struct WebCommand {
     std::optional<std::string> setting_value_json;
     std::optional<std::string> theme;
     std::optional<std::string> locale;
+    std::optional<int> screen_x;
+    std::optional<int> screen_y;
+    std::optional<int> panel_height_dip;
 };
 
 [[nodiscard]] std::string_view to_string(WebCommandType type) noexcept;

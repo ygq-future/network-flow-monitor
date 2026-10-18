@@ -26,12 +26,12 @@ export const Slider: React.FC<SliderProps> = ({
   const percentage = max > min ? Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100)) : 0
 
   return (
-    <div className={`flex items-center gap-3 ${disabled ? 'opacity-50' : ''} ${className}`}>
-      <div className="relative flex h-5 w-36 items-center">
+    <div className={`flex items-center gap-2.5 ${disabled ? 'opacity-45' : ''} ${className}`}>
+      <div className="relative flex h-5 w-28 items-center">
         {/* Track background */}
-        <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700">
+        <div className="h-1 w-full rounded-full bg-zinc-200 dark:bg-zinc-800">
           {/* Filled track */}
-          <div className="h-full rounded-full bg-blue-600 dark:bg-blue-500" style={{ width: `${percentage}%` }} />
+          <div className="h-full rounded-full bg-zinc-900 dark:bg-zinc-100" style={{ width: `${percentage}%` }} />
         </div>
         {/* Range input */}
         <input
@@ -50,11 +50,11 @@ export const Slider: React.FC<SliderProps> = ({
         />
         {/* Thumb handle */}
         <div
-          className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white bg-blue-600 shadow-sm transition-transform hover:scale-110 dark:border-slate-900 dark:bg-blue-400"
+          className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 rounded-full border border-zinc-400 bg-white transition-transform hover:scale-110 dark:border-zinc-500 dark:bg-zinc-100"
           style={{ left: `${percentage}%` }}
         />
       </div>
-      <span className="min-w-12 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
+      <span className="min-w-11 text-right font-mono text-[11px] font-medium text-zinc-700 tabular-nums dark:text-zinc-300">
         {value}
         {unit ? ` ${unit}` : ''}
       </span>

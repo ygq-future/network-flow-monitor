@@ -49,6 +49,9 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     std::string theme_val;
     bool set_locale_called{false};
     std::string locale_val;
+    bool open_context_menu_called{false};
+    int context_menu_x{-1};
+    int context_menu_y{-1};
 
     void on_show_monitor() override {
         show_monitor_called = true;
@@ -98,6 +101,11 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
         set_locale_called = true;
         locale_val = locale;
     }
+    void on_open_context_menu(int screen_x, int screen_y) override {
+        open_context_menu_called = true;
+        context_menu_x = screen_x;
+        context_menu_y = screen_y;
+    }
 };
 
 void CheckEnumMappings(TestContext& context) {
@@ -112,9 +120,10 @@ void CheckEnumMappings(TestContext& context) {
     context.Check(parse_web_command_type("toggleMaximizeWindow") ==
                       WebCommandType::ToggleMaximizeWindow,
                   "Parse toggleMaximizeWindow");
-    context.Check(parse_web_command_type("toggleMaximize") ==
-                      WebCommandType::ToggleMaximizeWindow,
+    context.Check(parse_web_command_type("toggleMaximize") == WebCommandType::ToggleMaximizeWindow,
                   "Parse toggleMaximize");
+    context.Check(parse_web_command_type("resizePanel") == WebCommandType::ResizePanel,
+                  "Parse resizePanel");
     context.Check(parse_web_command_type("invalidCommand") == WebCommandType::Unknown,
                   "Parse invalid command");
 
@@ -241,6 +250,19 @@ void CheckDispatchCommands(TestContext& context) {
         context.Check(ok, "dispatch startWindowDrag succeeds");
         context.Check(handler->start_window_drag_called, "handler->on_start_window_drag called");
     }
+
+    // 10. OpenContextMenu
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"openContextMenu","version":1,"commandId":"cmd_10","payload":{"x":100,"y":200}})",
+            &err, &resp);
+        context.Check(ok, "dispatch openContextMenu succeeds");
+        context.Check(handler->open_context_menu_called, "handler->on_open_context_menu called");
+        context.Check(handler->context_menu_x == 100, "context_menu_x is 100");
+        context.Check(handler->context_menu_y == 200, "context_menu_y is 200");
+    }
 }
 
 void CheckBridgeRejections(TestContext& context) {
@@ -300,6 +322,27 @@ void CheckNativeSerializers(TestContext& context) {
     context.Check(tick_json.find("\"uploadBytesPerSec\":512000") != std::string::npos,
                   "contains upload rate");
 
+    // RankingSnapshot serialization
+    RankingSnapshotDto ranking{
+        .seq = 5,
+        .monotonic_ms = 5000,
+        .status = "Ready",
+        .total_download_bytes_per_sec = 2048000,
+        .total_upload_bytes_per_sec = 512000,
+        .applications = {RankingAppDto{
+            .id = "app_1",
+            .executable_path = "C:\\app.exe",
+            .display_name = "Test App",
+            .icon_key = "app",
+            .download_bytes_per_sec = 1024000,
+            .upload_bytes_per_sec = 256000,
+        }},
+    };
+    std::string ranking_json = BridgeDispatcher::serialize_ranking_snapshot(ranking);
+    context.Check(ranking_json.find("\"type\":\"rankingSnapshot\"") != std::string::npos,
+                  "contains rankingSnapshot type");
+    context.Check(ranking_json.find("\"displayName\":\"Test App\"") != std::string::npos,
+                  "contains application displayName");
     // CollectorStatus serialization
     CollectorStatusDto status{
         .monotonic_ms = 5000,
@@ -331,6 +374,21 @@ void CheckNativeSerializers(TestContext& context) {
     context.Check(cfg_json.find("\"capsuleEndRounding\"") != std::string::npos,
                   "contains capsuleEndRounding schema");
     context.Check(cfg_json.find("\"schema\"") != std::string::npos, "contains schema metadata");
+
+    const SurfaceChangedDto surface{
+        .surface = SurfaceKind::Panel,
+        .pinned = true,
+        .dock_side = nfm::config::DockSide::Left,
+    };
+    const std::string surface_json = BridgeDispatcher::serialize_surface_changed(surface);
+    context.Check(surface_json.find("\"type\":\"surfaceChanged\"") != std::string::npos,
+                  "contains surfaceChanged type");
+    context.Check(surface_json.find("\"surface\":\"panel\"") != std::string::npos,
+                  "contains authoritative panel surface");
+    context.Check(surface_json.find("\"pinned\":true") != std::string::npos,
+                  "contains authoritative pin state");
+    context.Check(surface_json.find("\"dockSide\":\"left\"") != std::string::npos,
+                  "contains authoritative dock side");
 }
 
 } // namespace

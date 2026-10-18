@@ -19,22 +19,22 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
   actions,
 }) => {
   return (
-    <Card className={`flex flex-col gap-3 p-4 ${className}`}>
-      <div className="flex items-center justify-between border-b border-slate-200/60 pb-3 dark:border-slate-800/60">
-        <div className="flex items-center gap-2.5">
+    <Card className={`flex flex-col gap-1.5 p-2.5 ${className}`}>
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 pb-2 dark:border-zinc-800">
+        <div className="flex min-w-0 items-center gap-2">
           {Icon && (
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
-              <Icon className="h-4 w-4" />
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-zinc-200 bg-white text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+              <Icon className="h-3.5 w-3.5" />
             </div>
           )}
-          <div className="flex flex-col">
-            <h2 className="text-xs font-bold tracking-tight text-slate-900 dark:text-slate-100">{title}</h2>
-            {description && <p className="text-[11px] text-slate-500 dark:text-slate-400">{description}</p>}
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h2 className="text-xs font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{title}</h2>
+            {description && <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{description}</p>}
           </div>
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
       </div>
-      <div className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800/40">{children}</div>
+      <div className="flex flex-col divide-y divide-zinc-200/70 dark:divide-zinc-800/80">{children}</div>
     </Card>
   )
 }

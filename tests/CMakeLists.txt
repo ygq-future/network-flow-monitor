@@ -48,4 +48,5 @@ set_tests_properties(collector.etw_integration PROPERTIES RUN_SERIAL TRUE)
 nfm_add_repository_test(nfm_host_bridge_tests host_bridge_tests.cpp host.bridge "host" nfm_host)
 nfm_add_repository_test(nfm_host_webview_policy_tests host_webview_policy_tests.cpp host.webview_policy "host" nfm_host)
 nfm_add_repository_test(nfm_host_lifecycle_tests host_lifecycle_tests.cpp host.lifecycle "host" nfm_host)
+nfm_add_repository_test(nfm_dock_capsule_coordinator_tests dock_capsule_coordinator_tests.cpp host.coordinator "host" nfm_host)
 

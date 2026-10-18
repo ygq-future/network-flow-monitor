@@ -4,10 +4,15 @@
 #include "network_flow_monitor/config/config_validation.h"
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 
+#include <cmath>
 #include <utility>
 #include <yyjson.h>
 
 namespace nfm::host::app {
+
+namespace {
+constexpr int kSettingsSurfaceWidthDip = 520;
+} // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
     std::array<wchar_t, MAX_PATH> exe_path_buf{};
@@ -84,12 +89,22 @@ bool ProductHost::initialize() {
         return false;
     }
 
-    // 2. Create Window
+    // 2. Initialize Coordinator & Window
+    auto monitors = platform::Win32Window::enumerate_monitors();
+    coordinator_ = std::make_unique<coordinator::DockCapsuleCoordinator>(current_config_, monitors);
+    coordinator_->update_drag_threshold(platform::Win32Window::system_drag_threshold());
+    const auto& geom = coordinator_->state().geometry;
+
     platform::WindowConfig win_cfg{
         .title = L"Network Flow Monitor",
-        .initial_width = 860,
-        .initial_height = 620,
+        .initial_x = geom.x_px,
+        .initial_y = geom.y_px,
+        .initial_width = geom.width_px > 0 ? geom.width_px : 860,
+        .initial_height = geom.height_px > 0 ? geom.height_px : 620,
         .frameless = true,
+        .topmost = coordinator_->state().is_topmost,
+        .tool_window = true,
+        .transparent_backdrop = true,
     };
     window_ = std::make_unique<platform::Win32Window>(win_cfg);
 
@@ -107,12 +122,24 @@ bool ProductHost::initialize() {
     });
 
     webview_->set_message_callback([this](std::string_view json) {
-        bridge::BridgeErrorDto err;
-        bridge::CommandResponseDto resp;
-        if (!bridge_dispatcher_->dispatch_web_message(json, &err, &resp)) {
-            native_bridge_->post_error(err);
-        } else if (!resp.command_id.empty()) {
-            native_bridge_->post_command_response(resp);
+        if (window_ != nullptr) {
+            std::string msg(json);
+            window_->post_ui_task([this, m = std::move(msg)]() noexcept {
+                try {
+                    if (!is_shutting_down_ && bridge_dispatcher_) {
+                        bridge::BridgeErrorDto err;
+                        bridge::CommandResponseDto resp;
+                        if (!bridge_dispatcher_->dispatch_web_message(m, &err, &resp)) {
+                            if (native_bridge_) {
+                                native_bridge_->post_error(err);
+                            }
+                        } else if (!resp.command_id.empty() && native_bridge_) {
+                            native_bridge_->post_command_response(resp);
+                        }
+                    }
+                } catch (...) {
+                }
+            });
         }
     });
 
@@ -124,7 +151,9 @@ bool ProductHost::initialize() {
         if (window_ != nullptr) {
             window_->post_ui_task([this, tick]() noexcept {
                 try {
-                    if (native_bridge_) {
+                    if (native_bridge_ && coordinator_ &&
+                        coordinator_->state().presentation_state !=
+                            coordinator::PresentationState::TrayOnly) {
                         native_bridge_->post_traffic_tick(tick);
                     }
                 } catch (...) {
@@ -133,14 +162,19 @@ bool ProductHost::initialize() {
         }
     });
 
-    collector_companion_->set_collector_status_callback(
-        [this](const bridge::CollectorStatusDto& status) {
+    collector_companion_->set_ranking_snapshot_callback(
+        [this](const bridge::RankingSnapshotDto& snapshot) {
             if (window_ != nullptr) {
-                auto status_ptr = std::make_shared<bridge::CollectorStatusDto>(status);
-                window_->post_ui_task([this, status_ptr]() noexcept {
+                auto snap_ptr = std::make_shared<bridge::RankingSnapshotDto>(snapshot);
+                window_->post_ui_task([this, snap_ptr]() noexcept {
                     try {
-                        if (native_bridge_ && status_ptr) {
-                            native_bridge_->post_collector_status(*status_ptr);
+                        if (snap_ptr) {
+                            latest_ranking_snapshot_ = *snap_ptr;
+                            if (native_bridge_ && coordinator_ &&
+                                coordinator_->state().presentation_state ==
+                                    coordinator::PresentationState::PanelVisible) {
+                                native_bridge_->post_ranking_snapshot(*snap_ptr);
+                            }
                         }
                     } catch (...) {
                     }
@@ -148,12 +182,29 @@ bool ProductHost::initialize() {
             }
         });
 
+    collector_companion_->set_collector_status_callback(
+        [this](const bridge::CollectorStatusDto& status) {
+            if (window_ != nullptr) {
+                auto status_ptr = std::make_shared<bridge::CollectorStatusDto>(status);
+                window_->post_ui_task([this, status_ptr]() noexcept {
+                    try {
+                        if (status_ptr) {
+                            latest_collector_status_ = *status_ptr;
+                            broadcast_to_all_bridges([&status_ptr](bridge::INativeBridge& b) {
+                                b.post_collector_status(*status_ptr);
+                            });
+                        }
+                    } catch (...) {
+                    }
+                });
+            }
+        });
     collector_companion_->set_session_reset_callback([this](const bridge::SessionResetDto& reset) {
         if (window_ != nullptr) {
             auto reset_ptr = std::make_shared<bridge::SessionResetDto>(reset);
             window_->post_ui_task([this, reset_ptr]() noexcept {
                 try {
-                    if (native_bridge_) {
+                    if (reset_ptr && native_bridge_) {
                         native_bridge_->post_session_reset(*reset_ptr);
                     }
                 } catch (...) {
@@ -162,10 +213,11 @@ bool ProductHost::initialize() {
         }
     });
 
-    // 5. Create Win32 Window
+    // 5. Create Win32 Window and show initial geometry before WebView2 controller creation
     if (!window_->create(this)) {
         return false;
     }
+    apply_coordinator_state();
 
     // 6. Start Collector Companion
     collector_companion_->start();
@@ -176,8 +228,18 @@ bool ProductHost::initialize() {
             window_->post_ui_task([this]() noexcept {
                 try {
                     if (window_) {
-                        window_->show(SW_SHOW);
-                        SetForegroundWindow(window_->hwnd());
+                        apply_coordinator_state();
+                        publish_surface_state();
+                        if (native_bridge_) {
+                            native_bridge_->post_config_changed(current_config_);
+                            if (latest_collector_status_.has_value()) {
+                                native_bridge_->post_collector_status(*latest_collector_status_);
+                            }
+                            if (latest_ranking_snapshot_.has_value()) {
+                                native_bridge_->post_ranking_snapshot(*latest_ranking_snapshot_);
+                            }
+                        }
+                        ensure_settings_window();
                     }
                 } catch (...) {
                 }
@@ -212,11 +274,17 @@ void ProductHost::shutdown() {
         return;
     }
     is_shutting_down_ = true;
-
     if (collector_companion_) {
         collector_companion_->stop();
     }
+    settings_bridge_.reset();
+    settings_webview_.reset();
+    if (settings_window_) {
+        settings_window_->close();
+    }
 
+    native_bridge_.reset();
+    webview_.reset();
     if (window_) {
         window_->close();
     }
@@ -231,6 +299,17 @@ void ProductHost::on_window_size_changed(int width_px, int height_px) {
 }
 
 void ProductHost::on_window_dpi_changed(std::uint32_t /*new_dpi*/, const RECT* /*suggested_rect*/) {
+    if (coordinator_) {
+        coordinator_->update_monitors(platform::Win32Window::enumerate_monitors());
+        apply_coordinator_state();
+    }
+}
+
+void ProductHost::on_display_change() {
+    if (coordinator_) {
+        coordinator_->update_monitors(platform::Win32Window::enumerate_monitors());
+        apply_coordinator_state();
+    }
 }
 
 void ProductHost::on_window_close_requested() {
@@ -255,28 +334,574 @@ void ProductHost::on_tray_exit() {
     on_exit_app();
 }
 
+void ProductHost::on_tray_context_menu(int screen_x, int screen_y) {
+    on_open_context_menu(screen_x, screen_y);
+}
+
+void ProductHost::on_context_menu_show_monitor() {
+    if (coordinator_ &&
+        coordinator_->state().presentation_state == coordinator::PresentationState::PanelVisible) {
+        on_hide_monitor();
+    } else {
+        on_show_monitor();
+    }
+}
+
+void ProductHost::on_context_menu_toggle_pin() {
+    if (coordinator_) {
+        on_set_pin(!coordinator_->state().is_pinned);
+    }
+}
+
+void ProductHost::on_context_menu_settings() {
+    on_open_settings("");
+}
+
+void ProductHost::on_context_menu_retry_collector() {
+    on_retry_collector();
+}
+
+void ProductHost::on_context_menu_exit() {
+    on_exit_app();
+}
+
+void ProductHost::on_context_menu_opened() {
+    if (coordinator_) {
+        coordinator_->on_context_menu_opened();
+    }
+}
+
+void ProductHost::on_context_menu_closed(bool cursor_inside) {
+    if (coordinator_) {
+        coordinator_->on_context_menu_closed(cursor_inside);
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+}
+
+void ProductHost::on_surface_pointer_enter() {
+    if (!coordinator_) {
+        return;
+    }
+    if (coordinator_->state().presentation_state == coordinator::PresentationState::PanelVisible) {
+        coordinator_->on_pointer_enter_panel();
+    } else {
+        coordinator_->on_pointer_enter_capsule();
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+}
+
+void ProductHost::on_surface_pointer_leave() {
+    if (!coordinator_) {
+        return;
+    }
+    if (coordinator_->state().presentation_state == coordinator::PresentationState::PanelVisible) {
+        coordinator_->on_pointer_leave_panel();
+    } else {
+        coordinator_->on_pointer_leave_capsule();
+    }
+}
+
+void ProductHost::on_surface_pointer_down(surface::ScreenPoint point) {
+    if (coordinator_ && (coordinator_->state().presentation_state ==
+                             coordinator::PresentationState::CapsuleVisible ||
+                         coordinator_->state().presentation_state ==
+                             coordinator::PresentationState::PanelVisible)) {
+        coordinator_->on_pointer_down_capsule(point);
+    }
+}
+void ProductHost::on_surface_pointer_move(surface::ScreenPoint point) {
+    if (!coordinator_) {
+        return;
+    }
+    const auto before = coordinator_->state().geometry;
+    coordinator_->on_pointer_move(point);
+    if (coordinator_->state().geometry != before) {
+        apply_coordinator_state();
+    }
+}
+
+void ProductHost::on_surface_pointer_up(surface::ScreenPoint point) {
+    if (!coordinator_) {
+        return;
+    }
+    coordinator_->on_pointer_up(point);
+    apply_coordinator_state();
+    publish_surface_state();
+}
+
+void ProductHost::on_surface_pointer_cancel() {
+    if (!coordinator_) {
+        return;
+    }
+    coordinator_->on_cancel_drag();
+    apply_coordinator_state();
+}
+
+void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
+    if (!coordinator_) {
+        return;
+    }
+    const auto before = coordinator_->state().presentation_state;
+    const bool was_topmost = coordinator_->state().is_topmost;
+    const bool was_auto_hidden = coordinator_->state().is_auto_hidden;
+    const bool was_iconic =
+        (window_ != nullptr && window_->hwnd() != nullptr && IsIconic(window_->hwnd()) != 0);
+    if (coordinator_->state().is_dragging && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) {
+        POINT pt{};
+        if (GetCursorPos(&pt) != FALSE) {
+            coordinator_->on_pointer_up(surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
+        } else {
+            coordinator_->on_cancel_drag();
+        }
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+    coordinator_->set_fullscreen_active_on_same_monitor(
+        window_ &&
+        platform::Win32Window::is_foreground_fullscreen_on_same_monitor(window_->hwnd()));
+    coordinator_->advance_time(elapsed);
+    if (coordinator_->state().presentation_state != before ||
+        coordinator_->state().is_topmost != was_topmost ||
+        coordinator_->state().is_auto_hidden != was_auto_hidden || was_iconic) {
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+    watchdog_elapsed_ += elapsed;
+    if (watchdog_elapsed_ >= std::chrono::milliseconds{1000}) {
+        watchdog_elapsed_ = std::chrono::milliseconds{0};
+        if (webview_) {
+            static_cast<void>(webview_->ensure_alive());
+        }
+        if (settings_surface_visible_ && settings_webview_) {
+            static_cast<void>(settings_webview_->ensure_alive());
+        }
+        if (window_ && coordinator_->state().is_topmost &&
+            coordinator_->state().presentation_state != coordinator::PresentationState::TrayOnly) {
+            window_->set_topmost(true);
+        }
+    }
+}
+
+void ProductHost::on_surface_outside_click() {
+    if (!coordinator_) {
+        return;
+    }
+    const auto& state = coordinator_->state();
+    if (state.presentation_state == coordinator::PresentationState::PanelVisible &&
+        !state.is_pinned && !state.is_context_menu_open && !state.is_dragging) {
+        coordinator_->show_capsule();
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+}
+void ProductHost::broadcast_to_all_bridges(const std::function<void(bridge::INativeBridge&)>& fn) {
+    if (native_bridge_) {
+        fn(*native_bridge_);
+    }
+    if (settings_surface_visible_ && settings_bridge_) {
+        fn(*settings_bridge_);
+    }
+}
+
+void ProductHost::apply_settings_window_chrome() {
+    if (!settings_window_) {
+        return;
+    }
+    bool dark_mode = true;
+    if (current_config_.appearance.theme == config::ThemeMode::Light) {
+        dark_mode = false;
+    } else if (current_config_.appearance.theme == config::ThemeMode::Dark) {
+        dark_mode = true;
+    } else {
+        dark_mode = platform::Win32Window::is_system_dark_mode();
+    }
+    settings_window_->configure_surface_chrome(true, dark_mode);
+}
+void ProductHost::ensure_settings_window() {
+    const auto* monitor = coordinator_ ? coordinator_->active_monitor() : nullptr;
+    const double scale = monitor != nullptr ? monitor->dpi_scale() : 1.0;
+    const int width = static_cast<int>(std::round(kSettingsSurfaceWidthDip * scale));
+    const int height = static_cast<int>(std::round(settings_height_dip_ * scale));
+    const int x =
+        monitor != nullptr ? monitor->work_left_px + ((monitor->work_width_px() - width) / 2) : 120;
+    const int y = monitor != nullptr
+                      ? monitor->work_top_px + ((monitor->work_height_px() - height) / 2)
+                      : 120;
+    if (!settings_window_) {
+        class SettingsWindowListener : public platform::IWindowEventListener {
+          public:
+            explicit SettingsWindowListener(ProductHost* host) : host_(host) {}
+            void on_window_created(HWND /*hwnd*/) override {}
+            void on_window_size_changed(int width_px, int height_px) override {
+                if (host_->settings_webview_) {
+                    host_->settings_webview_->resize(width_px, height_px);
+                }
+            }
+            void on_window_dpi_changed(std::uint32_t /*new_dpi*/,
+                                       const RECT* suggested_rect) override {
+                if (host_->settings_window_ && suggested_rect != nullptr) {
+                    host_->settings_window_->set_bounds(
+                        suggested_rect->left, suggested_rect->top,
+                        suggested_rect->right - suggested_rect->left,
+                        suggested_rect->bottom - suggested_rect->top);
+                }
+            }
+            void on_window_close_requested() override {
+                host_->close_settings_window();
+            }
+            void on_window_destroyed() override {}
+
+          private:
+            ProductHost* host_;
+        };
+
+        settings_listener_ = std::make_unique<SettingsWindowListener>(this);
+        platform::WindowConfig cfg{
+            .title = L"Network Flow Monitor - Settings",
+            .class_name = L"NetworkFlowMonitor_SettingsWindow",
+            .initial_x = x,
+            .initial_y = y,
+            .initial_width = width,
+            .initial_height = height,
+            .frameless = true,
+            .topmost = false,
+            .tool_window = false,
+            .transparent_backdrop = true,
+        };
+        settings_window_ = std::make_unique<platform::Win32Window>(cfg);
+        if (!settings_window_->create(settings_listener_.get())) {
+            settings_window_.reset();
+            settings_listener_.reset();
+            return;
+        }
+        settings_window_->set_taskbar_visibility(true);
+        apply_settings_window_chrome();
+        settings_webview_ = std::make_shared<webview::WebView2Controller>();
+        settings_webview_->set_visible(settings_surface_visible_);
+        settings_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
+            if (settings_webview_ && settings_webview_->is_ready()) {
+                settings_webview_->post_web_message_json(json);
+            }
+        });
+        settings_webview_->set_message_callback([this](std::string_view json) {
+            if (window_ != nullptr) {
+                std::string msg(json);
+                window_->post_ui_task([this, m = std::move(msg)]() noexcept {
+                    try {
+                        if (!is_shutting_down_ && bridge_dispatcher_) {
+                            bridge::BridgeErrorDto err;
+                            bridge::CommandResponseDto resp;
+                            if (!bridge_dispatcher_->dispatch_web_message(m, &err, &resp)) {
+                                if (settings_bridge_) {
+                                    settings_bridge_->post_error(err);
+                                }
+                            } else if (!resp.command_id.empty() && settings_bridge_) {
+                                settings_bridge_->post_command_response(resp);
+                            }
+                        }
+                    } catch (...) {
+                    }
+                });
+            }
+        });
+        settings_webview_->set_navigation_callback([this](bool /*is_success*/,
+                                                          int /*http_status*/) {
+            if (window_ != nullptr) {
+                window_->post_ui_task([this]() noexcept {
+                    try {
+                        if (settings_window_ && settings_bridge_) {
+                            settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+                                .surface = bridge::SurfaceKind::Settings,
+                                .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
+                                .dock_side = coordinator_ ? coordinator_->state().anchor_side
+                                                          : config::DockSide::Right,
+                                .auto_hidden = false,
+                            });
+                            settings_bridge_->post_config_changed(current_config_);
+                            if (latest_collector_status_.has_value()) {
+                                settings_bridge_->post_collector_status(*latest_collector_status_);
+                            }
+                            if (settings_surface_visible_) {
+                                if (settings_webview_) {
+                                    settings_webview_->set_visible(true);
+                                }
+                                settings_window_->show(SW_SHOW);
+                                SetForegroundWindow(settings_window_->hwnd());
+                            } else if (settings_webview_) {
+                                settings_webview_->set_visible(false);
+                            }
+                        }
+                    } catch (...) {
+                    }
+                });
+            }
+        });
+        static_cast<void>(
+            settings_webview_->initialize(settings_window_->hwnd(), options_.static_assets_dir));
+        if (!options_.dev_server_url.empty()) {
+            settings_webview_->navigate(options_.dev_server_url);
+        }
+    } else if (settings_surface_visible_) {
+        apply_settings_window_chrome();
+        RECT rc{};
+        if (GetWindowRect(settings_window_->hwnd(), &rc) == FALSE ||
+            IsWindowVisible(settings_window_->hwnd()) == FALSE) {
+            settings_window_->set_bounds(x, y, width, height);
+        }
+        if (settings_webview_) {
+            settings_webview_->set_visible(true);
+            if (settings_webview_->is_ready()) {
+                static_cast<void>(settings_webview_->ensure_alive());
+            }
+        }
+        if (settings_bridge_) {
+            settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+                .surface = bridge::SurfaceKind::Settings,
+                .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
+                .dock_side =
+                    coordinator_ ? coordinator_->state().anchor_side : config::DockSide::Right,
+                .auto_hidden = false,
+            });
+            settings_bridge_->post_config_changed(current_config_);
+            if (latest_collector_status_.has_value()) {
+                settings_bridge_->post_collector_status(*latest_collector_status_);
+            }
+        }
+        if (!settings_webview_ || settings_webview_->is_ready()) {
+            settings_window_->show(SW_SHOW);
+            SetForegroundWindow(settings_window_->hwnd());
+        }
+    }
+}
+
+void ProductHost::close_settings_window() {
+    settings_surface_visible_ = false;
+    if (settings_webview_) {
+        settings_webview_->set_visible(false);
+    }
+    if (settings_window_) {
+        settings_window_->hide();
+    }
+}
+
+void ProductHost::apply_coordinator_state() {
+    if (!coordinator_ || !window_) {
+        return;
+    }
+    const auto& state = coordinator_->state();
+    bool dark_mode = true;
+    if (current_config_.appearance.theme == config::ThemeMode::Light) {
+        dark_mode = false;
+    } else if (current_config_.appearance.theme == config::ThemeMode::Dark) {
+        dark_mode = true;
+    } else {
+        dark_mode = platform::Win32Window::is_system_dark_mode();
+    }
+    window_->set_taskbar_visibility(false);
+    if (state.presentation_state == coordinator::PresentationState::TrayOnly) {
+        window_->hide();
+    } else {
+        const bool is_panel =
+            (state.presentation_state == coordinator::PresentationState::PanelVisible);
+        window_->configure_surface_chrome(is_panel, dark_mode);
+        window_->set_bounds(state.geometry.x_px, state.geometry.y_px, state.geometry.width_px,
+                            state.geometry.height_px);
+        window_->set_topmost(state.is_topmost);
+        window_->show(SW_SHOWNOACTIVATE);
+        if (webview_) {
+            webview_->resize(state.geometry.width_px, state.geometry.height_px);
+        }
+    }
+    if (state.anchor_updated) {
+        current_config_.floating.anchor_side = state.anchor_side;
+        current_config_.floating.anchor_vertical_offset_dip = state.anchor_vertical_offset_dip;
+        if (!state.anchor_monitor_id.empty()) {
+            strncpy_s(current_config_.floating.anchor_monitor_id.data(),
+                      current_config_.floating.anchor_monitor_id.size(),
+                      state.anchor_monitor_id.c_str(), _TRUNCATE);
+        }
+        coordinator_->clear_emitted_updates();
+        static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
+                                                 config::ConfigDocumentKind::User));
+        broadcast_to_all_bridges(
+            [this](bridge::INativeBridge& b) { b.post_config_changed(current_config_); });
+    }
+}
+
+void ProductHost::publish_surface_state() {
+    if (!native_bridge_ || !coordinator_) {
+        return;
+    }
+    bridge::SurfaceKind surface = bridge::SurfaceKind::Capsule;
+    switch (coordinator_->state().presentation_state) {
+    case coordinator::PresentationState::TrayOnly:
+        surface = bridge::SurfaceKind::Tray;
+        break;
+    case coordinator::PresentationState::PanelVisible:
+        surface = bridge::SurfaceKind::Panel;
+        break;
+    case coordinator::PresentationState::CapsuleVisible:
+    default:
+        surface = bridge::SurfaceKind::Capsule;
+        break;
+    }
+    native_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+        .surface = surface,
+        .pinned = coordinator_->state().is_pinned,
+        .dock_side = coordinator_->state().anchor_side,
+        .auto_hidden = coordinator_->state().is_auto_hidden,
+    });
+}
+
 void ProductHost::on_show_monitor() {
-    if (window_) {
+    if (coordinator_) {
+        coordinator_->show_monitor();
+        apply_coordinator_state();
+        if (webview_) {
+            static_cast<void>(webview_->ensure_alive());
+        }
+        publish_surface_state();
+        if (native_bridge_) {
+            if (latest_collector_status_.has_value()) {
+                native_bridge_->post_collector_status(*latest_collector_status_);
+            }
+            if (latest_ranking_snapshot_.has_value()) {
+                native_bridge_->post_ranking_snapshot(*latest_ranking_snapshot_);
+            }
+        }
+    } else if (window_) {
         window_->show();
     }
 }
 
 void ProductHost::on_hide_monitor() {
-    if (window_) {
+    if (settings_surface_visible_) {
+        close_settings_window();
+        return;
+    }
+    if (coordinator_) {
+        coordinator_->show_capsule();
+        apply_coordinator_state();
+        publish_surface_state();
+    } else if (window_) {
         window_->hide();
     }
 }
 
-void ProductHost::on_set_pin(bool /*pinned*/) {}
-
-void ProductHost::on_open_settings(std::string_view /*route*/) {}
-
-void ProductHost::on_request_config() {
-    if (native_bridge_) {
-        native_bridge_->post_config_changed(current_config_);
+void ProductHost::on_set_pin(bool pinned) {
+    if (coordinator_) {
+        current_config_.floating.nfm_pinned = pinned;
+        coordinator_->set_pin(pinned);
+        static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
+                                                 config::ConfigDocumentKind::User));
+        apply_coordinator_state();
+        broadcast_to_all_bridges(
+            [this](bridge::INativeBridge& b) { b.post_config_changed(current_config_); });
+        publish_surface_state();
     }
 }
 
+void ProductHost::on_open_context_menu(int screen_x, int screen_y) {
+    if (!window_ || !coordinator_) {
+        return;
+    }
+    const auto& state = coordinator_->state();
+    bool is_chinese =
+        (current_config_.appearance.language == config::LanguageMode::SimplifiedChinese);
+    bool is_running = collector_companion_ && collector_companion_->is_running();
+    std::wstring status;
+    if (is_running) {
+        status = is_chinese ? L"运行中" : L"Running";
+    } else {
+        status = is_chinese ? L"已停止" : L"Stopped";
+    }
+
+    platform::ContextMenuOptions opts{
+        .screen_x = screen_x,
+        .screen_y = screen_y,
+        .is_pinned = state.is_pinned,
+        .is_panel_visible =
+            (state.presentation_state == coordinator::PresentationState::PanelVisible),
+        .collector_status = std::move(status),
+        .can_retry_collector = !is_running,
+        .is_chinese = is_chinese,
+    };
+    window_->show_context_menu(opts);
+}
+
+void ProductHost::on_resize_panel(int height_dip) {
+    if (coordinator_) {
+        const auto before = coordinator_->state().geometry;
+        coordinator_->set_panel_height_dip(height_dip);
+        if (coordinator_->state().geometry != before) {
+            apply_coordinator_state();
+        }
+    }
+}
+
+void ProductHost::on_resize_settings_window(int height_dip) {
+    const int clamped_dip = std::clamp(height_dip, 140, 560);
+    if (settings_height_dip_ == clamped_dip && !settings_window_) {
+        return;
+    }
+    settings_height_dip_ = clamped_dip;
+    if (settings_window_ && settings_window_->hwnd() != nullptr) {
+        const double scale = settings_window_->dpi_scale();
+        const int width_px = static_cast<int>(std::round(kSettingsSurfaceWidthDip * scale));
+        const int height_px = static_cast<int>(std::round(settings_height_dip_ * scale));
+        RECT rc{};
+        if (GetWindowRect(settings_window_->hwnd(), &rc) != FALSE) {
+            if ((rc.right - rc.left) != width_px || (rc.bottom - rc.top) != height_px) {
+                settings_window_->set_bounds(rc.left, rc.top, width_px, height_px);
+                if (settings_webview_) {
+                    settings_webview_->resize(width_px, height_px);
+                }
+            }
+        }
+    }
+}
+void ProductHost::on_open_settings(std::string_view /*route*/) {
+    settings_surface_visible_ = true;
+    if (window_ && window_->hwnd() != nullptr) {
+        ensure_settings_window();
+    } else if (native_bridge_ && coordinator_) {
+        native_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+            .surface = bridge::SurfaceKind::Settings,
+            .pinned = coordinator_->state().is_pinned,
+            .dock_side = coordinator_->state().anchor_side,
+            .auto_hidden = coordinator_->state().is_auto_hidden,
+        });
+    }
+}
+
+void ProductHost::on_request_config() {
+    publish_surface_state();
+    if (settings_bridge_) {
+        settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+            .surface = bridge::SurfaceKind::Settings,
+            .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
+            .dock_side = coordinator_ ? coordinator_->state().anchor_side : config::DockSide::Right,
+            .auto_hidden = false,
+        });
+        if (!settings_surface_visible_) {
+            settings_bridge_->post_config_changed(current_config_);
+            if (latest_collector_status_.has_value()) {
+                settings_bridge_->post_collector_status(*latest_collector_status_);
+            }
+        }
+    }
+    broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
+        b.post_config_changed(current_config_);
+        if (latest_collector_status_.has_value()) {
+            b.post_collector_status(*latest_collector_status_);
+        }
+    });
+    if (native_bridge_ && latest_ranking_snapshot_.has_value()) {
+        native_bridge_->post_ranking_snapshot(*latest_ranking_snapshot_);
+    }
+}
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void ProductHost::on_update_setting(std::string_view key, std::string_view value_json) {
     if (!native_bridge_) {
@@ -460,14 +1085,38 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
     } else if (key == "floating.auto_hide_delay_ms" || key == "capsule.autoHideDelayMs" ||
                key == "autoHideDelayMs") {
         if (yyjson_is_int(val)) {
-            std::int64_t ms = 0;
-            if (check_int_range(key, yyjson_get_sint(val), config::kMinimumAutoHideDelay.count(),
-                                config::kMaximumAutoHideDelay.count(), ms)) {
-                current_config_.floating.auto_hide_delay = std::chrono::milliseconds{ms};
-                updated = true;
-            }
+            current_config_.floating.auto_hide_delay = std::chrono::milliseconds{500};
+            updated = true;
         } else {
             err_msg = "Expected integer for auto_hide_delay_ms";
+        }
+    } else if (key == "floating.download_color_hex" || key == "capsule.downloadColorHex" ||
+               key == "downloadColorHex") {
+        if (yyjson_is_str(val)) {
+            std::string_view str = yyjson_get_str(val);
+            if (str.size() == 7U && str.front() == '#') {
+                current_config_.floating.download_color_hex.fill('\0');
+                std::ranges::copy(str, current_config_.floating.download_color_hex.begin());
+                updated = true;
+            } else {
+                err_msg = "Invalid download_color_hex";
+            }
+        } else {
+            err_msg = "Expected string for download_color_hex";
+        }
+    } else if (key == "floating.upload_color_hex" || key == "capsule.uploadColorHex" ||
+               key == "uploadColorHex") {
+        if (yyjson_is_str(val)) {
+            std::string_view str = yyjson_get_str(val);
+            if (str.size() == 7U && str.front() == '#') {
+                current_config_.floating.upload_color_hex.fill('\0');
+                std::ranges::copy(str, current_config_.floating.upload_color_hex.begin());
+                updated = true;
+            } else {
+                err_msg = "Invalid upload_color_hex";
+            }
+        } else {
+            err_msg = "Expected string for upload_color_hex";
         }
     } else if (key == "floating.nfm_pinned" || key == "monitor.pinned" || key == "pinned" ||
                key == "nfmPinned") {
@@ -602,7 +1251,9 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else if (current_config_.appearance.theme == config::ThemeMode::Dark) {
             theme_str = "Dark";
         }
-        native_bridge_->post_theme_changed(bridge::ThemeChangedDto{.theme = std::move(theme_str)});
+        broadcast_to_all_bridges([&theme_str](bridge::INativeBridge& b) {
+            b.post_theme_changed(bridge::ThemeChangedDto{.theme = theme_str});
+        });
     }
     if (locale_changed) {
         std::string locale_str = "System";
@@ -611,12 +1262,21 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else if (current_config_.appearance.language == config::LanguageMode::SimplifiedChinese) {
             locale_str = "SimplifiedChinese";
         }
-        native_bridge_->post_locale_changed(
-            bridge::LocaleChangedDto{.locale = std::move(locale_str)});
+        broadcast_to_all_bridges([&locale_str](bridge::INativeBridge& b) {
+            b.post_locale_changed(bridge::LocaleChangedDto{.locale = locale_str});
+        });
     }
 
+    if (coordinator_) {
+        coordinator_->update_config(current_config_);
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+    apply_settings_window_chrome();
+
     // Broadcast authoritative snapshot
-    native_bridge_->post_config_changed(current_config_);
+    broadcast_to_all_bridges(
+        [this](bridge::INativeBridge& b) { b.post_config_changed(current_config_); });
 }
 
 void ProductHost::on_retry_collector() {
@@ -639,7 +1299,7 @@ void ProductHost::on_minimize_window() {
 
 void ProductHost::on_toggle_maximize() {
     if (window_ != nullptr && window_->hwnd() != nullptr) {
-        if (IsZoomed(window_->hwnd())) {
+        if (IsZoomed(window_->hwnd()) != 0) {
             ShowWindow(window_->hwnd(), SW_RESTORE);
         } else {
             ShowWindow(window_->hwnd(), SW_MAXIMIZE);
@@ -648,9 +1308,26 @@ void ProductHost::on_toggle_maximize() {
 }
 
 void ProductHost::on_start_window_drag() {
-    if (window_ != nullptr && window_->hwnd() != nullptr) {
-        ReleaseCapture();
-        SendMessageW(window_->hwnd(), WM_SYSCOMMAND, 0xF012, 0);
+    if (window_ == nullptr || window_->hwnd() == nullptr) {
+        return;
+    }
+    POINT pt{};
+    if (GetCursorPos(&pt) == FALSE) {
+        return;
+    }
+    if (settings_window_ && settings_window_->hwnd() != nullptr &&
+        IsWindowVisible(settings_window_->hwnd()) != FALSE) {
+        RECT settings_rc{};
+        if (GetWindowRect(settings_window_->hwnd(), &settings_rc) != FALSE &&
+            PtInRect(&settings_rc, pt) != FALSE) {
+            ReleaseCapture();
+            SendMessageW(settings_window_->hwnd(), WM_SYSCOMMAND, 0xF012, 0);
+            return;
+        }
+    }
+    if (coordinator_) {
+        window_->begin_interactive_drag();
+        coordinator_->on_pointer_down_capsule(surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
     }
 }
 
@@ -659,16 +1336,17 @@ void ProductHost::on_exit_app() {
 }
 
 void ProductHost::on_set_theme(std::string_view theme) {
-    if (native_bridge_) {
-        native_bridge_->post_theme_changed(bridge::ThemeChangedDto{.theme = std::string(theme)});
-    }
+    const std::string t_str(theme);
+    broadcast_to_all_bridges([&t_str](bridge::INativeBridge& b) {
+        b.post_theme_changed(bridge::ThemeChangedDto{.theme = t_str});
+    });
 }
 
 void ProductHost::on_set_locale(std::string_view locale) {
-    if (native_bridge_) {
-        native_bridge_->post_locale_changed(
-            bridge::LocaleChangedDto{.locale = std::string(locale)});
-    }
+    const std::string l_str(locale);
+    broadcast_to_all_bridges([&l_str](bridge::INativeBridge& b) {
+        b.post_locale_changed(bridge::LocaleChangedDto{.locale = l_str});
+    });
 }
 
 } // namespace nfm::host::app

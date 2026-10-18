@@ -4,12 +4,31 @@ export interface FormattedRate {
   full: string
 }
 
-export function formatRate(bytesPerSec: number | bigint): FormattedRate {
+export function formatRate(bytesPerSec: number | bigint, unitMode: 'auto' | 'bytes' | 'bits' = 'auto'): FormattedRate {
   const bytes = Number(bytesPerSec)
   if (!Number.isFinite(bytes) || bytes <= 0) {
+    if (unitMode === 'bits') {
+      return { value: '0.0', unit: 'Kbps', full: '0.0 Kbps' }
+    }
     return { value: '0.0', unit: 'KB/s', full: '0.0 KB/s' }
   }
 
+  if (unitMode === 'bits') {
+    const bits = bytes * 8
+    const Kb = 1000
+    const Mb = 1000 * Kb
+    const Gb = 1000 * Mb
+    if (bits >= Gb) {
+      const value = (bits / Gb).toFixed(2)
+      return { value, unit: 'Gbps', full: `${value} Gbps` }
+    }
+    if (bits >= Mb) {
+      const value = (bits / Mb).toFixed(1)
+      return { value, unit: 'Mbps', full: `${value} Mbps` }
+    }
+    const value = (bits / Kb).toFixed(1)
+    return { value, unit: 'Kbps', full: `${value} Kbps` }
+  }
   const KB = 1024
   const MB = 1024 * KB
   const GB = 1024 * MB

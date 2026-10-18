@@ -5,6 +5,7 @@
 #include "network_flow_monitor/config/config_store.h"
 #include "network_flow_monitor/host/bridge/bridge_dispatcher.h"
 #include "network_flow_monitor/host/bridge/native_bridge.h"
+#include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 #include "network_flow_monitor/host/webview/webview_controller.h"
@@ -46,11 +47,28 @@ class ProductHost : public platform::IWindowEventListener,
     void on_window_dpi_changed(std::uint32_t new_dpi, const RECT* suggested_rect) override;
     void on_window_close_requested() override;
     void on_window_destroyed() override;
+    void on_display_change() override;
     void on_tray_show_monitor() override;
     void on_tray_settings() override;
     void on_tray_retry_collector() override;
     void on_tray_exit() override;
+    void on_tray_context_menu(int screen_x, int screen_y) override;
 
+    void on_context_menu_show_monitor() override;
+    void on_context_menu_toggle_pin() override;
+    void on_context_menu_settings() override;
+    void on_context_menu_retry_collector() override;
+    void on_context_menu_exit() override;
+    void on_context_menu_opened() override;
+    void on_context_menu_closed(bool cursor_inside) override;
+    void on_surface_pointer_enter() override;
+    void on_surface_pointer_leave() override;
+    void on_surface_pointer_down(surface::ScreenPoint point) override;
+    void on_surface_pointer_move(surface::ScreenPoint point) override;
+    void on_surface_pointer_up(surface::ScreenPoint point) override;
+    void on_surface_pointer_cancel() override;
+    void on_surface_clock_tick(std::chrono::milliseconds elapsed) override;
+    void on_surface_outside_click() override;
     // IBridgeCommandHandler implementation
     void on_show_monitor() override;
     void on_hide_monitor() override;
@@ -67,25 +85,49 @@ class ProductHost : public platform::IWindowEventListener,
     void on_exit_app() override;
     void on_set_theme(std::string_view theme) override;
     void on_set_locale(std::string_view locale) override;
-
+    void on_open_context_menu(int screen_x, int screen_y) override;
+    void on_resize_panel(int height_dip) override;
+    void on_resize_settings_window(int height_dip) override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }
     [[nodiscard]] std::shared_ptr<lifecycle::CollectorCompanion> collector() const noexcept {
         return collector_companion_;
     }
+    [[nodiscard]] coordinator::DockCapsuleCoordinator* coordinator() const noexcept {
+        return coordinator_.get();
+    }
 
   private:
+    void apply_coordinator_state();
+    void publish_surface_state();
+    void ensure_settings_window();
+    void close_settings_window();
+    void apply_settings_window_chrome();
+    void broadcast_to_all_bridges(const std::function<void(bridge::INativeBridge&)>& fn);
+
     ProductHostOptions options_;
     std::unique_ptr<platform::Win32Window> window_;
+    std::unique_ptr<coordinator::DockCapsuleCoordinator> coordinator_;
     std::shared_ptr<webview::IWebViewController> webview_;
     std::shared_ptr<bridge::NativeBridge> native_bridge_;
+
+    std::unique_ptr<platform::Win32Window> settings_window_;
+    std::unique_ptr<platform::IWindowEventListener> settings_listener_;
+    std::shared_ptr<webview::IWebViewController> settings_webview_;
+    std::shared_ptr<bridge::NativeBridge> settings_bridge_;
+
     std::shared_ptr<bridge::BridgeDispatcher> bridge_dispatcher_;
     std::shared_ptr<lifecycle::CollectorCompanion> collector_companion_;
     config::AppConfig current_config_;
+    std::optional<bridge::RankingSnapshotDto> latest_ranking_snapshot_;
+    std::optional<bridge::CollectorStatusDto> latest_collector_status_;
 
     bool is_initialized_{false};
     bool is_shutting_down_{false};
+    bool settings_surface_visible_{false};
+    int settings_height_dip_{260};
+    std::chrono::milliseconds watchdog_elapsed_{0};
 };
 
 } // namespace nfm::host::app

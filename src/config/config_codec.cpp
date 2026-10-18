@@ -50,11 +50,12 @@ constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
-constexpr std::array<std::string_view, 12> kFloatingKeys{
+constexpr std::array<std::string_view, 14> kFloatingKeys{
     "auto_hide_enabled",        "auto_hide_delay_ms", "opacity_percent",
     "blur_strength_percent",    "capsule_width_dip",  "capsule_height_dip",
     "capsule_end_rounding_dip", "nfm_pinned",         "yield_topmost_when_fullscreen",
-    "anchor_monitor_id",        "anchor_side",        "anchor_vertical_offset_dip"};
+    "anchor_monitor_id",        "anchor_side",        "anchor_vertical_offset_dip",
+    "download_color_hex",       "upload_color_hex"};
 constexpr std::array<std::string_view, 14> kDevelopmentFloatingKeys{"snap_distance_dip",
                                                                     "auto_hide_enabled",
                                                                     "auto_hide_delay_ms",
@@ -525,6 +526,28 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
     if (yyjson_obj_get(group, "anchor_vertical_offset_dip") != nullptr) {
         config.floating.anchor_vertical_offset_dip = static_cast<std::int32_t>(parsed);
     }
+    if (auto* down_color = yyjson_obj_get(group, "download_color_hex"); down_color != nullptr) {
+        if (!yyjson_is_str(down_color)) {
+            return MakeError(ConfigErrorCode::TypeMismatch, "floating.download_color_hex",
+                             "expected a string");
+        }
+        const auto color_text = JsonString(down_color);
+        if (color_text.size() == 7U && color_text.front() == '#') {
+            config.floating.download_color_hex.fill('\0');
+            std::ranges::copy(color_text, config.floating.download_color_hex.begin());
+        }
+    }
+    if (auto* up_color = yyjson_obj_get(group, "upload_color_hex"); up_color != nullptr) {
+        if (!yyjson_is_str(up_color)) {
+            return MakeError(ConfigErrorCode::TypeMismatch, "floating.upload_color_hex",
+                             "expected a string");
+        }
+        const auto color_text = JsonString(up_color);
+        if (color_text.size() == 7U && color_text.front() == '#') {
+            config.floating.upload_color_hex.fill('\0');
+            std::ranges::copy(color_text, config.floating.upload_color_hex.begin());
+        }
+    }
     return std::nullopt;
 }
 
@@ -703,7 +726,11 @@ bool AddFloating(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig
                      std::string_view{config.floating.anchor_monitor_id.data()}) &&
            AddString(document, group, "anchor_side", DockSideText(config.floating.anchor_side)) &&
            yyjson_mut_obj_add_sint(document, group, "anchor_vertical_offset_dip",
-                                   config.floating.anchor_vertical_offset_dip);
+                                   config.floating.anchor_vertical_offset_dip) &&
+           AddString(document, group, "download_color_hex",
+                     std::string_view{config.floating.download_color_hex.data()}) &&
+           AddString(document, group, "upload_color_hex",
+                     std::string_view{config.floating.upload_color_hex.data()});
 }
 
 bool AddAppearance(yyjson_mut_doc* document, yyjson_mut_val* root,

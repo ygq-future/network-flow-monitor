@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import {
   Sliders,
   Palette,
@@ -7,13 +7,10 @@ import {
   BarChart2,
   Activity,
   FileText,
-  ArrowLeft,
+  X,
   RefreshCw,
   RotateCw,
-  CheckCircle2,
   AlertCircle,
-  ShieldCheck,
-  ShieldAlert,
 } from 'lucide-react'
 import { useBridge } from '../../bridge/BridgeContext'
 import {
@@ -32,17 +29,33 @@ import { Select } from '../../shared/components/Select'
 import { Slider } from '../../shared/components/Slider'
 import { Toggle } from '../../shared/components/Toggle'
 import { Badge } from '../../shared/components/Badge'
-import { SettingsSection } from '../../shared/components/SettingsSection'
+import { Card } from '../../shared/components/Card'
 import { SettingsRow } from '../../shared/components/SettingsRow'
+import { AppLogo } from '../../shared/components/AppLogo'
 
 export type SettingsTab = 'general' | 'appearance' | 'capsule' | 'monitor' | 'ranking' | 'collector' | 'diagnostics'
 
 export interface SettingsCenterProps {
   initialTab?: SettingsTab
   onBack?: () => void
+  onStartDrag?: () => void
 }
 
-export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'general', onBack }) => {
+interface CapsuleColorPreset {
+  id: string
+  downloadHex: string
+  uploadHex: string
+}
+
+const CAPSULE_COLOR_PRESETS: CapsuleColorPreset[] = [
+  { id: 'fresh-breeze', downloadHex: '#38bdf8', uploadHex: '#2dd4bf' },
+  { id: 'mint-lime', downloadHex: '#10b981', uploadHex: '#84cc16' },
+  { id: 'azure-violet', downloadHex: '#60a5fa', uploadHex: '#a78bfa' },
+  { id: 'coral-amber', downloadHex: '#fb7185', uploadHex: '#fbbf24' },
+  { id: 'mono-frost', downloadHex: '#e4e4e7', uploadHex: '#71717a' },
+]
+
+export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'general', onBack, onStartDrag }) => {
   const { t, setLocale } = useTranslation()
   const { setTheme } = useTheme()
   const bridge = useBridge()
@@ -62,6 +75,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Detect prefers-reduced-motion
   useEffect(() => {
@@ -98,7 +112,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       }
     })
 
-    // Request authoritative config
     bridge.sendCommand('requestConfig')
 
     return () => {
@@ -108,9 +121,27 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     }
   }, [bridge])
 
+  // Dynamically resize Settings window to fit current tab content without vertical scrollbar
+  useLayoutEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const reportHeight = () => {
+      const contentHeight = el.scrollHeight
+      // 32px header + 33px tab bar + contentHeight + 2px border
+      const desiredHeightDip = Math.min(540, Math.max(150, 67 + contentHeight))
+      bridge.sendCommand('resizeSettingsWindow', { heightDip: desiredHeightDip })
+    }
+    reportHeight()
+    const rafId = requestAnimationFrame(reportHeight)
+    return () => cancelAnimationFrame(rafId)
+  }, [activeTab, bridge, config, collectorStatus.lastError, errorMessage])
+
   const handleUpdate = (key: string, value: unknown) => {
     bridge.sendCommand('updateSetting', { key, value })
   }
+
+  const downloadColor = (config.capsule.downloadColorHex || '#38bdf8').toLowerCase()
+  const uploadColor = (config.capsule.uploadColorHex || '#2dd4bf').toLowerCase()
 
   const tabs: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'general', label: t.settings.general, icon: Sliders },
@@ -123,35 +154,38 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   ]
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4 pb-20 select-none">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {onBack && (
-            <IconButton aria-label={t.settings.back} variant="subtle" size="md" onClick={onBack}>
-              <ArrowLeft className="h-4 w-4" />
-            </IconButton>
-          )}
-          <div className="flex flex-col">
-            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100">{t.settings.title}</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {tabs.find(x => x.id === activeTab)?.label} — {t.common.appName}
-            </p>
-          </div>
+    <div className="flex h-full w-full flex-col select-none">
+      {/* Pure Title Bar: App Icon + Title + Close Button */}
+      <header
+        onMouseDown={event => {
+          if (event.button === 0 && !(event.target as HTMLElement).closest('button')) {
+            onStartDrag?.()
+          }
+        }}
+        className="flex h-8 shrink-0 cursor-move items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex items-center gap-2">
+          <AppLogo className="h-4 w-4" />
+          <h1 className="text-xs font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{t.settings.title}</h1>
         </div>
 
-        {errorMessage && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-      </div>
+        <div className="flex items-center gap-2">
+          {errorMessage && (
+            <div className="flex items-center gap-1.5 rounded-sm border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+          {onBack && (
+            <IconButton aria-label={t.common.close} variant="ghost" size="sm" onClick={onBack}>
+              <X className="h-3.5 w-3.5" />
+            </IconButton>
+          )}
+        </div>
+      </header>
 
-      {/* Main Settings Body with Sidebar Tabs */}
-      <div className="flex flex-col items-start gap-4 md:flex-row">
-        {/* Navigation Sidebar */}
-        <nav className="flex w-full shrink-0 flex-col gap-1 rounded-xl border border-slate-200/80 bg-white/70 p-1.5 shadow-sm md:sticky md:top-0 md:w-48 dark:border-slate-800 dark:bg-slate-900/70">
+      {/* Top Horizontal Tab Bar + Bottom Dynamic Inspector Content */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
+        <nav className="grid shrink-0 grid-cols-7 gap-0.5 border-b border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900/60">
           {tabs.map(tab => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -159,25 +193,27 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium whitespace-nowrap transition-colors ${
+                className={`relative flex h-6 cursor-pointer items-center justify-center gap-1 rounded-sm px-1 text-[11px] font-medium whitespace-nowrap transition-colors ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-xs dark:bg-blue-600'
-                    : 'text-slate-700 hover:bg-slate-100/80 dark:text-slate-300 dark:hover:bg-slate-800/80'
+                    ? 'bg-zinc-900 font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950'
+                    : 'text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
                 }`}>
                 <Icon
-                  className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                  className={`h-3 w-3 shrink-0 ${
+                    isActive ? 'text-white dark:text-zinc-950' : 'text-zinc-500 dark:text-zinc-400'
+                  }`}
                 />
-                <span>{tab.label}</span>
+                <span className="truncate">{tab.label}</span>
               </button>
             )
           })}
         </nav>
 
-        {/* Content Pane */}
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
+        {/* Bottom Inspector Canvas */}
+        <div ref={contentRef} className="flex min-w-0 flex-col gap-2.5 p-3">
           {/* 1. General Tab */}
           {activeTab === 'general' && (
-            <SettingsSection title={t.settings.general} description={t.settings.generalDesc} icon={Sliders}>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.launchAtStartup}
                 description={t.settings.launchAtStartupDesc}
@@ -204,12 +240,12 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
-            </SettingsSection>
+            </Card>
           )}
 
           {/* 2. Appearance Tab */}
           {activeTab === 'appearance' && (
-            <SettingsSection title={t.settings.appearance} description={t.settings.appearanceDesc} icon={Palette}>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.theme}
                 description={t.settings.themeDesc}
@@ -257,12 +293,12 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   </Badge>
                 }
               />
-            </SettingsSection>
+            </Card>
           )}
 
           {/* 3. Capsule Tab */}
           {activeTab === 'capsule' && (
-            <SettingsSection title={t.settings.capsule} description={t.settings.capsuleDesc} icon={Layers}>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.capsuleWidth}
                 description={t.settings.capsuleWidthDesc}
@@ -321,20 +357,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
-                label={t.settings.anchorSide}
-                description={t.settings.anchorSideDesc}
-                control={
-                  <Select
-                    value={config.capsule.anchorSide}
-                    onChange={val => handleUpdate('floating.anchor_side', val)}
-                    options={[
-                      { value: 'right', label: t.settings.sideRight },
-                      { value: 'left', label: t.settings.sideLeft },
-                    ]}
-                  />
-                }
-              />
-              <SettingsRow
                 label={t.settings.autoHide}
                 description={t.settings.autoHideDesc}
                 control={
@@ -345,29 +367,89 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
-              {config.capsule.autoHideEnabled && (
-                <SettingsRow
-                  label={t.settings.autoHideDelay}
-                  description={t.settings.autoHideDelayDesc}
-                  control={
-                    <Slider
-                      value={config.capsule.autoHideDelayMs}
-                      min={schema.autoHideDelay.min}
-                      max={schema.autoHideDelay.max}
-                      step={schema.autoHideDelay.step}
-                      unit={schema.autoHideDelay.unit}
-                      onChange={val => handleUpdate('floating.auto_hide_delay_ms', val)}
-                      ariaLabel={t.settings.autoHideDelay}
-                    />
-                  }
-                />
-              )}
-            </SettingsSection>
+              <SettingsRow
+                label={t.settings.capsuleColors}
+                description={t.settings.capsuleColorsDesc}
+                control={
+                  <div className="flex items-center gap-2">
+                    {/* Modern Dual-Tone Pill Preset Bar */}
+                    <div
+                      className="flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-100/70 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/80"
+                      role="group"
+                      aria-label={t.settings.colorPresets}>
+                      {CAPSULE_COLOR_PRESETS.map(preset => {
+                        const isSelected =
+                          downloadColor === preset.downloadHex.toLowerCase() &&
+                          uploadColor === preset.uploadHex.toLowerCase()
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              handleUpdate('floating.download_color_hex', preset.downloadHex)
+                              handleUpdate('floating.upload_color_hex', preset.uploadHex)
+                            }}
+                            title={`${preset.downloadHex} / ${preset.uploadHex}`}
+                            className={`group relative flex h-5 w-7 cursor-pointer items-center justify-center rounded-[5px] p-[2px] transition-all ${
+                              isSelected
+                                ? 'bg-white shadow-xs ring-1 ring-zinc-900 dark:bg-zinc-950 dark:ring-zinc-100'
+                                : 'opacity-75 hover:bg-white/60 hover:opacity-100 dark:hover:bg-zinc-800/60'
+                            }`}>
+                            <span
+                              className="block h-full w-full rounded-[3px] ring-1 ring-black/10 ring-inset dark:ring-white/10"
+                              style={{
+                                background: `linear-gradient(135deg, ${preset.downloadHex} 0%, ${preset.downloadHex} 50%, ${preset.uploadHex} 50%, ${preset.uploadHex} 100%)`,
+                              }}
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Sleek Custom Color Swatch Pills */}
+                    <div className="flex items-center gap-1.5">
+                      <label
+                        className="group relative flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+                        title={`${t.settings.downloadColor}: ${downloadColor.toUpperCase()}`}>
+                        <span className="font-mono text-[10px] font-bold text-zinc-500 dark:text-zinc-400">↓</span>
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 ring-inset dark:ring-white/20"
+                          style={{ backgroundColor: downloadColor }}
+                        />
+                        <input
+                          type="color"
+                          aria-label={t.settings.downloadColor}
+                          value={downloadColor}
+                          onChange={e => handleUpdate('floating.download_color_hex', e.target.value)}
+                          className="sr-only"
+                        />
+                      </label>
+                      <label
+                        className="group relative flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+                        title={`${t.settings.uploadColor}: ${uploadColor.toUpperCase()}`}>
+                        <span className="font-mono text-[10px] font-bold text-zinc-500 dark:text-zinc-400">↑</span>
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 ring-inset dark:ring-white/20"
+                          style={{ backgroundColor: uploadColor }}
+                        />
+                        <input
+                          type="color"
+                          aria-label={t.settings.uploadColor}
+                          value={uploadColor}
+                          onChange={e => handleUpdate('floating.upload_color_hex', e.target.value)}
+                          className="sr-only"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                }
+              />
+            </Card>
           )}
 
           {/* 4. Monitor Tab */}
           {activeTab === 'monitor' && (
-            <SettingsSection title={t.settings.monitor} description={t.settings.monitorDesc} icon={Monitor}>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.pinned}
                 description={t.settings.pinnedDesc}
@@ -395,34 +477,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
-                label={t.settings.opacity}
-                description={t.settings.opacityDesc}
-                control={
-                  <Slider
-                    value={config.monitor.opacityPercent}
-                    min={schema.opacity.min}
-                    max={schema.opacity.max}
-                    unit={schema.opacity.unit}
-                    onChange={val => handleUpdate('floating.opacity_percent', val)}
-                    ariaLabel={t.settings.opacity}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.blurStrength}
-                description={t.settings.blurStrengthDesc}
-                control={
-                  <Slider
-                    value={config.monitor.blurStrengthPercent}
-                    min={schema.blurStrength.min}
-                    max={schema.blurStrength.max}
-                    unit={schema.blurStrength.unit}
-                    onChange={val => handleUpdate('floating.blur_strength_percent', val)}
-                    ariaLabel={t.settings.blurStrength}
-                  />
-                }
-              />
-              <SettingsRow
                 label={t.settings.yieldTopmost}
                 description={t.settings.yieldTopmostDesc}
                 control={
@@ -433,12 +487,12 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
-            </SettingsSection>
+            </Card>
           )}
 
           {/* 5. Ranking Tab */}
           {activeTab === 'ranking' && (
-            <SettingsSection title={t.settings.ranking} description={t.settings.rankingDesc} icon={BarChart2}>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.topN}
                 description={t.settings.topNDesc}
@@ -482,39 +536,17 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
-            </SettingsSection>
+            </Card>
           )}
 
           {/* 6. Collector Tab */}
           {activeTab === 'collector' && (
-            <SettingsSection
-              title={t.settings.collector}
-              description={t.settings.collectorDesc}
-              icon={Activity}
-              actions={
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
+              <div className="flex items-center justify-between gap-3 py-1.5 first:pt-0.5">
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => bridge.sendCommand('retryCollector')}
-                    className="gap-1.5">
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>{t.settings.retryCollector}</span>
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => bridge.sendCommand('restartCollector')}
-                    className="gap-1.5">
-                    <RotateCw className="h-3.5 w-3.5" />
-                    <span>{t.settings.restartCollector}</span>
-                  </Button>
-                </div>
-              }>
-              <SettingsRow
-                label={t.settings.collectorStatus}
-                description={t.settings.collectorStatusDesc}
-                control={
+                  <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                    {t.settings.collectorStatus}
+                  </span>
                   <Badge
                     variant={
                       collectorStatus.state === 'Running'
@@ -531,82 +563,65 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                           ? t.settings.statusStopped
                           : t.settings.statusFailed}
                   </Badge>
-                }
-              />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => bridge.sendCommand('retryCollector')}
+                    className="gap-1">
+                    <RefreshCw className="h-3 w-3" />
+                    <span>{t.settings.retryCollector}</span>
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => bridge.sendCommand('restartCollector')}
+                    className="gap-1">
+                    <RotateCw className="h-3 w-3" />
+                    <span>{t.settings.restartCollector}</span>
+                  </Button>
+                </div>
+              </div>
+
               <SettingsRow
                 label={t.settings.processId}
                 control={
-                  <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
                     {collectorStatus.processId ? collectorStatus.processId : t.settings.none}
-                  </span>
-                }
-              />
-              <SettingsRow
-                label={t.settings.instanceId}
-                control={
-                  <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
-                    {collectorStatus.instanceId ? collectorStatus.instanceId : t.settings.none}
-                  </span>
-                }
-              />
-              <SettingsRow
-                label={t.settings.elevation}
-                control={
-                  <div className="flex items-center gap-1.5">
-                    {collectorStatus.isElevated ? (
-                      <>
-                        <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                          {t.settings.elevationYes}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                          {t.settings.elevationNo}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                }
-              />
-              <SettingsRow
-                label={t.settings.etwHealth}
-                control={
-                  <div className="flex items-center gap-1.5">
-                    {collectorStatus.etwSessionActive ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                          {t.settings.etwActive}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                        <span className="text-xs font-medium text-red-600 dark:text-red-400">
-                          {t.settings.etwInactive}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                }
-              />
-              <SettingsRow
-                label={t.settings.droppedPackets}
-                control={
-                  <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300">
-                    {collectorStatus.droppedPackets}
                   </span>
                 }
               />
               <SettingsRow
                 label={t.settings.activeProcesses}
                 control={
-                  <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300">
+                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
                     {collectorStatus.activePids}
                   </span>
+                }
+              />
+              <SettingsRow
+                label={t.settings.droppedPackets}
+                control={
+                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
+                    {collectorStatus.droppedPackets}
+                  </span>
+                }
+              />
+              <SettingsRow
+                label={t.settings.etwHealth}
+                control={
+                  <Badge variant={collectorStatus.etwSessionActive ? 'success' : 'danger'}>
+                    {collectorStatus.etwSessionActive ? t.settings.etwActive : t.settings.etwInactive}
+                  </Badge>
+                }
+              />
+              <SettingsRow
+                label={t.settings.elevation}
+                control={
+                  <Badge variant={collectorStatus.isElevated ? 'default' : 'warning'}>
+                    {collectorStatus.isElevated ? t.settings.elevationYes : t.settings.elevationNo}
+                  </Badge>
                 }
               />
               {collectorStatus.lastError && (
@@ -619,48 +634,40 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   }
                 />
               )}
-            </SettingsSection>
+            </Card>
           )}
 
           {/* 7. Diagnostics Tab */}
           {activeTab === 'diagnostics' && (
-            <>
-              <SettingsSection title={t.settings.diagnostics} description={t.settings.diagnosticsDesc} icon={FileText}>
-                <SettingsRow
-                  label={t.settings.logLevel}
-                  description={t.settings.logLevelDesc}
-                  control={
-                    <Select
-                      value={config.diagnostics.logLevel}
-                      onChange={val => handleUpdate('diagnostics.log_level', val)}
-                      options={[
-                        { value: 'off', label: t.settings.logLevelOff },
-                        { value: 'error', label: t.settings.logLevelError },
-                        { value: 'info', label: t.settings.logLevelInfo },
-                        { value: 'debug', label: t.settings.logLevelDebug },
-                      ]}
-                    />
-                  }
-                />
-              </SettingsSection>
-              <SettingsSection
-                title={t.settings.systemDiagnostics}
-                description={t.settings.systemDiagnosticsDesc}
-                icon={CheckCircle2}>
-                <SettingsRow
-                  label={t.settings.webviewRuntime}
-                  control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-                />
-                <SettingsRow
-                  label={t.settings.assetsState}
-                  control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-                />
-                <SettingsRow
-                  label={t.settings.bridgeProtocol}
-                  control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-                />
-              </SettingsSection>
-            </>
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
+              <SettingsRow
+                label={t.settings.logLevel}
+                control={
+                  <Select
+                    value={config.diagnostics.logLevel}
+                    onChange={val => handleUpdate('diagnostics.log_level', val)}
+                    options={[
+                      { value: 'off', label: t.settings.logLevelOff },
+                      { value: 'error', label: t.settings.logLevelError },
+                      { value: 'info', label: t.settings.logLevelInfo },
+                      { value: 'debug', label: t.settings.logLevelDebug },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.webviewRuntime}
+                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
+              />
+              <SettingsRow
+                label={t.settings.assetsState}
+                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
+              />
+              <SettingsRow
+                label={t.settings.bridgeProtocol}
+                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
+              />
+            </Card>
           )}
         </div>
       </div>

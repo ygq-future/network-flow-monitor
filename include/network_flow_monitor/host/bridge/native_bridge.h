@@ -19,11 +19,13 @@ class INativeBridge {
     INativeBridge& operator=(INativeBridge&&) = delete;
 
     virtual void post_traffic_tick(const TrafficTickDto& tick) = 0;
+    virtual void post_ranking_snapshot(const RankingSnapshotDto& snapshot) = 0;
     virtual void post_collector_status(const CollectorStatusDto& status) = 0;
     virtual void post_session_reset(const SessionResetDto& reset) = 0;
     virtual void post_theme_changed(const ThemeChangedDto& theme) = 0;
     virtual void post_locale_changed(const LocaleChangedDto& locale) = 0;
     virtual void post_config_changed(const config::AppConfig& config) = 0;
+    virtual void post_surface_changed(const SurfaceChangedDto& surface) = 0;
     virtual void post_command_response(const CommandResponseDto& response) = 0;
     virtual void post_error(const BridgeErrorDto& error) = 0;
     virtual void post_raw_event(std::string_view event_json) = 0;
@@ -52,6 +54,9 @@ class IBridgeCommandHandler {
     virtual void on_exit_app() = 0;
     virtual void on_set_theme(std::string_view theme) = 0;
     virtual void on_set_locale(std::string_view locale) = 0;
+    virtual void on_open_context_menu(int screen_x, int screen_y) = 0;
+    virtual void on_resize_panel(int /*height_dip*/) {}
+    virtual void on_resize_settings_window(int /*height_dip*/) {}
 };
 
 using WebMessageSender = std::function<void(std::string_view json)>;
@@ -68,11 +73,13 @@ class NativeBridge : public INativeBridge {
     void set_sender(WebMessageSender sender);
 
     void post_traffic_tick(const TrafficTickDto& tick) override;
+    void post_ranking_snapshot(const RankingSnapshotDto& snapshot) override;
     void post_collector_status(const CollectorStatusDto& status) override;
     void post_session_reset(const SessionResetDto& reset) override;
     void post_theme_changed(const ThemeChangedDto& theme) override;
     void post_locale_changed(const LocaleChangedDto& locale) override;
     void post_config_changed(const config::AppConfig& config) override;
+    void post_surface_changed(const SurfaceChangedDto& surface) override;
     void post_command_response(const CommandResponseDto& response) override;
     void post_error(const BridgeErrorDto& error) override;
     void post_raw_event(std::string_view event_json) override;

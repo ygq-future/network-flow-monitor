@@ -42,15 +42,15 @@ export const Checkbox: React.FC<CheckboxProps> = ({
       <div
         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
           checked
-            ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500'
-            : 'border-slate-300 bg-white hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600'
+            ? 'border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950'
+            : 'border-black/20 bg-white/80 hover:border-black/35 dark:border-white/20 dark:bg-white/[0.05] dark:hover:border-white/35'
         }`}>
-        {checked && <Check className="h-3 w-3 stroke-[3]" />}
+        {checked && <Check className="h-3 w-3 stroke-[2.75]" />}
       </div>
       {(label || description) && (
         <div className="flex flex-col">
-          {label && <span className="text-xs font-medium text-slate-900 dark:text-slate-100">{label}</span>}
-          {description && <span className="text-[11px] text-slate-500 dark:text-slate-400">{description}</span>}
+          {label && <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">{label}</span>}
+          {description && <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{description}</span>}
         </div>
       )}
     </div>

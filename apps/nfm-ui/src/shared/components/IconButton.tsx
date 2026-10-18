@@ -15,23 +15,24 @@ export const IconButton: React.FC<IconButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    'inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:pointer-events-none disabled:opacity-50 cursor-pointer select-none rounded-lg'
+    'inline-flex items-center justify-center font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 disabled:pointer-events-none disabled:opacity-45 cursor-pointer select-none rounded-md'
 
   const sizeStyles = {
-    sm: 'h-7 w-7 text-xs',
-    md: 'h-8 w-8 text-sm',
-    lg: 'h-9 w-9 text-base',
+    sm: 'h-6 w-6 text-xs',
+    md: 'h-7 w-7 text-xs',
+    lg: 'h-8 w-8 text-sm',
   }
 
   const variantStyles = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600',
+    primary:
+      'bg-zinc-900 text-white hover:bg-zinc-800 active:bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white',
     secondary:
-      'bg-slate-200/80 text-slate-900 hover:bg-slate-300 active:bg-slate-300/80 dark:bg-slate-800/80 dark:text-slate-100 dark:hover:bg-slate-700',
-    ghost: 'text-slate-700 hover:bg-slate-200/60 active:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800/60',
+      'border border-black/[0.08] bg-white/75 text-zinc-800 hover:bg-white dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-zinc-100 dark:hover:bg-white/[0.12]',
+    ghost:
+      'text-zinc-600 hover:bg-black/[0.06] hover:text-zinc-900 active:bg-black/[0.1] dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100',
     subtle:
-      'border border-slate-200/80 bg-white/60 text-slate-700 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800',
+      'border border-black/[0.07] bg-white/60 text-zinc-700 hover:bg-white dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.09]',
   }
-
   return (
     <button
       aria-label={ariaLabel}

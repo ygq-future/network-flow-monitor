@@ -52,14 +52,12 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('Capsule Height')).toBeInTheDocument()
     expect(screen.getByText('End Rounding')).toBeInTheDocument()
     expect(screen.getByText('Hover Expand Delay')).toBeInTheDocument()
-
+    expect(screen.getByText('Capsule Rate Colors')).toBeInTheDocument()
     // 3. Monitor tab
     fireEvent.click(screen.getByRole('button', { name: /Monitor Panel/i }))
     expect(screen.getByText('Pin Monitor Panel')).toBeInTheDocument()
     expect(screen.getByText('Dismiss Delay')).toBeInTheDocument()
-    expect(screen.getByText('Background Tint Opacity')).toBeInTheDocument()
-    expect(screen.getByText('Backdrop Blur Strength')).toBeInTheDocument()
-
+    expect(screen.getByText('Yield Topmost on Full Screen')).toBeInTheDocument()
     // 4. Ranking tab
     fireEvent.click(screen.getByRole('button', { name: /Ranking/i }))
     expect(screen.getByText('Top N Applications')).toBeInTheDocument()
@@ -77,7 +75,6 @@ describe('SettingsCenter', () => {
     // 6. Diagnostics tab
     fireEvent.click(screen.getByRole('button', { name: /Diagnostics/i }))
     expect(screen.getByText('Diagnostics Log Level')).toBeInTheDocument()
-    expect(screen.getByText('System Diagnostics & Health')).toBeInTheDocument()
     expect(screen.getByText('WebView2 Evergreen Runtime')).toBeInTheDocument()
   })
 
@@ -116,13 +113,13 @@ describe('SettingsCenter', () => {
     expect(spySend).toHaveBeenCalledWith('retryCollector')
   })
 
-  it('handles back button navigation', () => {
+  it('handles close button navigation', () => {
     const bridge = new MockBridge(false)
     const handleBack = vi.fn()
     renderWithProviders(<SettingsCenter onBack={handleBack} />, bridge)
 
-    const backBtn = screen.getByRole('button', { name: 'Back' })
-    fireEvent.click(backBtn)
+    const closeBtn = screen.getByRole('button', { name: 'Close' })
+    fireEvent.click(closeBtn)
     expect(handleBack).toHaveBeenCalledTimes(1)
   })
 })

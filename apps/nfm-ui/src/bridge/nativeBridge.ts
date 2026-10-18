@@ -4,10 +4,12 @@ import {
   NativeEventEnvelope,
   createWebCommand,
   TrafficTickDto,
+  RankingSnapshotDto,
   CollectorStatusDto,
   SessionResetDto,
   ConfigChangedDto,
   UpdateSettingPayload,
+  SurfaceChangedDto,
 } from './bridgeTypes'
 
 declare global {
@@ -115,20 +117,22 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       anchorSide: 'right',
       anchorMonitorId: '',
       anchorVerticalOffsetDip: 64,
-      autoHideEnabled: true,
+      autoHideEnabled: false,
       autoHideDelayMs: 500,
+      downloadColorHex: '#38bdf8',
+      uploadColorHex: '#2dd4bf',
     },
     monitor: {
       pinned: false,
-      dismissDelayMs: 250,
-      opacityPercent: 92,
-      blurStrengthPercent: 60,
+      dismissDelayMs: 500,
+      opacityPercent: 100,
+      blurStrengthPercent: 0,
       yieldTopmostWhenFullscreen: true,
     },
     ranking: {
       topN: 5,
       windowMs: 2000,
-      refreshIntervalMs: 500,
+      refreshIntervalMs: 250,
     },
     diagnostics: {
       logLevel: 'info',
@@ -139,8 +143,8 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
     capsuleHeight: { min: 40, max: 160, unit: 'DIP', default: 64 },
     capsuleEndRounding: { min: 0, max: 12, unit: 'DIP', default: 5 },
     hoverDelay: { min: 0, max: 2000, step: 50, unit: 'ms', default: 350 },
-    autoHideDelay: { min: 0, max: 5000, step: 100, unit: 'ms', default: 500 },
-    dismissDelay: { min: 0, max: 2000, step: 50, unit: 'ms', default: 250 },
+    autoHideDelay: { min: 0, max: 5000, step: 100, unit: 'ms', default: 5000 },
+    dismissDelay: { min: 0, max: 2000, step: 50, unit: 'ms', default: 500 },
     opacity: { min: 0, max: 100, step: 1, unit: '%', default: 92 },
     blurStrength: { min: 0, max: 100, step: 1, unit: '%', default: 60 },
     topN: { min: 1, max: 20, step: 1, unit: '', default: 5 },
@@ -158,6 +162,7 @@ export class MockBridge extends NativeBridge {
   private timer: number | null = null
   private seq = 1
   private currentMockConfig: ConfigChangedDto = JSON.parse(JSON.stringify(defaultMockConfigChanged))
+  private currentSurface: SurfaceChangedDto = { surface: 'capsule', pinned: false, dockSide: 'right' }
 
   constructor(autoTick = false) {
     super()
@@ -172,6 +177,19 @@ export class MockBridge extends NativeBridge {
       setTimeout(() => {
         this.emit('configChanged', this.currentMockConfig)
       }, 0)
+    } else if (type === 'showMonitor') {
+      this.currentSurface = { ...this.currentSurface, surface: 'panel' }
+      setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
+    } else if (type === 'hideMonitor') {
+      this.currentSurface = { ...this.currentSurface, surface: 'tray' }
+      setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
+    } else if (type === 'openSettings') {
+      this.currentSurface = { ...this.currentSurface, surface: 'settings' }
+      setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
+    } else if (type === 'setPin' && payload) {
+      const pinned = Boolean((payload as unknown as { pinned: boolean }).pinned)
+      this.currentSurface = { ...this.currentSurface, surface: 'panel', pinned }
+      setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
     } else if (type === 'updateSetting' && payload) {
       const p = payload as unknown as UpdateSettingPayload
       this.applyMockSettingUpdate(p.key, p.value)
@@ -237,7 +255,15 @@ export class MockBridge extends NativeBridge {
       key === 'capsule.autoHideDelayMs' ||
       key === 'autoHideDelayMs'
     ) {
-      cfg.capsule.autoHideDelayMs = Number(value)
+      cfg.capsule.autoHideDelayMs = 500
+    } else if (
+      key === 'floating.download_color_hex' ||
+      key === 'capsule.downloadColorHex' ||
+      key === 'downloadColorHex'
+    ) {
+      cfg.capsule.downloadColorHex = String(value)
+    } else if (key === 'floating.upload_color_hex' || key === 'capsule.uploadColorHex' || key === 'uploadColorHex') {
+      cfg.capsule.uploadColorHex = String(value)
     } else if (key === 'floating.nfm_pinned' || key === 'monitor.pinned' || key === 'pinned') {
       cfg.monitor.pinned = Boolean(value)
     } else if (key === 'interaction.dismiss_delay_ms' || key === 'monitor.dismissDelayMs' || key === 'dismissDelayMs') {
@@ -295,6 +321,49 @@ export class MockBridge extends NativeBridge {
           isElevated: true,
         }
         this.emit('collectorStatus', mockStatus)
+
+        const mockRanking: RankingSnapshotDto = {
+          seq: Math.floor(this.seq / 4),
+          monotonicMs: now,
+          status: 'Ready',
+          totalDownloadBytesPerSec: mockTick.downloadBytesPerSec,
+          totalUploadBytesPerSec: mockTick.uploadBytesPerSec,
+          applications: [
+            {
+              id: 'app-edge',
+              executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+              displayName: 'Microsoft Edge',
+              iconKey: 'msedge',
+              downloadBytesPerSec: Math.floor(mockTick.downloadBytesPerSec * 0.55),
+              uploadBytesPerSec: Math.floor(mockTick.uploadBytesPerSec * 0.42),
+            },
+            {
+              id: 'app-code',
+              executablePath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+              displayName: 'Visual Studio Code',
+              iconKey: 'code',
+              downloadBytesPerSec: Math.floor(mockTick.downloadBytesPerSec * 0.25),
+              uploadBytesPerSec: Math.floor(mockTick.uploadBytesPerSec * 0.35),
+            },
+            {
+              id: 'app-steam',
+              executablePath: 'C:\\Program Files (x86)\\Steam\\steam.exe',
+              displayName: 'Steam Client Bootstrapper',
+              iconKey: 'steam',
+              downloadBytesPerSec: Math.floor(mockTick.downloadBytesPerSec * 0.14),
+              uploadBytesPerSec: Math.floor(mockTick.uploadBytesPerSec * 0.15),
+            },
+            {
+              id: 'app-svchost',
+              executablePath: 'C:\\Windows\\System32\\svchost.exe',
+              displayName: 'Host Process for Windows Services',
+              iconKey: 'svchost',
+              downloadBytesPerSec: Math.floor(mockTick.downloadBytesPerSec * 0.06),
+              uploadBytesPerSec: Math.floor(mockTick.uploadBytesPerSec * 0.08),
+            },
+          ],
+        }
+        this.emit('rankingSnapshot', mockRanking)
       }
     }, 250)
   }

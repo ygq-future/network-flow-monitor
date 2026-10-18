@@ -31,6 +31,9 @@ class BridgeDispatcher {
     // Static helper to serialize TrafficTickDto
     static std::string serialize_traffic_tick(const TrafficTickDto& tick);
 
+    // Static helper to serialize RankingSnapshotDto
+    static std::string serialize_ranking_snapshot(const RankingSnapshotDto& snapshot);
+
     // Static helper to serialize CollectorStatusDto
     static std::string serialize_collector_status(const CollectorStatusDto& status);
 
@@ -45,6 +48,8 @@ class BridgeDispatcher {
 
     // Static helper to serialize AppConfig + schema metadata to ConfigChangedDto
     static std::string serialize_config_changed(const config::AppConfig& config);
+
+    static std::string serialize_surface_changed(const SurfaceChangedDto& surface);
 
     // Static helper to serialize CommandResponseDto
     static std::string serialize_command_response(const CommandResponseDto& response);

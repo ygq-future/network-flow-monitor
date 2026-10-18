@@ -16,6 +16,9 @@ export type WebCommandType =
   | 'exitApp'
   | 'setTheme'
   | 'setLocale'
+  | 'openContextMenu'
+  | 'resizePanel'
+  | 'resizeSettingsWindow'
 
 export type NativeEventType =
   | 'trafficTick'
@@ -25,6 +28,7 @@ export type NativeEventType =
   | 'themeChanged'
   | 'localeChanged'
   | 'configChanged'
+  | 'surfaceChanged'
   | 'commandResponse'
   | 'error'
 
@@ -33,6 +37,24 @@ export interface TrafficTickDto {
   monotonicMs: number
   downloadBytesPerSec: number
   uploadBytesPerSec: number
+}
+
+export interface RankingAppDto {
+  id: string
+  executablePath: string
+  displayName: string
+  iconKey: string
+  downloadBytesPerSec: number
+  uploadBytesPerSec: number
+}
+
+export interface RankingSnapshotDto {
+  seq: number
+  monotonicMs: number
+  status: string
+  totalDownloadBytesPerSec: number
+  totalUploadBytesPerSec: number
+  applications: RankingAppDto[]
 }
 
 export interface CollectorStatusDto {
@@ -108,6 +130,8 @@ export interface CapsuleConfigDto {
   anchorVerticalOffsetDip: number
   autoHideEnabled: boolean
   autoHideDelayMs: number
+  downloadColorHex?: string
+  uploadColorHex?: string
 }
 
 export interface MonitorConfigDto {
@@ -140,6 +164,13 @@ export interface AppConfigDto {
 export interface ConfigChangedDto {
   config: AppConfigDto
   schema: ConfigSchemaDto
+}
+
+export interface SurfaceChangedDto {
+  surface: 'tray' | 'capsule' | 'panel' | 'settings'
+  pinned: boolean
+  dockSide: 'left' | 'right'
+  autoHidden?: boolean
 }
 
 export interface UpdateSettingPayload {

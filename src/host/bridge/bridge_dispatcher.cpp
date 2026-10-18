@@ -1,5 +1,6 @@
 #include "network_flow_monitor/host/bridge/bridge_dispatcher.h"
 
+#include <array>
 #include <span>
 #include <utility>
 #include <yyjson.h>
@@ -275,6 +276,25 @@ bool BridgeDispatcher::parse_web_command(std::string_view raw_json, WebCommand* 
                 }
                 break;
             }
+            case WebCommandType::OpenContextMenu: {
+                yyjson_val* x_val = yyjson_obj_get(payload_val, "x");
+                if (x_val != nullptr && yyjson_is_int(x_val)) {
+                    command_out->screen_x = static_cast<int>(yyjson_get_sint(x_val));
+                }
+                yyjson_val* y_val = yyjson_obj_get(payload_val, "y");
+                if (y_val != nullptr && yyjson_is_int(y_val)) {
+                    command_out->screen_y = static_cast<int>(yyjson_get_sint(y_val));
+                }
+                break;
+            }
+            case WebCommandType::ResizePanel:
+            case WebCommandType::ResizeSettingsWindow: {
+                yyjson_val* h_val = yyjson_obj_get(payload_val, "heightDip");
+                if (h_val != nullptr && yyjson_is_int(h_val)) {
+                    command_out->panel_height_dip = static_cast<int>(yyjson_get_sint(h_val));
+                }
+                break;
+            }
             default:
                 break;
             }
@@ -348,6 +368,19 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::SetLocale:
         handler_->on_set_locale(cmd.locale.value_or("System"));
         break;
+    case WebCommandType::OpenContextMenu:
+        handler_->on_open_context_menu(cmd.screen_x.value_or(-1), cmd.screen_y.value_or(-1));
+        break;
+    case WebCommandType::ResizePanel:
+        if (cmd.panel_height_dip.has_value()) {
+            handler_->on_resize_panel(*cmd.panel_height_dip);
+        }
+        break;
+    case WebCommandType::ResizeSettingsWindow:
+        if (cmd.panel_height_dip.has_value()) {
+            handler_->on_resize_settings_window(*cmd.panel_height_dip);
+        }
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);
@@ -374,6 +407,41 @@ std::string BridgeDispatcher::serialize_traffic_tick(const TrafficTickDto& tick)
     yyjson_mut_obj_add_uint(doc.get(), payload, "monotonicMs", tick.monotonic_ms);
     yyjson_mut_obj_add_uint(doc.get(), payload, "downloadBytesPerSec", tick.download_bytes_per_sec);
     yyjson_mut_obj_add_uint(doc.get(), payload, "uploadBytesPerSec", tick.upload_bytes_per_sec);
+
+    return write_mut_doc(doc.get());
+}
+
+std::string BridgeDispatcher::serialize_ranking_snapshot(const RankingSnapshotDto& snapshot) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "rankingSnapshot");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+
+    yyjson_mut_obj_add_uint(doc.get(), payload, "seq", snapshot.seq);
+    yyjson_mut_obj_add_uint(doc.get(), payload, "monotonicMs", snapshot.monotonic_ms);
+    yyjson_mut_obj_add_str(doc.get(), payload, "status", snapshot.status.c_str());
+    yyjson_mut_obj_add_uint(doc.get(), payload, "totalDownloadBytesPerSec",
+                            snapshot.total_download_bytes_per_sec);
+    yyjson_mut_obj_add_uint(doc.get(), payload, "totalUploadBytesPerSec",
+                            snapshot.total_upload_bytes_per_sec);
+
+    yyjson_mut_val* apps = yyjson_mut_arr(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), payload, "applications", apps);
+    for (const auto& app : snapshot.applications) {
+        yyjson_mut_val* item = yyjson_mut_obj(doc.get());
+        yyjson_mut_obj_add_str(doc.get(), item, "id", app.id.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "executablePath", app.executable_path.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "displayName", app.display_name.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "iconKey", app.icon_key.c_str());
+        yyjson_mut_obj_add_uint(doc.get(), item, "downloadBytesPerSec", app.download_bytes_per_sec);
+        yyjson_mut_obj_add_uint(doc.get(), item, "uploadBytesPerSec", app.upload_bytes_per_sec);
+        yyjson_mut_arr_append(apps, item);
+    }
 
     return write_mut_doc(doc.get());
 }
@@ -499,9 +567,11 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_obj_add_sint(doc.get(), cap, "anchorVerticalOffsetDip",
                             config.floating.anchor_vertical_offset_dip);
     yyjson_mut_obj_add_bool(doc.get(), cap, "autoHideEnabled", config.floating.auto_hide_enabled);
-    yyjson_mut_obj_add_sint(doc.get(), cap, "autoHideDelayMs",
-                            config.floating.auto_hide_delay.count());
-
+    yyjson_mut_obj_add_sint(doc.get(), cap, "autoHideDelayMs", 500);
+    yyjson_mut_obj_add_str(doc.get(), cap, "downloadColorHex",
+                           config.floating.download_color_hex.data());
+    yyjson_mut_obj_add_str(doc.get(), cap, "uploadColorHex",
+                           config.floating.upload_color_hex.data());
     // monitor
     yyjson_mut_val* mon = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "monitor", mon);
@@ -574,21 +644,40 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
         }
     };
 
-    const char* const speed_units_arr[] = {"auto", "bytes", "bits"};
+    constexpr std::array speed_units_arr = {"auto", "bytes", "bits"};
     add_enum_array("speedUnits", speed_units_arr);
 
-    const char* const themes_arr[] = {"system", "light", "dark"};
+    constexpr std::array themes_arr = {"system", "light", "dark"};
     add_enum_array("themes", themes_arr);
 
-    const char* const languages_arr[] = {"system", "english", "simplified_chinese"};
+    constexpr std::array languages_arr = {"system", "english", "simplified_chinese"};
     add_enum_array("languages", languages_arr);
 
-    const char* const log_levels_arr[] = {"off", "error", "info", "debug"};
+    constexpr std::array log_levels_arr = {"off", "error", "info", "debug"};
     add_enum_array("logLevels", log_levels_arr);
 
-    const char* const dock_sides_arr[] = {"left", "right"};
+    constexpr std::array dock_sides_arr = {"left", "right"};
     add_enum_array("dockSides", dock_sides_arr);
 
+    return write_mut_doc(doc.get());
+}
+
+std::string BridgeDispatcher::serialize_surface_changed(const SurfaceChangedDto& surface) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "surfaceChanged");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+    const std::string surface_name{to_string(surface.surface)};
+    yyjson_mut_obj_add_str(doc.get(), payload, "surface", surface_name.c_str());
+    yyjson_mut_obj_add_bool(doc.get(), payload, "pinned", surface.pinned);
+    yyjson_mut_obj_add_str(doc.get(), payload, "dockSide",
+                           surface.dock_side == config::DockSide::Left ? "left" : "right");
+    yyjson_mut_obj_add_bool(doc.get(), payload, "autoHidden", surface.auto_hidden);
     return write_mut_doc(doc.get());
 }
 

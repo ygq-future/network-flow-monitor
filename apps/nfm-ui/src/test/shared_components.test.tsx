@@ -84,8 +84,9 @@ describe('Shared Components', () => {
     ]
     render(<Select value="auto" onChange={handleChange} options={options} />)
 
-    const selectEl = screen.getByRole('combobox')
-    fireEvent.change(selectEl, { target: { value: 'bytes' } })
+    const selectEl = screen.getByRole('button', { name: 'Auto' })
+    fireEvent.click(selectEl)
+    fireEvent.click(screen.getByRole('option', { name: 'Bytes' }))
     expect(handleChange).toHaveBeenCalledWith('bytes')
   })
 

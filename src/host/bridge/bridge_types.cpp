@@ -32,6 +32,12 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "setTheme";
     case WebCommandType::SetLocale:
         return "setLocale";
+    case WebCommandType::OpenContextMenu:
+        return "openContextMenu";
+    case WebCommandType::ResizePanel:
+        return "resizePanel";
+    case WebCommandType::ResizeSettingsWindow:
+        return "resizeSettingsWindow";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -81,6 +87,15 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     if (name == "setLocale") {
         return WebCommandType::SetLocale;
     }
+    if (name == "openContextMenu") {
+        return WebCommandType::OpenContextMenu;
+    }
+    if (name == "resizePanel") {
+        return WebCommandType::ResizePanel;
+    }
+    if (name == "resizeSettingsWindow") {
+        return WebCommandType::ResizeSettingsWindow;
+    }
     return WebCommandType::Unknown;
 }
 
@@ -100,6 +115,8 @@ std::string_view to_string(NativeEventType type) noexcept {
         return "localeChanged";
     case NativeEventType::ConfigChanged:
         return "configChanged";
+    case NativeEventType::SurfaceChanged:
+        return "surfaceChanged";
     case NativeEventType::CommandResponse:
         return "commandResponse";
     case NativeEventType::Error:
@@ -132,6 +149,9 @@ NativeEventType parse_native_event_type(std::string_view name) noexcept {
     if (name == "configChanged") {
         return NativeEventType::ConfigChanged;
     }
+    if (name == "surfaceChanged") {
+        return NativeEventType::SurfaceChanged;
+    }
     if (name == "commandResponse") {
         return NativeEventType::CommandResponse;
     }
@@ -139,6 +159,21 @@ NativeEventType parse_native_event_type(std::string_view name) noexcept {
         return NativeEventType::Error;
     }
     return NativeEventType::Unknown;
+}
+
+std::string_view to_string(SurfaceKind surface) noexcept {
+    switch (surface) {
+    case SurfaceKind::Tray:
+        return "tray";
+    case SurfaceKind::Capsule:
+        return "capsule";
+    case SurfaceKind::Panel:
+        return "panel";
+    case SurfaceKind::Settings:
+        return "settings";
+    default:
+        return "capsule";
+    }
 }
 
 std::string_view to_error_code_string(BridgeErrorCode code) noexcept {

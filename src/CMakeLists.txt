@@ -75,9 +75,12 @@ target_link_libraries(nfm_runtime PUBLIC nfm_collector nfm_ipc)
 nfm_configure_target(nfm_runtime)
 nfm_enable_static_analysis(nfm_runtime ENABLE_EXCEPTIONS)
 
-add_executable(nfm_collector_executable app/collector_main.cpp)
+add_executable(
+    nfm_collector_executable
+        app/collector_main.cpp
+        "${PROJECT_SOURCE_DIR}/resources/network_flow_monitor.rc"
+)
 set_target_properties(nfm_collector_executable PROPERTIES OUTPUT_NAME "nfm-collector")
-nfm_configure_target(nfm_collector_executable)
 nfm_enable_static_analysis(nfm_collector_executable ENABLE_EXCEPTIONS)
 target_link_libraries(nfm_collector_executable PRIVATE nfm_runtime Shell32)
 
@@ -87,6 +90,7 @@ add_library(
         host/bridge/bridge_types.cpp
         host/bridge/bridge_dispatcher.cpp
         host/bridge/native_bridge.cpp
+        host/coordinator/dock_capsule_coordinator.cpp
         host/lifecycle/collector_companion.cpp
         host/platform/webview2_environment.cpp
         host/platform/win32_window.cpp

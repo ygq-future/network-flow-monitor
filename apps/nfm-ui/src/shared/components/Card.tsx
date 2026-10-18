@@ -5,15 +5,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export const Card: React.FC<CardProps> = ({ children, variant = 'default', className = '', ...props }) => {
-  const baseStyles = 'rounded-xl p-4 transition-all duration-200'
+  const baseStyles = 'relative rounded-md p-3 transition-colors duration-150 focus-within:z-20'
 
   const variantStyles = {
-    default:
-      'bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/80 dark:border-slate-800/80 shadow-xs',
-    subtle: 'bg-slate-100/60 dark:bg-slate-800/40 border border-transparent',
-    outline: 'border border-slate-300 dark:border-slate-700 bg-transparent',
+    default: 'bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800',
+    subtle: 'bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800',
+    outline: 'border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950',
   }
-
   return (
     <div className={`${baseStyles} ${variantStyles[variant]} ${className}`} {...props}>
       {children}

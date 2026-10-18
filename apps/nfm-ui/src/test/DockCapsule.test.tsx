@@ -1,54 +1,47 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { DockCapsule } from '../features/capsule/DockCapsule'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { BridgeProvider } from '../bridge/BridgeContext'
 import { MockBridge } from '../bridge/nativeBridge'
-import { ThemeProvider } from '../shared/theme/ThemeContext'
+import { DockCapsule } from '../features/capsule/DockCapsule'
 import { I18nProvider } from '../shared/i18n/I18nContext'
-import React from 'react'
+import { ThemeProvider } from '../shared/theme/ThemeContext'
 
-function renderWithProviders(ui: React.ReactElement, bridge: MockBridge) {
+function renderCapsule(bridge: MockBridge) {
   return render(
     <BridgeProvider bridge={bridge}>
       <ThemeProvider>
-        <I18nProvider>{ui}</I18nProvider>
+        <I18nProvider>
+          <DockCapsule />
+        </I18nProvider>
       </ThemeProvider>
     </BridgeProvider>,
   )
 }
 
 describe('DockCapsule', () => {
-  it('renders capsule and rates pill', () => {
-    const bridge = new MockBridge(false)
-    renderWithProviders(<DockCapsule />, bridge)
-
-    const capsuleBtn = screen.getByRole('button', { name: /Network Flow Monitor/i })
-    expect(capsuleBtn).toBeInTheDocument()
+  it('renders only the configured capsule visual inside the native hit surface', () => {
+    renderCapsule(new MockBridge(false))
+    const visual = screen.getByTestId('capsule-visual')
+    expect(visual).toHaveStyle({ width: '10px', height: '64px', borderRadius: '5px' })
+    expect(screen.queryByText('Download')).not.toBeInTheDocument()
   })
 
-  it('expands popover card on click', () => {
+  it('requests the native coordinator to reveal the monitor', () => {
     const bridge = new MockBridge(false)
-    const handleOpenSettings = vi.fn()
-    renderWithProviders(<DockCapsule onOpenSettings={handleOpenSettings} />, bridge)
-
-    const capsuleBtn = screen.getByRole('button', { name: /Network Flow Monitor/i })
-    fireEvent.click(capsuleBtn)
-
-    expect(screen.getByText('Download')).toBeInTheDocument()
-    expect(screen.getByText('Upload')).toBeInTheDocument()
+    const send = vi.spyOn(bridge, 'sendCommand')
+    renderCapsule(bridge)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Network Flow Monitor' }), { key: 'Enter' })
+    expect(send).toHaveBeenCalledWith('showMonitor')
   })
 
-  it('handles settings navigation from popover', () => {
+  it('delegates the retained context menu to the native host', () => {
     const bridge = new MockBridge(false)
-    const handleOpenSettings = vi.fn()
-    renderWithProviders(<DockCapsule onOpenSettings={handleOpenSettings} />, bridge)
-
-    // Expand
-    const capsuleBtn = screen.getByRole('button', { name: /Network Flow Monitor/i })
-    fireEvent.click(capsuleBtn)
-
-    const settingsBtns = screen.getAllByRole('button', { name: 'Settings' })
-    fireEvent.click(settingsBtns[0])
-    expect(handleOpenSettings).toHaveBeenCalledTimes(1)
+    const send = vi.spyOn(bridge, 'sendCommand')
+    renderCapsule(bridge)
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Network Flow Monitor' }), {
+      screenX: 200,
+      screenY: 300,
+    })
+    expect(send).toHaveBeenCalledWith('openContextMenu', { x: 200, y: 300 })
   })
 })

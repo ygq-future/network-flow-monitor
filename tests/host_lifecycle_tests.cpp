@@ -84,6 +84,29 @@ void CheckCollectorCompanionInjections(TestContext& context) {
 
     context.Check(status_called, "collector_status injection calls callback");
 
+    // 3b. Check RankingSnapshot injection
+    bool ranking_called = false;
+    companion.set_ranking_snapshot_callback([&](const nfm::host::bridge::RankingSnapshotDto& snap) {
+        ranking_called = true;
+        context.Check(snap.applications.size() == 1, "ranking apps size is 1");
+        context.Check(snap.applications[0].display_name == "Edge", "ranking app name matches");
+    });
+    nfm::ipc::RankingSnapshotMessage snap_msg{
+        .seq = 1,
+        .monotonic_ms = 1000,
+        .status = "Ready",
+        .total_rate = {.download_bytes_per_sec = 1000, .upload_bytes_per_sec = 500},
+        .applications = {nfm::ipc::RankingApplication{
+            .id = "edge",
+            .executable_path = "msedge.exe",
+            .display_name = "Edge",
+            .icon_key = "edge",
+            .download_bytes_per_sec = 1000,
+            .upload_bytes_per_sec = 500,
+        }},
+    };
+    companion.inject_ranking_snapshot(snap_msg);
+    context.Check(ranking_called, "ranking_snapshot injection calls callback");
     // 4. Test stop and restart state
     companion.stop();
     context.Check(!companion.is_running(), "companion not running after stop");

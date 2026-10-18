@@ -19,6 +19,13 @@ void NativeBridge::post_traffic_tick(const TrafficTickDto& tick) {
     sender_(BridgeDispatcher::serialize_traffic_tick(tick));
 }
 
+void NativeBridge::post_ranking_snapshot(const RankingSnapshotDto& snapshot) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_ranking_snapshot(snapshot));
+}
+
 void NativeBridge::post_collector_status(const CollectorStatusDto& status) {
     if (!sender_) {
         return;
@@ -52,6 +59,13 @@ void NativeBridge::post_config_changed(const config::AppConfig& config) {
         return;
     }
     sender_(BridgeDispatcher::serialize_config_changed(config));
+}
+
+void NativeBridge::post_surface_changed(const SurfaceChangedDto& surface) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_surface_changed(surface));
 }
 
 void NativeBridge::post_command_response(const CommandResponseDto& response) {

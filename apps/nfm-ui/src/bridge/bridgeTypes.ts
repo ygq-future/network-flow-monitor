@@ -132,6 +132,8 @@ export interface CapsuleConfigDto {
   autoHideDelayMs: number
   downloadColorHex?: string
   uploadColorHex?: string
+  ignoreHoverWhenFullscreen?: boolean
+  hideCapsuleWhenFullscreen?: boolean
 }
 
 export interface MonitorConfigDto {
@@ -139,7 +141,6 @@ export interface MonitorConfigDto {
   dismissDelayMs: number
   opacityPercent: number
   blurStrengthPercent: number
-  yieldTopmostWhenFullscreen: boolean
 }
 
 export interface RankingConfigDto {

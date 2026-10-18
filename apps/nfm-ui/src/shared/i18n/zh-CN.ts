@@ -116,8 +116,10 @@ export const zhCN: TranslationSchema = {
     opacityDesc: '保留配置项',
     blurStrength: '背景模糊强度',
     blurStrengthDesc: '保留配置项',
-    yieldTopmost: '全屏应用时让出置顶',
-    yieldTopmostDesc: '全屏应用或游戏处于焦点时自动下移窗口层级',
+    ignoreHoverFullscreen: '全屏时锁定并鼠标穿透',
+    ignoreHoverFullscreenDesc: '全屏应用或游戏在前台时开启鼠标穿透，禁止悬停或点击打开监控面板，防止误触',
+    hideCapsuleFullscreen: '全屏时隐藏胶囊',
+    hideCapsuleFullscreenDesc: '全屏应用或游戏在前台时自动隐藏贴边胶囊，退出全屏后恢复',
     // Ranking
     topN: '排行显示数量 (Top N)',
     topNDesc: '监控面板展示的最大活跃应用数量',

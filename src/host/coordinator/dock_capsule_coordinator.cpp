@@ -216,6 +216,9 @@ void DockCapsuleCoordinator::recalculate_geometry() {
 }
 
 void DockCapsuleCoordinator::on_pointer_enter_capsule() {
+    if (state_.is_fullscreen_hidden || state_.is_click_through) {
+        return;
+    }
     pointer_in_capsule_ = true;
     state_.is_auto_hidden = false;
     auto_hide_timer_elapsed_ = std::chrono::milliseconds{0};
@@ -271,6 +274,9 @@ void DockCapsuleCoordinator::on_pointer_leave_panel() {
 }
 
 void DockCapsuleCoordinator::on_pointer_click_capsule() {
+    if (state_.is_fullscreen_hidden || state_.is_click_through) {
+        return;
+    }
     state_.is_hover_timer_active = false;
     hover_timer_elapsed_ = std::chrono::milliseconds{0};
     state_.is_dismiss_timer_active = false;
@@ -283,6 +289,9 @@ void DockCapsuleCoordinator::on_pointer_click_capsule() {
 }
 
 void DockCapsuleCoordinator::on_pointer_down_capsule(ScreenPoint pt) {
+    if (state_.is_fullscreen_hidden || state_.is_click_through) {
+        return;
+    }
     pointer_down_candidate_ = true;
     drag_start_pt_ = pt;
     drag_grab_offset_x_px_ = pt.x_px - state_.geometry.x_px;
@@ -504,8 +513,51 @@ void DockCapsuleCoordinator::on_context_menu_closed(bool cursor_inside) {
 }
 
 void DockCapsuleCoordinator::set_fullscreen_active_on_same_monitor(bool active) {
+    const bool entered_fullscreen = (!fullscreen_active_ && active);
     fullscreen_active_ = active;
-    state_.is_topmost = !(config_.floating.yield_topmost_when_fullscreen && fullscreen_active_);
-}
+    state_.is_fullscreen_hidden =
+        (config_.floating.hide_capsule_when_fullscreen && fullscreen_active_);
+    state_.is_click_through = fullscreen_active_ && !state_.is_fullscreen_hidden &&
+                              config_.floating.ignore_hover_when_fullscreen;
+    state_.is_topmost = !state_.is_fullscreen_hidden;
 
+    if (entered_fullscreen && state_.is_pinned) {
+        state_.is_pinned = false;
+        config_.floating.nfm_pinned = false;
+        state_.pin_updated = true;
+        if (state_.presentation_state == PresentationState::PanelVisible) {
+            pointer_in_panel_ = false;
+            pointer_in_capsule_ = false;
+            state_.is_dismiss_timer_active = false;
+            dismiss_timer_elapsed_ = std::chrono::milliseconds{0};
+            state_.presentation_state = PresentationState::CapsuleVisible;
+            if (!state_.is_fullscreen_hidden && config_.floating.auto_hide_enabled &&
+                !state_.is_auto_hidden) {
+                state_.is_auto_hide_timer_active = true;
+                auto_hide_timer_elapsed_ = std::chrono::milliseconds{0};
+            }
+            recalculate_geometry();
+        }
+    }
+
+    if (state_.is_fullscreen_hidden || state_.is_click_through) {
+        state_.is_hover_timer_active = false;
+        hover_timer_elapsed_ = std::chrono::milliseconds{0};
+        pointer_in_capsule_ = false;
+        pointer_in_panel_ = false;
+        pointer_down_candidate_ = false;
+        state_.is_dragging = false;
+        state_.is_dismiss_timer_active = false;
+        dismiss_timer_elapsed_ = std::chrono::milliseconds{0};
+        if (state_.presentation_state == PresentationState::PanelVisible) {
+            state_.presentation_state = PresentationState::CapsuleVisible;
+            if (!state_.is_fullscreen_hidden && config_.floating.auto_hide_enabled &&
+                !state_.is_auto_hidden) {
+                state_.is_auto_hide_timer_active = true;
+                auto_hide_timer_elapsed_ = std::chrono::milliseconds{0};
+            }
+            recalculate_geometry();
+        }
+    }
+}
 } // namespace nfm::host::coordinator

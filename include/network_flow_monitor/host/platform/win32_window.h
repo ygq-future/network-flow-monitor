@@ -108,6 +108,7 @@ class Win32Window {
 
     void set_bounds(int x, int y, int width, int height);
     void set_topmost(bool topmost);
+    void set_click_through(bool click_through);
     void set_taskbar_visibility(bool app_window);
     void configure_surface_chrome(bool rounded_frame, bool dark_mode);
     void begin_interactive_drag() noexcept {
@@ -149,9 +150,9 @@ class Win32Window {
     bool last_rounded_frame_{false};
     bool last_dark_mode_{true};
     bool last_app_window_{false};
+    bool click_through_enabled_{false};
     bool chrome_initialized_{false};
     HBRUSH background_brush_{nullptr};
-
     std::mutex task_mutex_;
     std::queue<std::function<void()>> task_queue_;
 };

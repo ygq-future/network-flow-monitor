@@ -50,12 +50,21 @@ constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
-constexpr std::array<std::string_view, 14> kFloatingKeys{
-    "auto_hide_enabled",        "auto_hide_delay_ms", "opacity_percent",
-    "blur_strength_percent",    "capsule_width_dip",  "capsule_height_dip",
-    "capsule_end_rounding_dip", "nfm_pinned",         "yield_topmost_when_fullscreen",
-    "anchor_monitor_id",        "anchor_side",        "anchor_vertical_offset_dip",
-    "download_color_hex",       "upload_color_hex"};
+constexpr std::array<std::string_view, 15> kFloatingKeys{"auto_hide_enabled",
+                                                         "auto_hide_delay_ms",
+                                                         "opacity_percent",
+                                                         "blur_strength_percent",
+                                                         "capsule_width_dip",
+                                                         "capsule_height_dip",
+                                                         "capsule_end_rounding_dip",
+                                                         "nfm_pinned",
+                                                         "ignore_hover_when_fullscreen",
+                                                         "hide_capsule_when_fullscreen",
+                                                         "anchor_monitor_id",
+                                                         "anchor_side",
+                                                         "anchor_vertical_offset_dip",
+                                                         "download_color_hex",
+                                                         "upload_color_hex"};
 constexpr std::array<std::string_view, 14> kDevelopmentFloatingKeys{"snap_distance_dip",
                                                                     "auto_hide_enabled",
                                                                     "auto_hide_delay_ms",
@@ -492,9 +501,14 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
                                  config.floating.nfm_pinned, &complete)) {
         return error;
     }
-    if (auto error = ReadBoolean(group, "yield_topmost_when_fullscreen",
-                                 "floating.yield_topmost_when_fullscreen",
-                                 config.floating.yield_topmost_when_fullscreen, &complete)) {
+    if (auto error = ReadBoolean(group, "ignore_hover_when_fullscreen",
+                                 "floating.ignore_hover_when_fullscreen",
+                                 config.floating.ignore_hover_when_fullscreen, &complete)) {
+        return error;
+    }
+    if (auto error = ReadBoolean(group, "hide_capsule_when_fullscreen",
+                                 "floating.hide_capsule_when_fullscreen",
+                                 config.floating.hide_capsule_when_fullscreen, &complete)) {
         return error;
     }
     auto* anchor_monitor = yyjson_obj_get(group, "anchor_monitor_id");
@@ -720,8 +734,10 @@ bool AddFloating(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig
            yyjson_mut_obj_add_sint(document, group, "capsule_end_rounding_dip",
                                    config.floating.capsule_end_rounding_dip) &&
            yyjson_mut_obj_add_bool(document, group, "nfm_pinned", config.floating.nfm_pinned) &&
-           yyjson_mut_obj_add_bool(document, group, "yield_topmost_when_fullscreen",
-                                   config.floating.yield_topmost_when_fullscreen) &&
+           yyjson_mut_obj_add_bool(document, group, "ignore_hover_when_fullscreen",
+                                   config.floating.ignore_hover_when_fullscreen) &&
+           yyjson_mut_obj_add_bool(document, group, "hide_capsule_when_fullscreen",
+                                   config.floating.hide_capsule_when_fullscreen) &&
            AddString(document, group, "anchor_monitor_id",
                      std::string_view{config.floating.anchor_monitor_id.data()}) &&
            AddString(document, group, "anchor_side", DockSideText(config.floating.anchor_side)) &&

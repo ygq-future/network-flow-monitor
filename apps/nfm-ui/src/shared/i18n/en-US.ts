@@ -116,8 +116,11 @@ export const enUS: TranslationSchema = {
     opacityDesc: 'Retained schema setting',
     blurStrength: 'Backdrop Blur Strength',
     blurStrengthDesc: 'Retained schema setting',
-    yieldTopmost: 'Yield Topmost on Full Screen',
-    yieldTopmostDesc: 'Step behind focused fullscreen applications',
+    ignoreHoverFullscreen: 'Lock & Click-Through on Full Screen',
+    ignoreHoverFullscreenDesc:
+      'Enable mouse click-through and prevent hover/click from opening monitor panel during fullscreen apps or games',
+    hideCapsuleFullscreen: 'Hide Capsule on Full Screen',
+    hideCapsuleFullscreenDesc: 'Automatically hide the dock capsule when a fullscreen app or game is active',
     // Ranking
     topN: 'Top N Applications',
     topNDesc: 'Maximum active applications shown in panel',

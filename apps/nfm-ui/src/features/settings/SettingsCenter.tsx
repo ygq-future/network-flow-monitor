@@ -26,6 +26,7 @@ import { useTheme } from '../../shared/theme/ThemeContext'
 import { Button } from '../../shared/components/Button'
 import { IconButton } from '../../shared/components/IconButton'
 import { Select } from '../../shared/components/Select'
+import { ColorPicker } from '../../shared/components/ColorPicker'
 import { Slider } from '../../shared/components/Slider'
 import { Toggle } from '../../shared/components/Toggle'
 import { Badge } from '../../shared/components/Badge'
@@ -406,42 +407,46 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       })}
                     </div>
 
-                    {/* Sleek Custom Color Swatch Pills */}
+                    {/* Custom Popover Color Pickers */}
                     <div className="flex items-center gap-1.5">
-                      <label
-                        className="group relative flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
-                        title={`${t.settings.downloadColor}: ${downloadColor.toUpperCase()}`}>
-                        <span className="font-mono text-[10px] font-bold text-zinc-500 dark:text-zinc-400">↓</span>
-                        <span
-                          className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 ring-inset dark:ring-white/20"
-                          style={{ backgroundColor: downloadColor }}
-                        />
-                        <input
-                          type="color"
-                          aria-label={t.settings.downloadColor}
-                          value={downloadColor}
-                          onChange={e => handleUpdate('floating.download_color_hex', e.target.value)}
-                          className="sr-only"
-                        />
-                      </label>
-                      <label
-                        className="group relative flex h-6 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 transition-colors hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
-                        title={`${t.settings.uploadColor}: ${uploadColor.toUpperCase()}`}>
-                        <span className="font-mono text-[10px] font-bold text-zinc-500 dark:text-zinc-400">↑</span>
-                        <span
-                          className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/15 ring-inset dark:ring-white/20"
-                          style={{ backgroundColor: uploadColor }}
-                        />
-                        <input
-                          type="color"
-                          aria-label={t.settings.uploadColor}
-                          value={uploadColor}
-                          onChange={e => handleUpdate('floating.upload_color_hex', e.target.value)}
-                          className="sr-only"
-                        />
-                      </label>
+                      <ColorPicker
+                        prefix="↓"
+                        label={t.settings.downloadColor}
+                        ariaLabel={t.settings.downloadColor}
+                        value={downloadColor}
+                        onChange={hex => handleUpdate('floating.download_color_hex', hex)}
+                      />
+                      <ColorPicker
+                        prefix="↑"
+                        label={t.settings.uploadColor}
+                        ariaLabel={t.settings.uploadColor}
+                        value={uploadColor}
+                        onChange={hex => handleUpdate('floating.upload_color_hex', hex)}
+                      />
                     </div>
                   </div>
+                }
+              />
+              <SettingsRow
+                label={t.settings.ignoreHoverFullscreen}
+                description={t.settings.ignoreHoverFullscreenDesc}
+                control={
+                  <Toggle
+                    checked={config.capsule.ignoreHoverWhenFullscreen ?? true}
+                    onChange={val => handleUpdate('floating.ignore_hover_when_fullscreen', val)}
+                    ariaLabel={t.settings.ignoreHoverFullscreen}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.hideCapsuleFullscreen}
+                description={t.settings.hideCapsuleFullscreenDesc}
+                control={
+                  <Toggle
+                    checked={config.capsule.hideCapsuleWhenFullscreen ?? false}
+                    onChange={val => handleUpdate('floating.hide_capsule_when_fullscreen', val)}
+                    ariaLabel={t.settings.hideCapsuleFullscreen}
+                  />
                 }
               />
             </Card>
@@ -473,17 +478,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     unit={schema.dismissDelay.unit}
                     onChange={val => handleUpdate('interaction.dismiss_delay_ms', val)}
                     ariaLabel={t.settings.dismissDelay}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.yieldTopmost}
-                description={t.settings.yieldTopmostDesc}
-                control={
-                  <Toggle
-                    checked={config.monitor.yieldTopmostWhenFullscreen}
-                    onChange={val => handleUpdate('floating.yield_topmost_when_fullscreen', val)}
-                    ariaLabel={t.settings.yieldTopmost}
                   />
                 }
               />

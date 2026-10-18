@@ -327,24 +327,66 @@ void TestAutoHide(TestContext& ctx) {
 
 void TestFullscreenTopmostYield(TestContext& ctx) {
     nfm::config::AppConfig cfg;
-    cfg.floating.yield_topmost_when_fullscreen = true;
+    cfg.floating.nfm_pinned = true;
+    cfg.floating.ignore_hover_when_fullscreen = true;
+    cfg.floating.hide_capsule_when_fullscreen = false;
+    cfg.interaction.hover_delay = std::chrono::milliseconds{350};
 
     DockCapsuleCoordinator coord(cfg);
     ctx.Check(coord.state().is_topmost, "Topmost true by default");
+    ctx.Check(coord.state().is_pinned, "Pinned initially");
+    ctx.Check(coord.state().presentation_state == PresentationState::PanelVisible,
+              "PanelVisible initially when pinned");
 
-    // Fullscreen window active on same monitor
+    // Fullscreen window active on same monitor: breaks pin, collapses to capsule, enables
+    // click-through
     coord.set_fullscreen_active_on_same_monitor(true);
-    ctx.Check(!coord.state().is_topmost, "Topmost yielded when fullscreen active");
+    ctx.Check(!coord.state().is_pinned, "Fullscreen breaks pin state");
+    ctx.Check(coord.state().pin_updated, "Fullscreen emits pin_updated");
+    ctx.Check(coord.state().presentation_state == PresentationState::CapsuleVisible,
+              "Fullscreen collapses panel back to capsule");
+    ctx.Check(coord.state().is_click_through,
+              "Capsule enables click-through when fullscreen active and ignore_hover is true");
+    ctx.Check(coord.state().is_topmost, "Capsule stays topmost when not fullscreen-hidden");
+
+    coord.on_pointer_enter_capsule();
+    ctx.Check(!coord.state().is_hover_timer_active,
+              "Hover timer ignored during fullscreen click-through");
+    coord.on_pointer_click_capsule();
+    ctx.Check(coord.state().presentation_state == PresentationState::CapsuleVisible,
+              "Click ignored during fullscreen click-through");
+
+    // Enable hide_capsule_when_fullscreen
+    cfg.floating.nfm_pinned = false;
+    cfg.floating.hide_capsule_when_fullscreen = true;
+    coord.update_config(cfg);
+    ctx.Check(coord.state().is_fullscreen_hidden,
+              "Capsule marked fullscreen-hidden when hide_capsule_when_fullscreen is enabled");
+    ctx.Check(!coord.state().is_click_through,
+              "Click-through false when capsule is completely hidden");
 
     // Fullscreen window inactive
     coord.set_fullscreen_active_on_same_monitor(false);
     ctx.Check(coord.state().is_topmost, "Topmost restored when fullscreen inactive");
+    ctx.Check(!coord.state().is_fullscreen_hidden,
+              "Fullscreen hidden cleared when fullscreen inactive");
+    ctx.Check(!coord.state().is_click_through, "Click-through cleared when fullscreen inactive");
 
-    // If yield_topmost_when_fullscreen is disabled in config
-    cfg.floating.yield_topmost_when_fullscreen = false;
+    // If both fullscreen policies are disabled in config
+    cfg.floating.ignore_hover_when_fullscreen = false;
+    cfg.floating.hide_capsule_when_fullscreen = false;
     coord.update_config(cfg);
     coord.set_fullscreen_active_on_same_monitor(true);
-    ctx.Check(coord.state().is_topmost, "Topmost NOT yielded when disabled in config");
+    ctx.Check(!coord.state().is_click_through,
+              "Click-through NOT enabled when ignore_hover_when_fullscreen is disabled");
+    coord.on_pointer_enter_capsule();
+    ctx.Check(coord.state().is_hover_timer_active,
+              "Hover timer starts when ignore_hover_when_fullscreen is disabled");
+    // Simulate periodic clock tick calling set_fullscreen_active_on_same_monitor(true)
+    coord.set_fullscreen_active_on_same_monitor(true);
+    coord.advance_time(std::chrono::milliseconds{360});
+    ctx.Check(coord.state().presentation_state == PresentationState::PanelVisible,
+              "Hover expands to panel during fullscreen when lock is disabled");
 }
 
 void TestDpiScalingAndDisplayChangeFallback(TestContext& ctx) {

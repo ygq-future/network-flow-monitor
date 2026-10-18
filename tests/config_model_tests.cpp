@@ -57,8 +57,10 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.floating.auto_hide_delay == 500ms, "default auto hide delay");
     context.Check(config.floating.opacity_percent == 92U, "default opacity");
     context.Check(config.floating.blur_strength_percent == 60U, "default blur strength");
-    context.Check(config.floating.yield_topmost_when_fullscreen,
-                  "full-screen foreground windows are above the monitor by default");
+    context.Check(config.floating.ignore_hover_when_fullscreen,
+                  "ignore hover on fullscreen enabled by default");
+    context.Check(!config.floating.hide_capsule_when_fullscreen,
+                  "hide capsule on fullscreen disabled by default");
     context.Check(config.floating.capsule_width_dip == 10, "default capsule width");
     context.Check(config.floating.capsule_height_dip == 64, "default capsule height");
     context.Check(config.floating.capsule_end_rounding_dip == 5, "default capsule end rounding");

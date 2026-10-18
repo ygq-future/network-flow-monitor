@@ -8,7 +8,7 @@ import { Checkbox } from '../shared/components/Checkbox'
 import { SettingsSection } from '../shared/components/SettingsSection'
 import { SettingsRow } from '../shared/components/SettingsRow'
 import { Select } from '../shared/components/Select'
-
+import { ColorPicker } from '../shared/components/ColorPicker'
 describe('Shared Components', () => {
   it('Button handles clicks and disabled state', () => {
     const handleClick = vi.fn()
@@ -88,6 +88,25 @@ describe('Shared Components', () => {
     fireEvent.click(selectEl)
     fireEvent.click(screen.getByRole('option', { name: 'Bytes' }))
     expect(handleChange).toHaveBeenCalledWith('bytes')
+  })
+
+  it('ColorPicker opens custom popover, selects swatch, and commits hex input', () => {
+    const handleChange = vi.fn()
+    render(<ColorPicker value="#38bdf8" onChange={handleChange} label="Download" prefix="↓" />)
+
+    const trigger = screen.getByRole('button', { name: 'Download' })
+    fireEvent.click(trigger)
+
+    expect(screen.getByRole('dialog', { name: 'Download' })).toBeInTheDocument()
+    expect(screen.getByTestId('color-picker-sv-canvas')).toBeInTheDocument()
+    expect(screen.getByTestId('color-picker-hue-slider')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '#10B981' }))
+    expect(handleChange).toHaveBeenCalledWith('#10b981')
+
+    const hexInput = screen.getByRole('textbox', { name: 'HEX' })
+    fireEvent.change(hexInput, { target: { value: 'A78BFA' } })
+    expect(handleChange).toHaveBeenCalledWith('#a78bfa')
   })
 
   it('SettingsSection and SettingsRow render title, description, and control', () => {

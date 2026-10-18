@@ -178,6 +178,8 @@ void Win32Window::show(int cmd_show) {
 
 void Win32Window::hide() {
     if (hwnd_ != nullptr) {
+        surface_pointer_inside_ = false;
+        surface_button_down_ = false;
         ShowWindow(hwnd_, SW_HIDE);
     }
 }
@@ -197,6 +199,25 @@ void Win32Window::set_topmost(bool topmost) {
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 }
+
+void Win32Window::set_click_through(bool click_through) {
+    if (hwnd_ == nullptr || click_through_enabled_ == click_through) {
+        return;
+    }
+    click_through_enabled_ = click_through;
+    LONG_PTR ex_style = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    if (click_through) {
+        ex_style |= static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
+        surface_pointer_inside_ = false;
+        surface_button_down_ = false;
+    } else {
+        ex_style &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
+    }
+    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, ex_style);
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
 void Win32Window::set_taskbar_visibility(bool app_window) {
     if (hwnd_ == nullptr || (chrome_initialized_ && last_app_window_ == app_window)) {
         return;
@@ -418,6 +439,12 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
         return false;
     }
     HWND foreground = GetForegroundWindow();
+    if (foreground != nullptr) {
+        HWND root = GetAncestor(foreground, GA_ROOT);
+        if (root != nullptr) {
+            foreground = root;
+        }
+    }
     if (foreground == nullptr || foreground == product_window || IsWindowVisible(foreground) == 0 ||
         IsIconic(foreground) != 0) {
         return false;
@@ -433,8 +460,8 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
     if (GetClassNameW(foreground, class_name.data(), static_cast<int>(class_name.size())) > 0) {
         const std::wstring_view cls{class_name.data()};
         if (cls == L"Progman" || cls == L"WorkerW" || cls == L"Shell_TrayWnd" ||
-            cls == L"Shell_SecondaryTrayWnd" || cls == L"Windows.UI.Core.CoreWindow" ||
-            cls == L"XamlExplorerHostIslandWindow" || cls == L"ApplicationFrameWindow") {
+            cls == L"Shell_SecondaryTrayWnd" || cls == L"XamlExplorerHostIslandWindow" ||
+            cls == L"NetworkFlowMonitor_SettingsWindow") {
             return false;
         }
     }
@@ -445,16 +472,40 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
         return false;
     }
 
+    QUERY_USER_NOTIFICATION_STATE quns = QUNS_ACCEPTS_NOTIFICATIONS;
+    if (SUCCEEDED(SHQueryUserNotificationState(&quns)) && quns == QUNS_RUNNING_D3D_FULL_SCREEN) {
+        return true;
+    }
+
     MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
     RECT foreground_rect{};
     if (GetMonitorInfoW(foreground_monitor, &monitor_info) == 0 ||
         GetWindowRect(foreground, &foreground_rect) == 0) {
         return false;
     }
-    return foreground_rect.left <= monitor_info.rcMonitor.left &&
-           foreground_rect.top <= monitor_info.rcMonitor.top &&
-           foreground_rect.right >= monitor_info.rcMonitor.right &&
-           foreground_rect.bottom >= monitor_info.rcMonitor.bottom;
+    const bool covers_monitor = foreground_rect.left <= monitor_info.rcMonitor.left &&
+                                foreground_rect.top <= monitor_info.rcMonitor.top &&
+                                foreground_rect.right >= monitor_info.rcMonitor.right &&
+                                foreground_rect.bottom >= monitor_info.rcMonitor.bottom;
+    if (covers_monitor) {
+        return true;
+    }
+
+    RECT client_rect{};
+    POINT client_top_left{.x = 0, .y = 0};
+    POINT client_bottom_right{};
+    if (GetClientRect(foreground, &client_rect) != 0) {
+        client_bottom_right.x = client_rect.right;
+        client_bottom_right.y = client_rect.bottom;
+        if (ClientToScreen(foreground, &client_top_left) != 0 &&
+            ClientToScreen(foreground, &client_bottom_right) != 0) {
+            return client_top_left.x <= monitor_info.rcMonitor.left &&
+                   client_top_left.y <= monitor_info.rcMonitor.top &&
+                   client_bottom_right.x >= monitor_info.rcMonitor.right &&
+                   client_bottom_right.y >= monitor_info.rcMonitor.bottom;
+        }
+    }
+    return false;
 }
 
 surface::DragThresholdPx Win32Window::system_drag_threshold() noexcept {
@@ -674,7 +725,7 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
     case WM_TIMER: {
         if (wparam == kSurfaceClockTimerId && self->listener_ != nullptr) {
-            if (IsWindowVisible(hwnd) != FALSE) {
+            if (IsWindowVisible(hwnd) != FALSE && !self->click_through_enabled_) {
                 POINT pt{};
                 RECT rc{};
                 if (GetCursorPos(&pt) != FALSE && GetWindowRect(hwnd, &rc) != FALSE) {

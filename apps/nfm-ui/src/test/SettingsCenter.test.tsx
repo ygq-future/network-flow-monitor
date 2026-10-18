@@ -53,12 +53,12 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('End Rounding')).toBeInTheDocument()
     expect(screen.getByText('Hover Expand Delay')).toBeInTheDocument()
     expect(screen.getByText('Capsule Rate Colors')).toBeInTheDocument()
+    expect(screen.getByText('Lock & Click-Through on Full Screen')).toBeInTheDocument()
+    expect(screen.getByText('Hide Capsule on Full Screen')).toBeInTheDocument()
     // 3. Monitor tab
     fireEvent.click(screen.getByRole('button', { name: /Monitor Panel/i }))
     expect(screen.getByText('Pin Monitor Panel')).toBeInTheDocument()
     expect(screen.getByText('Dismiss Delay')).toBeInTheDocument()
-    expect(screen.getByText('Yield Topmost on Full Screen')).toBeInTheDocument()
-    // 4. Ranking tab
     fireEvent.click(screen.getByRole('button', { name: /Ranking/i }))
     expect(screen.getByText('Top N Applications')).toBeInTheDocument()
     expect(screen.getByText('Ranking Sliding Window')).toBeInTheDocument()
@@ -98,6 +98,14 @@ describe('SettingsCenter', () => {
     expect(spySend).toHaveBeenCalledWith('updateSetting', {
       key: 'floating.capsule_width_dip',
       value: 14,
+    })
+
+    // Toggle fullscreen hide capsule
+    const hideFullscreenToggle = screen.getByRole('switch', { name: /Hide Capsule on Full Screen/i })
+    fireEvent.click(hideFullscreenToggle)
+    expect(spySend).toHaveBeenCalledWith('updateSetting', {
+      key: 'floating.hide_capsule_when_fullscreen',
+      value: true,
     })
   })
 

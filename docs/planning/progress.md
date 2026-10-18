@@ -101,3 +101,13 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **独立预热设置窗口与按需消息投递 (`product_host.cpp`, `webview_controller.cpp`, `win32_window.cpp`)**：
   - 设置中心采用独立 `Win32Window` + `WebView2Controller` 实例，在主窗口就绪后静默预热并通过 `ICoreWebView2Controller::put_IsVisible` 管理可见性，支持毫秒级即时打开与隐藏复用；
   - 所有 WebMessage 回调经 `post_ui_task` 异步派发，严格按可见表面门控 Bridge 状态广播（仅在设置可见时推送配置与状态，仅在面板展开时推送应用排行）。
+
+## 第三轮视觉组件与全屏防误触增强 — complete
+
+- **自定义 Fluent 弹出式拾色器组件 (`ColorPicker.tsx`, `SettingsCenter.tsx`)**：
+  - 基于 `createPortal` 与视口自适应定位实现 `ColorPicker` 浮层组件，外部触发按钮展示紧凑方向标识与色点预览；
+  - 弹窗内集成 2D 饱和度/明度（SV）拖拽画布、360° 色相（Hue）滑块条、12 色精选快捷色块与 `#RRGGBB` 十六进制精确输入框，全面适配深浅色主题。
+- **全屏窗口识别与双配置防误触策略 (`app_config.h`, `config_codec.cpp`, `dock_capsule_coordinator.cpp`, `win32_window.cpp`, `product_host.cpp`)**：
+  - 在「贴边胶囊」分类下提供两个全屏策略配置项：`floating.ignore_hover_when_fullscreen`（全屏时锁定并鼠标穿透，默认开启）与 `floating.hide_capsule_when_fullscreen`（全屏时隐藏胶囊，默认关闭）；
+  - `Win32Window::is_foreground_fullscreen_on_same_monitor` 结合 `GA_ROOT`、`SHQueryUserNotificationState(QUNS_RUNNING_D3D_FULL_SCREEN)`、窗口矩形与客户端区域屏幕覆盖检测识别同显示器全屏应用与游戏；
+  - 进入全屏时自动解除 `nfm_pinned` 固定状态并收起为胶囊：开启“全屏时锁定并鼠标穿透”时动态启用 `WS_EX_TRANSPARENT | WS_EX_LAYERED` 实现操作系统级鼠标穿透并锁定悬停/点击展开；开启“全屏时隐藏胶囊”时执行 `window_->hide()`，退出全屏后自动恢复。

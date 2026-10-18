@@ -117,8 +117,10 @@ export interface TranslationSchema {
     opacityDesc: string
     blurStrength: string
     blurStrengthDesc: string
-    yieldTopmost: string
-    yieldTopmostDesc: string
+    ignoreHoverFullscreen: string
+    ignoreHoverFullscreenDesc: string
+    hideCapsuleFullscreen: string
+    hideCapsuleFullscreenDesc: string
     // Ranking
     topN: string
     topNDesc: string

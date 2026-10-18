@@ -572,6 +572,10 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
                            config.floating.download_color_hex.data());
     yyjson_mut_obj_add_str(doc.get(), cap, "uploadColorHex",
                            config.floating.upload_color_hex.data());
+    yyjson_mut_obj_add_bool(doc.get(), cap, "ignoreHoverWhenFullscreen",
+                            config.floating.ignore_hover_when_fullscreen);
+    yyjson_mut_obj_add_bool(doc.get(), cap, "hideCapsuleWhenFullscreen",
+                            config.floating.hide_capsule_when_fullscreen);
     // monitor
     yyjson_mut_val* mon = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "monitor", mon);
@@ -581,10 +585,7 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_obj_add_uint(doc.get(), mon, "opacityPercent", config.floating.opacity_percent);
     yyjson_mut_obj_add_uint(doc.get(), mon, "blurStrengthPercent",
                             config.floating.blur_strength_percent);
-    yyjson_mut_obj_add_bool(doc.get(), mon, "yieldTopmostWhenFullscreen",
-                            config.floating.yield_topmost_when_fullscreen);
 
-    // ranking
     yyjson_mut_val* rnk = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "ranking", rnk);
     yyjson_mut_obj_add_uint(doc.get(), rnk, "topN", config.ranking.top_n);

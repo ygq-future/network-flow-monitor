@@ -446,6 +446,9 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
     const auto before = coordinator_->state().presentation_state;
     const bool was_topmost = coordinator_->state().is_topmost;
     const bool was_auto_hidden = coordinator_->state().is_auto_hidden;
+    const bool was_fullscreen_hidden = coordinator_->state().is_fullscreen_hidden;
+    const bool was_click_through = coordinator_->state().is_click_through;
+    const bool was_pinned = coordinator_->state().is_pinned;
     const bool was_iconic =
         (window_ != nullptr && window_->hwnd() != nullptr && IsIconic(window_->hwnd()) != 0);
     if (coordinator_->state().is_dragging && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) {
@@ -464,7 +467,10 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
     coordinator_->advance_time(elapsed);
     if (coordinator_->state().presentation_state != before ||
         coordinator_->state().is_topmost != was_topmost ||
-        coordinator_->state().is_auto_hidden != was_auto_hidden || was_iconic) {
+        coordinator_->state().is_auto_hidden != was_auto_hidden ||
+        coordinator_->state().is_fullscreen_hidden != was_fullscreen_hidden ||
+        coordinator_->state().is_click_through != was_click_through ||
+        coordinator_->state().is_pinned != was_pinned || was_iconic) {
         apply_coordinator_state();
         publish_surface_state();
     }
@@ -478,6 +484,7 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
             static_cast<void>(settings_webview_->ensure_alive());
         }
         if (window_ && coordinator_->state().is_topmost &&
+            !coordinator_->state().is_fullscreen_hidden &&
             coordinator_->state().presentation_state != coordinator::PresentationState::TrayOnly) {
             window_->set_topmost(true);
         }
@@ -700,7 +707,9 @@ void ProductHost::apply_coordinator_state() {
         dark_mode = platform::Win32Window::is_system_dark_mode();
     }
     window_->set_taskbar_visibility(false);
-    if (state.presentation_state == coordinator::PresentationState::TrayOnly) {
+    if (state.presentation_state == coordinator::PresentationState::TrayOnly ||
+        state.is_fullscreen_hidden) {
+        window_->set_click_through(false);
         window_->hide();
     } else {
         const bool is_panel =
@@ -708,19 +717,25 @@ void ProductHost::apply_coordinator_state() {
         window_->configure_surface_chrome(is_panel, dark_mode);
         window_->set_bounds(state.geometry.x_px, state.geometry.y_px, state.geometry.width_px,
                             state.geometry.height_px);
+        window_->set_click_through(state.is_click_through);
         window_->set_topmost(state.is_topmost);
         window_->show(SW_SHOWNOACTIVATE);
         if (webview_) {
             webview_->resize(state.geometry.width_px, state.geometry.height_px);
         }
     }
-    if (state.anchor_updated) {
-        current_config_.floating.anchor_side = state.anchor_side;
-        current_config_.floating.anchor_vertical_offset_dip = state.anchor_vertical_offset_dip;
-        if (!state.anchor_monitor_id.empty()) {
-            strncpy_s(current_config_.floating.anchor_monitor_id.data(),
-                      current_config_.floating.anchor_monitor_id.size(),
-                      state.anchor_monitor_id.c_str(), _TRUNCATE);
+    if (state.anchor_updated || state.pin_updated) {
+        if (state.anchor_updated) {
+            current_config_.floating.anchor_side = state.anchor_side;
+            current_config_.floating.anchor_vertical_offset_dip = state.anchor_vertical_offset_dip;
+            if (!state.anchor_monitor_id.empty()) {
+                strncpy_s(current_config_.floating.anchor_monitor_id.data(),
+                          current_config_.floating.anchor_monitor_id.size(),
+                          state.anchor_monitor_id.c_str(), _TRUNCATE);
+            }
+        }
+        if (state.pin_updated) {
+            current_config_.floating.nfm_pinned = state.is_pinned;
         }
         coordinator_->clear_emitted_updates();
         static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
@@ -1162,13 +1177,23 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected integer for blur_strength_percent";
         }
-    } else if (key == "floating.yield_topmost_when_fullscreen" ||
-               key == "monitor.yieldTopmostWhenFullscreen" || key == "yieldTopmostWhenFullscreen") {
+    } else if (key == "floating.ignore_hover_when_fullscreen" ||
+               key == "capsule.ignoreHoverWhenFullscreen" ||
+               key == "monitor.ignoreHoverWhenFullscreen" || key == "ignoreHoverWhenFullscreen") {
         if (yyjson_is_bool(val)) {
-            current_config_.floating.yield_topmost_when_fullscreen = yyjson_get_bool(val);
+            current_config_.floating.ignore_hover_when_fullscreen = yyjson_get_bool(val);
             updated = true;
         } else {
-            err_msg = "Expected boolean for yield_topmost_when_fullscreen";
+            err_msg = "Expected boolean for ignore_hover_when_fullscreen";
+        }
+    } else if (key == "floating.hide_capsule_when_fullscreen" ||
+               key == "capsule.hideCapsuleWhenFullscreen" ||
+               key == "monitor.hideCapsuleWhenFullscreen" || key == "hideCapsuleWhenFullscreen") {
+        if (yyjson_is_bool(val)) {
+            current_config_.floating.hide_capsule_when_fullscreen = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for hide_capsule_when_fullscreen";
         }
     } else if (key == "ranking.top_n" || key == "ranking.topN" || key == "topN") {
         if (yyjson_is_int(val)) {

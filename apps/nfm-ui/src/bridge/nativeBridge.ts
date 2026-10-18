@@ -121,13 +121,14 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       autoHideDelayMs: 500,
       downloadColorHex: '#38bdf8',
       uploadColorHex: '#2dd4bf',
+      ignoreHoverWhenFullscreen: true,
+      hideCapsuleWhenFullscreen: false,
     },
     monitor: {
       pinned: false,
       dismissDelayMs: 500,
       opacityPercent: 100,
       blurStrengthPercent: 0,
-      yieldTopmostWhenFullscreen: true,
     },
     ranking: {
       topN: 5,
@@ -277,11 +278,17 @@ export class MockBridge extends NativeBridge {
     ) {
       cfg.monitor.blurStrengthPercent = Number(value)
     } else if (
-      key === 'floating.yield_topmost_when_fullscreen' ||
-      key === 'monitor.yieldTopmostWhenFullscreen' ||
-      key === 'yieldTopmostWhenFullscreen'
+      key === 'floating.ignore_hover_when_fullscreen' ||
+      key === 'capsule.ignoreHoverWhenFullscreen' ||
+      key === 'ignoreHoverWhenFullscreen'
     ) {
-      cfg.monitor.yieldTopmostWhenFullscreen = Boolean(value)
+      cfg.capsule.ignoreHoverWhenFullscreen = Boolean(value)
+    } else if (
+      key === 'floating.hide_capsule_when_fullscreen' ||
+      key === 'capsule.hideCapsuleWhenFullscreen' ||
+      key === 'hideCapsuleWhenFullscreen'
+    ) {
+      cfg.capsule.hideCapsuleWhenFullscreen = Boolean(value)
     } else if (key === 'ranking.top_n' || key === 'ranking.topN' || key === 'topN') {
       cfg.ranking.topN = Number(value)
     } else if (key === 'ranking.window_ms' || key === 'ranking.windowMs' || key === 'windowMs') {

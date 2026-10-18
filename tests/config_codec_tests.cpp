@@ -18,7 +18,7 @@ constexpr std::string_view kCompleteUserJson = R"json({
   "ranking": {"top_n": 7, "window_ms": 1750},
   "display": {"refresh_interval_ms": 250, "speed_unit": "bits", "show_upload": false, "show_download": true},
   "interaction": {"hover_delay_ms": 100, "dismiss_delay_ms": 200},
-  "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "blur_strength_percent": 75, "capsule_width_dip": 12, "capsule_height_dip": 96, "capsule_end_rounding_dip": 6, "nfm_pinned": true, "yield_topmost_when_fullscreen": false, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
+  "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "blur_strength_percent": 75, "capsule_width_dip": 12, "capsule_height_dip": 96, "capsule_end_rounding_dip": 6, "nfm_pinned": true, "ignore_hover_when_fullscreen": false, "hide_capsule_when_fullscreen": true, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
   "appearance": {"language": "simplified_chinese", "theme": "dark"},
   "startup": {"ui_at_login": true},
   "diagnostics": {"log_level": "debug"}
@@ -242,8 +242,9 @@ void CheckCompleteDocuments(TestContext& context) {
                       user.config.floating.anchor_side == nfm::config::DockSide::Left,
                   "capsule configuration and anchor decoded");
     context.Check(user.config.floating.blur_strength_percent == 75U &&
-                      !user.config.floating.yield_topmost_when_fullscreen,
-                  "glass blur and full-screen topmost policy decoded");
+                      !user.config.floating.ignore_hover_when_fullscreen &&
+                      user.config.floating.hide_capsule_when_fullscreen,
+                  "glass blur and full-screen policies decoded");
     context.Check(user.config.appearance.language == nfm::config::LanguageMode::SimplifiedChinese &&
                       user.config.appearance.theme == nfm::config::ThemeMode::Dark,
                   "appearance configuration decoded");

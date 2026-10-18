@@ -97,7 +97,8 @@ struct FloatingConfig {
     std::int32_t capsule_height_dip{64};
     std::int32_t capsule_end_rounding_dip{5};
     bool nfm_pinned{false};
-    bool yield_topmost_when_fullscreen{true};
+    bool ignore_hover_when_fullscreen{true};
+    bool hide_capsule_when_fullscreen{false};
     std::array<char, kMaximumMonitorIdentifierBytes + 1U> anchor_monitor_id{};
     DockSide anchor_side{DockSide::Right};
     std::int32_t anchor_vertical_offset_dip{0};

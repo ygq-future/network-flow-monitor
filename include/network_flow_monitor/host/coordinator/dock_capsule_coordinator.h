@@ -36,9 +36,11 @@ struct CoordinatorState {
     bool is_hover_timer_active{false};
     bool is_dismiss_timer_active{false};
     bool is_auto_hide_timer_active{false};
-
+    bool is_fullscreen_hidden{false};
+    bool is_click_through{false};
     // Configuration updates emitted by interaction
     bool anchor_updated{false};
+    bool pin_updated{false};
     config::DockSide anchor_side{config::DockSide::Right};
     std::int32_t anchor_vertical_offset_dip{0};
     std::string anchor_monitor_id;
@@ -104,6 +106,7 @@ class DockCapsuleCoordinator {
     // Reset pending emitted updates
     void clear_emitted_updates() noexcept {
         state_.anchor_updated = false;
+        state_.pin_updated = false;
     }
 
   private:

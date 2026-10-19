@@ -52,6 +52,8 @@ enum class WebCommandType : std::uint8_t {
     ResizePanel,
     ResizeSettingsWindow,
     OpenLogDirectory,
+    CheckForUpdate,
+    DownloadAndApplyUpdate,
     Unknown,
 };
 
@@ -66,6 +68,7 @@ enum class NativeEventType : std::uint8_t {
     ConfigChanged,
     SurfaceChanged,
     CommandResponse,
+    UpdateStatus,
     Error,
     Unknown,
 };
@@ -157,6 +160,17 @@ struct CommandResponseDto {
     std::string message;
 
     bool operator==(const CommandResponseDto&) const = default;
+};
+
+struct UpdateStatusDto {
+    std::string state{"Idle"}; // "Idle", "Checking", "UpToDate", "UpdateAvailable", "Downloading",
+                               // "Applying", "Error"
+    std::string current_version;
+    std::string latest_version;
+    std::uint8_t download_progress_percent{0};
+    std::string error_message;
+
+    bool operator==(const UpdateStatusDto&) const = default;
 };
 
 struct BridgeErrorDto {

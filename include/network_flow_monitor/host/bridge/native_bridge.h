@@ -27,6 +27,7 @@ class INativeBridge {
     virtual void post_config_changed(const config::AppConfig& config) = 0;
     virtual void post_surface_changed(const SurfaceChangedDto& surface) = 0;
     virtual void post_command_response(const CommandResponseDto& response) = 0;
+    virtual void post_update_status(const UpdateStatusDto& status) = 0;
     virtual void post_error(const BridgeErrorDto& error) = 0;
     virtual void post_raw_event(std::string_view event_json) = 0;
 };
@@ -58,6 +59,8 @@ class IBridgeCommandHandler {
     virtual void on_resize_panel(int /*height_dip*/) {}
     virtual void on_resize_settings_window(int /*height_dip*/) {}
     virtual void on_open_log_directory() {}
+    virtual void on_check_for_update() {}
+    virtual void on_download_and_apply_update() {}
 };
 
 using WebMessageSender = std::function<void(std::string_view json)>;
@@ -82,6 +85,7 @@ class NativeBridge : public INativeBridge {
     void post_config_changed(const config::AppConfig& config) override;
     void post_surface_changed(const SurfaceChangedDto& surface) override;
     void post_command_response(const CommandResponseDto& response) override;
+    void post_update_status(const UpdateStatusDto& status) override;
     void post_error(const BridgeErrorDto& error) override;
     void post_raw_event(std::string_view event_json) override;
 

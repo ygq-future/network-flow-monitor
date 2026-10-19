@@ -47,7 +47,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
 try {
     $entryNames = @($zip.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
-    foreach ($required in @('NetworkFlowMonitor.exe', 'nfm-collector.exe', 'ui/index.html')) {
+    foreach ($required in @('NetworkFlowMonitor.exe', 'nfm-collector.exe', 'ui/index.html', 'README.md', 'LICENSE')) {
         if ($entryNames -notcontains $required) {
             throw "Portable archive is missing required entry: $required"
         }

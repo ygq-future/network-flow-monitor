@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createWebCommand, TrafficTickDto, CollectorStatusDto } from '../bridge/bridgeTypes'
+import { createWebCommand, TrafficTickDto, CollectorStatusDto, UpdateStatusDto } from '../bridge/bridgeTypes'
 import { MockBridge, NativeBridge } from '../bridge/nativeBridge'
 
 describe('Bridge contract', () => {
@@ -92,6 +92,34 @@ describe('Bridge contract', () => {
       activePids: 42,
     })
 
+    bridge.destroy()
+  })
+
+  it('creates update commands and deserializes updateStatus events', () => {
+    const cmdJson = createWebCommand('checkForUpdate', undefined, 'cmd_upd_1')
+    const parsed = JSON.parse(cmdJson)
+    expect(parsed.type).toBe('checkForUpdate')
+    expect(parsed.version).toBe(1)
+
+    const bridge = new NativeBridge()
+    let receivedUpdate: UpdateStatusDto | null = null
+    bridge.on<UpdateStatusDto>('updateStatus', data => {
+      receivedUpdate = data
+    })
+    bridge.emit('updateStatus', {
+      state: 'UpdateAvailable',
+      currentVersion: '0.1.0',
+      latestVersion: '0.2.0',
+      downloadProgressPercent: 50,
+      errorMessage: '',
+    })
+    expect(receivedUpdate).toEqual({
+      state: 'UpdateAvailable',
+      currentVersion: '0.1.0',
+      latestVersion: '0.2.0',
+      downloadProgressPercent: 50,
+      errorMessage: '',
+    })
     bridge.destroy()
   })
 })

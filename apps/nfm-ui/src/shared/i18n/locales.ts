@@ -71,6 +71,16 @@ export interface TranslationSchema {
     speedUnitAuto: string
     speedUnitBytes: string
     speedUnitBits: string
+    appVersion: string
+    appVersionDesc: string
+    checkForUpdates: string
+    checkingUpdates: string
+    updateUpToDate: string
+    updateAvailable: string
+    updateNowAndRestart: string
+    downloadingUpdate: string
+    applyingUpdate: string
+    updateFailed: string
     // Appearance
     theme: string
     themeDesc: string

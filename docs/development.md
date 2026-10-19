@@ -29,10 +29,11 @@ powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full
 #### Gate Modes
 - **Fast Mode**:
   1. Deprecation policy verification (rejects deprecated TS/CMake options and blanket suppressions).
-  2. `clang-format --dry-run --Werror` across all C/C++ headers, sources, and tests.
-  3. C++ Debug x64 build (`/W4 /WX /permissive- /sdl`).
-  4. C++ automated headless test suites (`ctest --output-on-failure -LE requires-admin`).
-  5. Frontend `bun install --frozen-lockfile`, Prettier check, ESLint (`--max-warnings 0` including `@typescript-eslint/no-deprecated`), `tsc --noEmit`, Vitest suite, and Vite production build.
+  2. Version consistency check across `CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, and `.github/release-note/v<version>.md`.
+  3. `clang-format --dry-run --Werror` across all C/C++ headers, sources, and tests.
+  4. C++ Debug x64 build (`/W4 /WX /permissive- /sdl`).
+  5. C++ automated headless test suites (`ctest --output-on-failure -LE requires-admin`).
+  6. Frontend `bun install --frozen-lockfile`, Prettier check, ESLint (`--max-warnings 0` including `@typescript-eslint/no-deprecated`), `tsc --noEmit`, Vitest suite, and Vite production build.
 - **Full Mode**:
   - Runs everything in **Fast Mode**, plus:
   - `clang-tidy` & Clang Static Analyzer (0 diagnostics).
@@ -80,6 +81,7 @@ NetworkFlowMonitor/
 │   ├── index.html
 │   └── assets/*
 ├── README.md
+├── LICENSE
 ├── data/                      # Created at runtime under application root
 │   ├── config.json            # Atomic user configuration
 │   └── webview2/              # WebView2 user data folder

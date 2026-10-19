@@ -20,6 +20,8 @@ export type WebCommandType =
   | 'resizePanel'
   | 'resizeSettingsWindow'
   | 'openLogDirectory'
+  | 'checkForUpdate'
+  | 'downloadAndApplyUpdate'
 export type NativeEventType =
   | 'trafficTick'
   | 'rankingSnapshot'
@@ -30,8 +32,8 @@ export type NativeEventType =
   | 'configChanged'
   | 'surfaceChanged'
   | 'commandResponse'
+  | 'updateStatus'
   | 'error'
-
 export interface TrafficTickDto {
   seq: number
   monotonicMs: number
@@ -184,6 +186,16 @@ export interface CommandResponseDto {
   commandId: string
   success: boolean
   message?: string
+}
+
+export type UpdateState = 'Idle' | 'Checking' | 'UpToDate' | 'UpdateAvailable' | 'Downloading' | 'Applying' | 'Error'
+
+export interface UpdateStatusDto {
+  state: UpdateState
+  currentVersion: string
+  latestVersion: string
+  downloadProgressPercent: number
+  errorMessage: string
 }
 
 export interface BridgeErrorDto {

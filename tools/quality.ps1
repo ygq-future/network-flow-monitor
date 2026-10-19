@@ -356,6 +356,56 @@ Invoke-GateStep -Name 'Deprecation policy' -Action {
     }
 } -ParseDetail { '0 violations' }
 
+# Phase 0.5: Version consistency check across CMakeLists.txt, apps/nfm-ui/package.json, and .github/release-note/
+Invoke-GateStep -Name 'Version consistency' -Action {
+    $cmakeFile = Join-Path $projectRoot 'CMakeLists.txt'
+    $cmakeContent = Get-Content -LiteralPath $cmakeFile -Raw
+    if ($cmakeContent -notmatch 'project\s*\(\s*NetworkFlowMonitor[\s\S]*?\bVERSION\s+(\d+\.\d+\.\d+)\b') {
+        throw 'Could not extract project VERSION from CMakeLists.txt'
+    }
+    $cmakeVersion = $matches[1]
+
+    if (-not (Test-Path -LiteralPath $frontendManifest)) {
+        throw "Frontend package.json not found at $frontendManifest"
+    }
+    $pkgJson = Get-Content -LiteralPath $frontendManifest -Raw | ConvertFrom-Json
+    $frontendVersion = [string]$pkgJson.version
+    if ($cmakeVersion -ne $frontendVersion) {
+        throw "Version mismatch: CMakeLists.txt ($cmakeVersion) != apps/nfm-ui/package.json ($frontendVersion)"
+    }
+
+    $rcFile = Join-Path $projectRoot 'resources\network_flow_monitor.rc'
+    if (Test-Path -LiteralPath $rcFile) {
+        $rcContent = Get-Content -LiteralPath $rcFile -Raw
+        $commaVersion = ($cmakeVersion -replace '\.', ',') + ',0'
+        if ($rcContent -notmatch "PRODUCTVERSION\s+$([regex]::Escape($commaVersion))") {
+            throw "Version mismatch in resources/network_flow_monitor.rc: expected PRODUCTVERSION $commaVersion"
+        }
+        if ($rcContent -notmatch "VALUE\s+`"ProductVersion`",\s*`"$([regex]::Escape($cmakeVersion))`"") {
+            throw "Version mismatch in resources/network_flow_monitor.rc: expected ProductVersion `"$cmakeVersion`""
+        }
+    }
+
+    $releaseNoteDir = Join-Path $projectRoot '.github\release-note'
+    $versionedNote = Join-Path $releaseNoteDir "v$cmakeVersion.md"
+    if (-not (Test-Path -LiteralPath $versionedNote)) {
+        throw "Missing release note file for current version: .github/release-note/v$cmakeVersion.md"
+    }
+    $noteContent = (Get-Content -LiteralPath $versionedNote -Raw).Trim()
+    if ([string]::IsNullOrWhiteSpace($noteContent)) {
+        throw "Release note file is empty: .github/release-note/v$cmakeVersion.md"
+    }
+    if ($noteContent -notmatch [regex]::Escape($cmakeVersion)) {
+        throw "Release note .github/release-note/v$cmakeVersion.md does not reference version $cmakeVersion"
+    }
+    return $cmakeVersion
+} -ParseDetail {
+    param($lines)
+    $arr = @($lines)
+    if ($arr.Length -gt 0 -and -not [string]::IsNullOrWhiteSpace($arr[-1])) { return "v$($arr[-1])" }
+    return ''
+}
+
 # Phase A: C++ formatting check
 Invoke-GateStep -Name 'C++ format' -Action {
     $out = & $clangFormat --dry-run --Werror --style=file @($sourceFiles.FullName) 2>&1
@@ -366,40 +416,6 @@ Invoke-GateStep -Name 'C++ format' -Action {
     return 0
 } -ParseDetail { "$($sourceFiles.Count) files" }
 
-# Phase B: C++ Debug configure
-$debugBuildNinja = Join-Path $projectRoot 'build\windows-x64-debug\build.ninja'
-$debugBuildCache = Join-Path $projectRoot 'build\windows-x64-debug\CMakeCache.txt'
-Invoke-GateStep -Name 'C++ Debug configure' -Action {
-    if (-not (Test-Path -LiteralPath $debugBuildNinja) -or -not (Test-Path -LiteralPath $debugBuildCache)) {
-        & $cmake --preset windows-x64-debug
-        return $LASTEXITCODE
-    }
-    return 0
-}
-
-# Phase C: C++ Debug build (incremental by default, --clean-first if $Clean)
-$debugBuildArgs = @('--build', '--preset', 'windows-x64-debug', '--parallel', $Jobs.ToString())
-if ($Clean) {
-    $debugBuildArgs += '--clean-first'
-}
-Invoke-GateStep -Name 'C++ Debug build' -Action {
-    & $cmake @debugBuildArgs
-}
-
-# Phase D: C++ automated tests (headless, non-interactive, exclude admin)
-Invoke-GateStep -Name 'C++ tests' -Action {
-    & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin' --parallel $Jobs
-} -ParseDetail {
-    param($lines)
-    $text = $lines -join "`n"
-    if ($text -match '(\d+)%\s+tests\s+passed,\s+(\d+)\s+tests\s+failed\s+out\s+of\s+(\d+)') {
-        $total = [int]$matches[3]
-        $failed = [int]$matches[2]
-        $passed = $total - $failed
-        return "$passed passed"
-    }
-    return ''
-}
 # Phase E - J: Frontend verification (if apps/nfm-ui/package.json exists)
 if (Test-Path -LiteralPath $frontendManifest) {
     $packageJson = Get-Content -LiteralPath $frontendManifest -Raw | ConvertFrom-Json
@@ -516,6 +532,40 @@ if (Test-Path -LiteralPath $frontendManifest) {
             Pop-Location
         }
     }
+}
+# Phase B: C++ Debug configure
+$debugBuildNinja = Join-Path $projectRoot 'build\windows-x64-debug\build.ninja'
+$debugBuildCache = Join-Path $projectRoot 'build\windows-x64-debug\CMakeCache.txt'
+Invoke-GateStep -Name 'C++ Debug configure' -Action {
+    if (-not (Test-Path -LiteralPath $debugBuildNinja) -or -not (Test-Path -LiteralPath $debugBuildCache)) {
+        & $cmake --preset windows-x64-debug
+        return $LASTEXITCODE
+    }
+    return 0
+}
+
+# Phase C: C++ Debug build (incremental by default, --clean-first if $Clean)
+$debugBuildArgs = @('--build', '--preset', 'windows-x64-debug', '--parallel', $Jobs.ToString())
+if ($Clean) {
+    $debugBuildArgs += '--clean-first'
+}
+Invoke-GateStep -Name 'C++ Debug build' -Action {
+    & $cmake @debugBuildArgs
+}
+
+# Phase D: C++ automated tests (headless, non-interactive, exclude admin)
+Invoke-GateStep -Name 'C++ tests' -Action {
+    & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin' --parallel $Jobs
+} -ParseDetail {
+    param($lines)
+    $text = $lines -join "`n"
+    if ($text -match '(\d+)%\s+tests\s+passed,\s+(\d+)\s+tests\s+failed\s+out\s+of\s+(\d+)') {
+        $total = [int]$matches[3]
+        $failed = [int]$matches[2]
+        $passed = $total - $failed
+        return "$passed passed"
+    }
+    return ''
 }
 
 # If in Fast mode, finish here

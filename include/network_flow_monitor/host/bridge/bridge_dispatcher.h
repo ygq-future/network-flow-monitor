@@ -54,6 +54,8 @@ class BridgeDispatcher {
     // Static helper to serialize CommandResponseDto
     static std::string serialize_command_response(const CommandResponseDto& response);
 
+    // Static helper to serialize UpdateStatusDto
+    static std::string serialize_update_status(const UpdateStatusDto& status);
     // Static helper to serialize BridgeErrorDto
     static std::string serialize_error(const BridgeErrorDto& error);
 

@@ -1,5 +1,6 @@
 #include "network_flow_monitor/host/app/product_host.h"
 
+#include "network_flow_monitor/build/dependencies.h"
 #include "network_flow_monitor/config/config_paths.h"
 #include "network_flow_monitor/config/config_validation.h"
 #include "network_flow_monitor/host/platform/webview2_environment.h"
@@ -78,6 +79,13 @@ ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(option
     }
     logger_.set_options(platform::RotatingFileLoggerOptions{
         .log_directory = options_.log_directory_path,
+    });
+
+    app_updater_ = std::make_unique<platform::AppUpdater>(platform::AppUpdaterOptions{
+        .current_version = NFM_APP_VERSION,
+        .github_repo = NFM_GITHUB_REPO,
+        .app_root_dir = exe_dir,
+        .host_executable_path = exe_path,
     });
 }
 
@@ -288,6 +296,42 @@ bool ProductHost::initialize() {
         }
     });
 
+    if (app_updater_) {
+        app_updater_->set_diagnostic_callback([this](bool is_error, std::string_view message) {
+            write_diagnostic_log(is_error ? config::LogLevel::Error : config::LogLevel::Info,
+                                 message);
+        });
+        app_updater_->set_status_callback([this](const bridge::UpdateStatusDto& status) {
+            if (window_ != nullptr) {
+                auto status_ptr = std::make_shared<bridge::UpdateStatusDto>(status);
+                window_->post_ui_task([this, status_ptr]() noexcept {
+                    try {
+                        if (!is_shutting_down_ && status_ptr) {
+                            broadcast_to_all_bridges([&status_ptr](bridge::INativeBridge& b) {
+                                b.post_update_status(*status_ptr);
+                            });
+                        }
+                    } catch (...) {
+                    }
+                });
+            } else {
+                broadcast_to_all_bridges(
+                    [&status](bridge::INativeBridge& b) { b.post_update_status(status); });
+            }
+        });
+        app_updater_->set_shutdown_request_callback([this]() {
+            if (window_ != nullptr) {
+                window_->post_ui_task([this]() noexcept {
+                    try {
+                        shutdown();
+                    } catch (...) {
+                    }
+                });
+            } else {
+                shutdown();
+            }
+        });
+    }
     // 5. Create Win32 Window and show initial geometry before WebView2 controller creation
     if (!window_->create(this)) {
         return false;
@@ -360,6 +404,9 @@ void ProductHost::shutdown() {
         return;
     }
     is_shutting_down_ = true;
+    if (app_updater_) {
+        app_updater_->cancel_and_wait();
+    }
     if (collector_companion_) {
         collector_companion_->stop();
     }
@@ -777,6 +824,9 @@ void ProductHost::ensure_settings_window() {
                             if (latest_collector_status_.has_value()) {
                                 settings_bridge_->post_collector_status(*latest_collector_status_);
                             }
+                            if (app_updater_) {
+                                settings_bridge_->post_update_status(app_updater_->status());
+                            }
                             if (settings_surface_visible_) {
                                 if (settings_webview_) {
                                     settings_webview_->set_visible(true);
@@ -821,6 +871,9 @@ void ProductHost::ensure_settings_window() {
             settings_bridge_->post_config_changed(current_config_);
             if (latest_collector_status_.has_value()) {
                 settings_bridge_->post_collector_status(*latest_collector_status_);
+            }
+            if (app_updater_) {
+                settings_bridge_->post_update_status(app_updater_->status());
             }
         }
         if (!settings_webview_ || settings_webview_->is_ready()) {
@@ -1104,12 +1157,18 @@ void ProductHost::on_request_config() {
             if (latest_collector_status_.has_value()) {
                 settings_bridge_->post_collector_status(*latest_collector_status_);
             }
+            if (app_updater_) {
+                settings_bridge_->post_update_status(app_updater_->status());
+            }
         }
     }
     broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
         b.post_config_changed(current_config_);
         if (latest_collector_status_.has_value()) {
             b.post_collector_status(*latest_collector_status_);
+        }
+        if (app_updater_) {
+            b.post_update_status(app_updater_->status());
         }
     });
     if (native_bridge_ && latest_ranking_snapshot_.has_value()) {
@@ -1622,5 +1681,17 @@ void ProductHost::on_open_log_directory() {
         std::filesystem::exists(log_dir, ec) ? log_dir : log_dir.parent_path();
     static_cast<void>(
         ShellExecuteW(nullptr, L"open", target_dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+}
+
+void ProductHost::on_check_for_update() {
+    if (app_updater_) {
+        app_updater_->check_for_updates_async();
+    }
+}
+
+void ProductHost::on_download_and_apply_update() {
+    if (app_updater_) {
+        app_updater_->download_and_apply_async();
+    }
 }
 } // namespace nfm::host::app

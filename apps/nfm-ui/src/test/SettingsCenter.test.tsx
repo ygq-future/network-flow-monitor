@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { SettingsCenter } from '../features/settings/SettingsCenter'
 import { BridgeProvider } from '../bridge/BridgeContext'
 import { MockBridge } from '../bridge/nativeBridge'
@@ -35,6 +35,8 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('Top N Applications')).toBeInTheDocument()
     expect(screen.getByText('Ranking Sliding Window')).toBeInTheDocument()
     expect(screen.getByText('Display Refresh Interval')).toBeInTheDocument()
+    expect(screen.getByText('Version & Online Update')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Check for Updates/i })).toBeInTheDocument()
   })
 
   it('switches tabs to Capsule and Collector & Logs', () => {
@@ -107,6 +109,31 @@ describe('SettingsCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: /Open Log Folder/i }))
     expect(spySend).toHaveBeenCalledWith('openLogDirectory')
   })
+  it('handles checkForUpdate and downloadAndApplyUpdate in General tab', () => {
+    const bridge = new MockBridge(false)
+    const spySend = vi.spyOn(bridge, 'sendCommand')
+    renderWithProviders(<SettingsCenter initialTab="general" />, bridge)
+
+    const checkBtn = screen.getByRole('button', { name: /Check for Updates/i })
+    fireEvent.click(checkBtn)
+    expect(spySend).toHaveBeenCalledWith('checkForUpdate')
+
+    act(() => {
+      bridge.emit('updateStatus', {
+        state: 'UpdateAvailable',
+        currentVersion: '0.1.0',
+        latestVersion: '0.2.0',
+        downloadProgressPercent: 0,
+        errorMessage: '',
+      })
+    })
+
+    expect(screen.getByText(/Update Available: v0.2.0/i)).toBeInTheDocument()
+    const applyBtn = screen.getByRole('button', { name: /Update & Restart/i })
+    fireEvent.click(applyBtn)
+    expect(spySend).toHaveBeenCalledWith('downloadAndApplyUpdate')
+  })
+
   it('handles close button navigation', () => {
     const bridge = new MockBridge(false)
     const handleBack = vi.fn()

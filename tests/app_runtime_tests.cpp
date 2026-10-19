@@ -18,6 +18,14 @@ int Run() {
         std::cerr << "Unexpected yyjson version\n";
         return 1;
     }
+    if (std::string_view{NFM_APP_VERSION}.empty()) {
+        std::cerr << "Missing NFM_APP_VERSION\n";
+        return 1;
+    }
+    if (std::string_view{NFM_GITHUB_REPO} != "ygq-future/network-flow-monitor") {
+        std::cerr << "Unexpected NFM_GITHUB_REPO\n";
+        return 1;
+    }
 
     return 0;
 }

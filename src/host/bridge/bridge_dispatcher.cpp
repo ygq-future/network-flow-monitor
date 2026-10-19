@@ -384,6 +384,12 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::OpenLogDirectory:
         handler_->on_open_log_directory();
         break;
+    case WebCommandType::CheckForUpdate:
+        handler_->on_check_for_update();
+        break;
+    case WebCommandType::DownloadAndApplyUpdate:
+        handler_->on_download_and_apply_update();
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);
@@ -702,6 +708,27 @@ std::string BridgeDispatcher::serialize_command_response(const CommandResponseDt
     if (!response.message.empty()) {
         yyjson_mut_obj_add_str(doc.get(), payload, "message", response.message.c_str());
     }
+
+    return write_mut_doc(doc.get());
+}
+
+std::string BridgeDispatcher::serialize_update_status(const UpdateStatusDto& status) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "updateStatus");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+
+    yyjson_mut_obj_add_str(doc.get(), payload, "state", status.state.c_str());
+    yyjson_mut_obj_add_str(doc.get(), payload, "currentVersion", status.current_version.c_str());
+    yyjson_mut_obj_add_str(doc.get(), payload, "latestVersion", status.latest_version.c_str());
+    yyjson_mut_obj_add_uint(doc.get(), payload, "downloadProgressPercent",
+                            status.download_progress_percent);
+    yyjson_mut_obj_add_str(doc.get(), payload, "errorMessage", status.error_message.c_str());
 
     return write_mut_doc(doc.get());
 }

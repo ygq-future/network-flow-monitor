@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Sliders, Layers, Activity, FolderOpen, X, RefreshCw, RotateCw, AlertCircle } from 'lucide-react'
+import { Sliders, Layers, Activity, FolderOpen, X, RefreshCw, RotateCw, AlertCircle, Download } from 'lucide-react'
 import { useBridge } from '../../bridge/BridgeContext'
 import {
   AppConfigDto,
   ConfigSchemaDto,
   ConfigChangedDto,
   CollectorStatusDto,
+  UpdateStatusDto,
   BridgeErrorDto,
 } from '../../bridge/bridgeTypes'
 import { defaultMockConfigChanged } from '../../bridge/nativeBridge'
@@ -69,6 +70,13 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     instanceId: 'session_active',
     isElevated: true,
   })
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusDto>({
+    state: 'Idle',
+    currentVersion: '0.1.0',
+    latestVersion: '',
+    downloadProgressPercent: 0,
+    errorMessage: '',
+  })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   // Listen to bridge events
@@ -88,6 +96,11 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
         setCollectorStatus(prev => ({ ...prev, ...data }))
       }
     })
+    const unsubUpdate = bridge.on<UpdateStatusDto>('updateStatus', data => {
+      if (data) {
+        setUpdateStatus(prev => ({ ...prev, ...data }))
+      }
+    })
 
     const unsubError = bridge.on<BridgeErrorDto>('error', err => {
       if (err) {
@@ -100,6 +113,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     return () => {
       unsubConfig()
       unsubCollector()
+      unsubUpdate()
       unsubError()
     }
   }, [bridge])
@@ -117,7 +131,15 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     reportHeight()
     const rafId = requestAnimationFrame(reportHeight)
     return () => cancelAnimationFrame(rafId)
-  }, [activeTab, bridge, config, collectorStatus.lastError, errorMessage])
+  }, [
+    activeTab,
+    bridge,
+    config,
+    collectorStatus.lastError,
+    updateStatus.state,
+    updateStatus.errorMessage,
+    errorMessage,
+  ])
 
   const handleUpdate = (key: string, value: unknown) => {
     bridge.sendCommand('updateSetting', { key, value })
@@ -299,6 +321,55 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     onChange={val => handleUpdate('display.refresh_interval_ms', val)}
                     ariaLabel={t.settings.refreshInterval}
                   />
+                }
+              />
+              <SettingsRow
+                label={t.settings.appVersion}
+                description={
+                  updateStatus.state === 'Error' && updateStatus.errorMessage
+                    ? `${t.settings.updateFailed}: ${updateStatus.errorMessage}`
+                    : t.settings.appVersionDesc
+                }
+                control={
+                  <div className="flex items-center gap-2">
+                    <Badge variant="default" className="font-mono">
+                      v{updateStatus.currentVersion || '0.1.0'}
+                    </Badge>
+                    {updateStatus.state === 'UpToDate' && <Badge variant="success">{t.settings.updateUpToDate}</Badge>}
+                    {updateStatus.state === 'UpdateAvailable' && updateStatus.latestVersion && (
+                      <Badge variant="info">
+                        {t.settings.updateAvailable}: v{updateStatus.latestVersion}
+                      </Badge>
+                    )}
+                    {updateStatus.state === 'Error' && <Badge variant="danger">{t.settings.updateFailed}</Badge>}
+                    {updateStatus.state === 'UpdateAvailable' ? (
+                      <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('downloadAndApplyUpdate')}>
+                        <Download className="h-3.5 w-3.5" />
+                        {t.settings.updateNowAndRestart}
+                      </Button>
+                    ) : updateStatus.state === 'Downloading' ? (
+                      <Button variant="secondary" size="sm" disabled>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        {t.settings.downloadingUpdate} ({updateStatus.downloadProgressPercent}%)
+                      </Button>
+                    ) : updateStatus.state === 'Applying' ? (
+                      <Button variant="secondary" size="sm" disabled>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        {t.settings.applyingUpdate}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={updateStatus.state === 'Checking'}
+                        onClick={() => bridge.sendCommand('checkForUpdate')}>
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${updateStatus.state === 'Checking' ? 'animate-spin' : ''}`}
+                        />
+                        {updateStatus.state === 'Checking' ? t.settings.checkingUpdates : t.settings.checkForUpdates}
+                      </Button>
+                    )}
+                  </div>
                 }
               />
             </Card>

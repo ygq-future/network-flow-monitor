@@ -220,3 +220,18 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **完善中英双语 `README.md` 并通过 Full Quality Gate**：
   - 重写中英双语 `README.md`，完整涵盖核心特性、双进程架构图、构建与质量门命令、便携打包与仓库目录结构；
   - `tools/quality.ps1 -Mode Full` 19 项检查（含 100 个 C++ 文件格式检查、Debug/Release 构建与测试、前端 10 个测试套件、clang-tidy 0 诊断、MSVC `/analyze` 0 警告及 CPack ZIP 打包）全部通过。
+
+## 第十三轮版本一致性门禁、GitHub Actions 自动发布流水线与通用设置在线自更新 — complete
+
+- **全仓版本一致性门禁与 Apache-2.0 协议落地 (`CMakeLists.txt`, `cmake/dependencies.h.in`, `resources/network_flow_monitor.rc`, `tools/quality.ps1`, `tools/package.ps1`, `LICENSE`, `.github/release-note/v0.1.0.md`)**：
+  - 根目录新增标准 **Apache License 2.0** 协议文件并纳入 CPack 便携归档必检条目；
+  - 在 `resources/network_flow_monitor.rc` 中注入 `VS_VERSION_INFO`，通过 `cmake/dependencies.h.in` 注入 `NFM_APP_VERSION` 与 `NFM_GITHUB_REPO`（`ygq-future/network-flow-monitor`）；
+  - 在 `tools/quality.ps1` 中新增 **Version consistency** 门禁，强制校验 `CMakeLists.txt`、`apps/nfm-ui/package.json`、`resources/network_flow_monitor.rc` 以及 `.github/release-note/v<version>.md` 四处版本号严格一致。
+- **GitHub 仓库创建与 Quality & Publish 工作流 (`.github/workflows/quality-and-publish.yml`)**：
+  - 通过 GitHub CLI 创建公开仓库 `https://github.com/ygq-future/network-flow-monitor` 并绑定 `origin` 远端；
+  - 编写 `.github/workflows/quality-and-publish.yml`：每次代码推送与 PR 均执行 `quality` 任务（运行 `tools/quality.ps1 -Mode Full -Clean` 与 `tools/package.ps1 -Configuration Release` 产出 Windows x64 ZIP 包与 SHA256）；`publish` 任务通过 `needs: quality` 严格门控，仅在 `quality` 通过且推送 `v*` 标签（或手动勾选 `publish_release`）时读取 `.github/release-note/v<version>.md` 发布 GitHub Release。
+- **通用设置在线检查更新、动态下载替换与自动重启 (`app_updater.h/.cpp`, `bridge_types.h/.cpp`, `bridge_dispatcher.h/.cpp`, `native_bridge.h/.cpp`, `product_host.h/.cpp`, `SettingsCenter.tsx`)**：
+  - C++ Host 新增 `AppUpdater` 窄平台组件，基于 WinHTTP 请求 GitHub Releases API、解析 SemVer 与 `NetworkFlowMonitor-*-win-x64.zip` 资产、后台流式下载至 `data/update/` 并解压校验至 `data/update/staged/`；
+  - 生成带 UTF-8 BOM 的脱离式 PowerShell 更新脚本，触发 Host 与 Collector 优雅退出后原地覆盖当前便携目录的可执行文件与 `ui/` 静态资源（保留 `data/config.json` 与 `logs/`），随后自动重新拉起新版 `NetworkFlowMonitor.exe`；
+  - 扩展 Native/Web Bridge（`checkForUpdate`、`downloadAndApplyUpdate`、`updateStatus`），在设置中心「通用」标签页底部提供版本徽标、检查更新、下载进度与一键更新重启控件；
+  - `tools/quality.ps1 -Mode Full` 20 项检查全部通过。

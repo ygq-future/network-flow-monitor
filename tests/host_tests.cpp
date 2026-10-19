@@ -4,11 +4,11 @@
 #include "network_flow_monitor/host/bridge/native_bridge.h"
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
+#include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
-#include "network_flow_monitor/host/webview/webview_controller.h"
 
 #include <chrono>
 #include <filesystem>
@@ -66,6 +66,8 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     int context_menu_x{-1};
     int context_menu_y{-1};
     bool open_log_directory_called{false};
+    bool check_for_update_called{false};
+    bool download_and_apply_update_called{false};
     void on_show_monitor() override {
         show_monitor_called = true;
     }
@@ -122,6 +124,12 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     void on_open_log_directory() override {
         open_log_directory_called = true;
     }
+    void on_check_for_update() override {
+        check_for_update_called = true;
+    }
+    void on_download_and_apply_update() override {
+        download_and_apply_update_called = true;
+    }
 };
 
 void CheckEnumMappings(TestContext& context) {
@@ -142,13 +150,22 @@ void CheckEnumMappings(TestContext& context) {
                   "Parse resizePanel");
     context.Check(parse_web_command_type("openLogDirectory") == WebCommandType::OpenLogDirectory,
                   "Parse openLogDirectory");
+    context.Check(parse_web_command_type("checkForUpdate") == WebCommandType::CheckForUpdate,
+                  "Parse checkForUpdate");
+    context.Check(parse_web_command_type("downloadAndApplyUpdate") ==
+                      WebCommandType::DownloadAndApplyUpdate,
+                  "Parse downloadAndApplyUpdate");
     context.Check(parse_web_command_type("invalidCommand") == WebCommandType::Unknown,
                   "Parse invalid command");
 
     context.Check(to_string(NativeEventType::TrafficTick) == "trafficTick",
                   "TrafficTick to string");
+    context.Check(to_string(NativeEventType::UpdateStatus) == "updateStatus",
+                  "UpdateStatus to string");
     context.Check(parse_native_event_type("trafficTick") == NativeEventType::TrafficTick,
                   "Parse trafficTick");
+    context.Check(parse_native_event_type("updateStatus") == NativeEventType::UpdateStatus,
+                  "Parse updateStatus");
     context.Check(parse_native_event_type("unknownEvent") == NativeEventType::Unknown,
                   "Parse unknown event");
 }
@@ -291,6 +308,19 @@ void CheckDispatchCommands(TestContext& context) {
         context.Check(ok, "dispatch openLogDirectory succeeds");
         context.Check(handler->open_log_directory_called, "handler->on_open_log_directory called");
     }
+
+    // 12. CheckForUpdate & DownloadAndApplyUpdate
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok1 = dispatcher.dispatch_web_message(
+            R"({"type":"checkForUpdate","version":1,"commandId":"cmd_12a"})", &err, &resp);
+        context.Check(ok1 && handler->check_for_update_called, "dispatch checkForUpdate succeeds");
+        bool ok2 = dispatcher.dispatch_web_message(
+            R"({"type":"downloadAndApplyUpdate","version":1,"commandId":"cmd_12b"})", &err, &resp);
+        context.Check(ok2 && handler->download_and_apply_update_called,
+                      "dispatch downloadAndApplyUpdate succeeds");
+    }
 }
 
 void CheckBridgeRejections(TestContext& context) {
@@ -417,6 +447,23 @@ void CheckNativeSerializers(TestContext& context) {
                   "contains authoritative pin state");
     context.Check(surface_json.find("\"dockSide\":\"left\"") != std::string::npos,
                   "contains authoritative dock side");
+
+    const UpdateStatusDto update_status{
+        .state = "UpdateAvailable",
+        .current_version = "0.1.0",
+        .latest_version = "0.2.0",
+        .download_progress_percent = 65,
+        .error_message = "",
+    };
+    const std::string update_json = BridgeDispatcher::serialize_update_status(update_status);
+    context.Check(update_json.find("\"type\":\"updateStatus\"") != std::string::npos,
+                  "contains updateStatus type");
+    context.Check(update_json.find("\"state\":\"UpdateAvailable\"") != std::string::npos,
+                  "contains update state");
+    context.Check(update_json.find("\"latestVersion\":\"0.2.0\"") != std::string::npos,
+                  "contains latestVersion");
+    context.Check(update_json.find("\"downloadProgressPercent\":65") != std::string::npos,
+                  "contains downloadProgressPercent");
 }
 
 } // namespace
@@ -1372,11 +1419,96 @@ int Run() {
 }
 } // namespace dock_capsule_coordinator_suite
 
+namespace app_updater_suite {
+namespace {
+
+class TestContext {
+  public:
+    void Check(bool condition, std::string_view name) {
+        if (!condition) {
+            std::cerr << "Case failed: " << name << '\n';
+            ++failures_;
+        }
+    }
+    [[nodiscard]] int failures() const noexcept {
+        return failures_;
+    }
+
+  private:
+    int failures_{};
+};
+
+void TestSemVerParsingAndComparison(TestContext& ctx) {
+    using nfm::host::platform::AppUpdater;
+
+    const auto v1 = AppUpdater::parse_semver("v0.1.0");
+    ctx.Check(v1.has_value() && v1->major == 0 && v1->minor == 1 && v1->patch == 0, "parse v0.1.0");
+    const auto v2 = AppUpdater::parse_semver("1.2.3-beta.1");
+    ctx.Check(v2.has_value() && v2->major == 1 && v2->minor == 2 && v2->patch == 3,
+              "parse 1.2.3-beta.1");
+    ctx.Check(!AppUpdater::parse_semver("invalid").has_value(), "reject invalid semver");
+    ctx.Check(!AppUpdater::parse_semver("1.2").has_value(), "reject 2-part version");
+
+    ctx.Check(AppUpdater::is_newer_version("0.1.0", "v0.1.1"), "0.1.1 > 0.1.0");
+    ctx.Check(AppUpdater::is_newer_version("0.1.9", "0.2.0"), "0.2.0 > 0.1.9");
+    ctx.Check(!AppUpdater::is_newer_version("0.2.0", "0.2.0"), "0.2.0 == 0.2.0 not newer");
+    ctx.Check(!AppUpdater::is_newer_version("0.2.0", "0.1.9"), "0.1.9 < 0.2.0 not newer");
+}
+
+void TestGitHubReleaseJsonParsing(TestContext& ctx) {
+    using nfm::host::platform::AppUpdater;
+
+    const std::string sample_json = R"({
+        "tag_name": "v0.2.0",
+        "html_url": "https://github.com/ygq-future/network-flow-monitor/releases/tag/v0.2.0",
+        "body": "Bug fixes and online updater",
+        "assets": [
+            {
+                "name": "NetworkFlowMonitor-0.2.0-win-x64.zip.sha256",
+                "size": 98,
+                "browser_download_url": "https://github.com/ygq-future/network-flow-monitor/releases/download/v0.2.0/NetworkFlowMonitor-0.2.0-win-x64.zip.sha256"
+            },
+            {
+                "name": "NetworkFlowMonitor-0.2.0-win-x64.zip",
+                "size": 1048576,
+                "browser_download_url": "https://github.com/ygq-future/network-flow-monitor/releases/download/v0.2.0/NetworkFlowMonitor-0.2.0-win-x64.zip"
+            }
+        ]
+    })";
+
+    std::string err;
+    const auto parsed = AppUpdater::parse_github_release_json(sample_json, &err);
+    ctx.Check(parsed.has_value(), "parse valid GitHub release JSON");
+    if (parsed.has_value()) {
+        ctx.Check(parsed->version == "0.2.0", "extracted version 0.2.0");
+        ctx.Check(parsed->asset_size_bytes == 1048576, "extracted asset size");
+        ctx.Check(parsed->download_url.ends_with("NetworkFlowMonitor-0.2.0-win-x64.zip"),
+                  "selected .zip asset instead of .sha256");
+    }
+
+    const auto script = AppUpdater::build_apply_update_script(
+        4242, LR"(C:\App\data\update\staged)", LR"(C:\App)", LR"(C:\App\NetworkFlowMonitor.exe)");
+    ctx.Check(script.find(L"$hostPid = 4242") != std::wstring::npos, "script embeds host PID");
+    ctx.Check(script.find(L"Start-Process -FilePath $hostExe") != std::wstring::npos,
+              "script restarts host executable");
+}
+
+} // namespace
+
+int Run() {
+    TestContext ctx;
+    TestSemVerParsingAndComparison(ctx);
+    TestGitHubReleaseJsonParsing(ctx);
+    return ctx.failures();
+}
+} // namespace app_updater_suite
+
 int main() {
     int failures = 0;
     failures += (host_bridge_suite::Run() != 0 ? 1 : 0);
     failures += (host_webview_policy_suite::Run() != 0 ? 1 : 0);
     failures += (host_lifecycle_suite::Run() != 0 ? 1 : 0);
     failures += (dock_capsule_coordinator_suite::Run() != 0 ? 1 : 0);
+    failures += (app_updater_suite::Run() != 0 ? 1 : 0);
     return failures;
 }

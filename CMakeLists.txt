@@ -22,6 +22,7 @@ include(WebView2)
 include(CTest)
 
 set(NFM_YYJSON_VERSION "0.12.0")
+set(NFM_GITHUB_REPO "ygq-future/network-flow-monitor" CACHE STRING "GitHub owner/repo for release update checks")
 configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/dependencies.h.in"
     "${PROJECT_BINARY_DIR}/generated/network_flow_monitor/build/dependencies.h"
@@ -48,7 +49,7 @@ install(
     COMPONENT runtime
 )
 install(
-    FILES README.md
+    FILES README.md LICENSE
     DESTINATION .
     COMPONENT documentation
 )

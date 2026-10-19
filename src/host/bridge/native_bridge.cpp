@@ -75,6 +75,12 @@ void NativeBridge::post_command_response(const CommandResponseDto& response) {
     sender_(BridgeDispatcher::serialize_command_response(response));
 }
 
+void NativeBridge::post_update_status(const UpdateStatusDto& status) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_update_status(status));
+}
 void NativeBridge::post_error(const BridgeErrorDto& error) {
     if (!sender_) {
         return;

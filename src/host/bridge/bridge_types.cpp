@@ -40,6 +40,10 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "resizeSettingsWindow";
     case WebCommandType::OpenLogDirectory:
         return "openLogDirectory";
+    case WebCommandType::CheckForUpdate:
+        return "checkForUpdate";
+    case WebCommandType::DownloadAndApplyUpdate:
+        return "downloadAndApplyUpdate";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -101,6 +105,12 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     if (name == "openLogDirectory") {
         return WebCommandType::OpenLogDirectory;
     }
+    if (name == "checkForUpdate") {
+        return WebCommandType::CheckForUpdate;
+    }
+    if (name == "downloadAndApplyUpdate") {
+        return WebCommandType::DownloadAndApplyUpdate;
+    }
     return WebCommandType::Unknown;
 }
 
@@ -124,6 +134,8 @@ std::string_view to_string(NativeEventType type) noexcept {
         return "surfaceChanged";
     case NativeEventType::CommandResponse:
         return "commandResponse";
+    case NativeEventType::UpdateStatus:
+        return "updateStatus";
     case NativeEventType::Error:
         return "error";
     case NativeEventType::Unknown:
@@ -159,6 +171,9 @@ NativeEventType parse_native_event_type(std::string_view name) noexcept {
     }
     if (name == "commandResponse") {
         return NativeEventType::CommandResponse;
+    }
+    if (name == "updateStatus") {
+        return NativeEventType::UpdateStatus;
     }
     if (name == "error") {
         return NativeEventType::Error;

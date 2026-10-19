@@ -10,6 +10,7 @@ import {
   ConfigChangedDto,
   UpdateSettingPayload,
   SurfaceChangedDto,
+  UpdateStatusDto,
 } from './bridgeTypes'
 
 declare global {
@@ -165,7 +166,13 @@ export class MockBridge extends NativeBridge {
   private seq = 1
   private currentMockConfig: ConfigChangedDto = JSON.parse(JSON.stringify(defaultMockConfigChanged))
   private currentSurface: SurfaceChangedDto = { surface: 'capsule', pinned: false, dockSide: 'right' }
-
+  private currentUpdateStatus: UpdateStatusDto = {
+    state: 'Idle',
+    currentVersion: '0.1.0',
+    latestVersion: '',
+    downloadProgressPercent: 0,
+    errorMessage: '',
+  }
   constructor(autoTick = false) {
     super()
     if (autoTick && typeof window !== 'undefined') {
@@ -178,6 +185,7 @@ export class MockBridge extends NativeBridge {
     if (type === 'requestConfig') {
       setTimeout(() => {
         this.emit('configChanged', this.currentMockConfig)
+        this.emit('updateStatus', this.currentUpdateStatus)
       }, 0)
     } else if (type === 'showMonitor') {
       this.currentSurface = { ...this.currentSurface, surface: 'panel' }
@@ -221,6 +229,33 @@ export class MockBridge extends NativeBridge {
           isElevated: true,
         })
       }, 50)
+    } else if (type === 'checkForUpdate') {
+      this.currentUpdateStatus = {
+        ...this.currentUpdateStatus,
+        state: 'Checking',
+        errorMessage: '',
+      }
+      setTimeout(() => {
+        this.emit('updateStatus', this.currentUpdateStatus)
+      }, 0)
+      setTimeout(() => {
+        this.currentUpdateStatus = {
+          ...this.currentUpdateStatus,
+          state: 'UpToDate',
+          latestVersion: this.currentUpdateStatus.currentVersion,
+        }
+        this.emit('updateStatus', this.currentUpdateStatus)
+      }, 20)
+    } else if (type === 'downloadAndApplyUpdate') {
+      this.currentUpdateStatus = {
+        ...this.currentUpdateStatus,
+        state: 'Downloading',
+        downloadProgressPercent: 45,
+        errorMessage: '',
+      }
+      setTimeout(() => {
+        this.emit('updateStatus', this.currentUpdateStatus)
+      }, 0)
     }
   }
 

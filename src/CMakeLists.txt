@@ -7,7 +7,12 @@ add_library(
         config/config_store.cpp
         config/config_validation.cpp
 )
-target_include_directories(nfm_config PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(
+    nfm_config
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/include"
+        "${PROJECT_BINARY_DIR}/generated"
+)
 target_link_libraries(nfm_config PRIVATE nfm_yyjson)
 nfm_configure_target(nfm_config)
 nfm_enable_shared_pch(nfm_config)
@@ -98,6 +103,7 @@ add_library(
         host/bridge/native_bridge.cpp
         host/coordinator/dock_capsule_coordinator.cpp
         host/lifecycle/collector_companion.cpp
+        host/platform/app_updater.cpp
         host/platform/rotating_file_logger.cpp
         host/platform/startup_registration.cpp
         host/platform/webview2_environment.cpp
@@ -105,7 +111,12 @@ add_library(
         host/webview/webview_controller.cpp
         host/app/product_host.cpp
 )
-target_include_directories(nfm_host PUBLIC "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(
+    nfm_host
+    PUBLIC
+        "${PROJECT_SOURCE_DIR}/include"
+        "${PROJECT_BINARY_DIR}/generated"
+)
 target_link_libraries(
     nfm_host
     PUBLIC
@@ -121,6 +132,7 @@ target_link_libraries(
         Advapi32
         Comctl32
         Dwmapi
+        Winhttp
 )
 nfm_configure_target(nfm_host)
 nfm_enable_shared_pch(nfm_host)
@@ -140,8 +152,9 @@ target_link_libraries(nfm_host_executable PRIVATE nfm_host Shell32 Ole32 Comctl3
 
 add_custom_command(
     TARGET nfm_host_executable POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_SOURCE_DIR}/apps/nfm-ui/dist"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:nfm_host_executable>/ui"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
         "${PROJECT_SOURCE_DIR}/apps/nfm-ui/dist"
         "$<TARGET_FILE_DIR:nfm_host_executable>/ui"
     COMMENT "Copying frontend assets to build ui/ directory"

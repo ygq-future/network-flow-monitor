@@ -7,6 +7,7 @@
 #include "network_flow_monitor/host/bridge/native_bridge.h"
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
+#include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
@@ -94,6 +95,8 @@ class ProductHost : public platform::IWindowEventListener,
     void on_resize_panel(int height_dip) override;
     void on_resize_settings_window(int height_dip) override;
     void on_open_log_directory() override;
+    void on_check_for_update() override;
+    void on_download_and_apply_update() override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }
@@ -127,10 +130,10 @@ class ProductHost : public platform::IWindowEventListener,
 
     std::shared_ptr<bridge::BridgeDispatcher> bridge_dispatcher_;
     std::shared_ptr<lifecycle::CollectorCompanion> collector_companion_;
+    std::unique_ptr<platform::AppUpdater> app_updater_;
     config::AppConfig current_config_;
     std::optional<bridge::RankingSnapshotDto> latest_ranking_snapshot_;
     std::optional<bridge::CollectorStatusDto> latest_collector_status_;
-
     bool is_initialized_{false};
     bool is_shutting_down_{false};
     bool settings_surface_visible_{false};

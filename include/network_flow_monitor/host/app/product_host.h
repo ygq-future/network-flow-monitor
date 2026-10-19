@@ -138,6 +138,7 @@ class ProductHost : public platform::IWindowEventListener,
     coordinator::PresentationState last_applied_presentation_state_{
         coordinator::PresentationState::CapsuleVisible};
     std::chrono::milliseconds collapse_bounds_remaining_{0};
+    std::chrono::milliseconds panel_shrink_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
     mutable platform::RotatingFileLogger logger_;
     std::string last_logged_collector_error_;

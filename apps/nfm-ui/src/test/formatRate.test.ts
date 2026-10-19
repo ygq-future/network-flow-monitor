@@ -7,25 +7,24 @@ describe('formatRate', () => {
     expect(formatRate(-100)).toEqual({ value: '0.0', unit: 'KB/s', full: '0.0 KB/s' })
   })
 
-  it('formats KB/s correctly', () => {
+  it('formats KB/s with 3 significant digits and promotes >= 1000 to MB/s', () => {
     expect(formatRate(1024)).toEqual({ value: '1.0', unit: 'KB/s', full: '1.0 KB/s' })
-    expect(formatRate(512 * 1024)).toEqual({ value: '512.0', unit: 'KB/s', full: '512.0 KB/s' })
+    expect(formatRate(99.4 * 1024)).toEqual({ value: '99.4', unit: 'KB/s', full: '99.4 KB/s' })
+    expect(formatRate(512 * 1024)).toEqual({ value: '512', unit: 'KB/s', full: '512 KB/s' })
+    expect(formatRate(1022.3 * 1024)).toEqual({ value: '1.0', unit: 'MB/s', full: '1.0 MB/s' })
   })
 
-  it('formats MB/s correctly', () => {
+  it('formats MB/s and GB/s with 3 significant digits', () => {
     expect(formatRate(1024 * 1024)).toEqual({ value: '1.0', unit: 'MB/s', full: '1.0 MB/s' })
     expect(formatRate(5.5 * 1024 * 1024)).toEqual({
       value: '5.5',
       unit: 'MB/s',
       full: '5.5 MB/s',
     })
-  })
-
-  it('formats GB/s correctly', () => {
     expect(formatRate(1024 * 1024 * 1024)).toEqual({
-      value: '1.00',
+      value: '1.0',
       unit: 'GB/s',
-      full: '1.00 GB/s',
+      full: '1.0 GB/s',
     })
   })
 })

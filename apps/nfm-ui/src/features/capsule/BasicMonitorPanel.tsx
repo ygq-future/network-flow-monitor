@@ -80,7 +80,8 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
 
   // Measure & report dynamic height to native host window
   const panelRef = useRef<HTMLDivElement>(null)
-  const desiredHeightDip = Math.min(520, Math.max(80, 32 + (apps.length === 0 ? 44 : apps.length * 32) + 8))
+  const contentHeightDip = !isCollectorRunning || apps.length === 0 ? 44 : apps.length * 32
+  const desiredHeightDip = Math.min(520, Math.max(80, 32 + contentHeightDip + 8))
   useLayoutEffect(() => {
     if (activeTransitionState !== 'exiting') {
       bridge.sendCommand('resizePanel', { heightDip: desiredHeightDip })
@@ -126,8 +127,8 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   const morphTransition = prefersReducedMotion
     ? 'none'
     : activeTransitionState === 'exiting'
-      ? 'transform 260ms cubic-bezier(0.36, 0, 0.66, -0.05), opacity 220ms cubic-bezier(0.4, 0, 1, 1), border-radius 260ms ease-in, height 250ms ease-out'
-      : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out, border-radius 320ms cubic-bezier(0.16, 1, 0.3, 1), height 250ms ease-out'
+      ? 'transform 260ms cubic-bezier(0.36, 0, 0.66, -0.05), opacity 220ms cubic-bezier(0.4, 0, 1, 1), border-radius 260ms ease-in, height 240ms cubic-bezier(0.22, 1, 0.36, 1)'
+      : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out, border-radius 320ms cubic-bezier(0.16, 1, 0.3, 1), height 240ms cubic-bezier(0.22, 1, 0.36, 1)'
   return (
     <div
       ref={panelRef}
@@ -136,13 +137,14 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
       onContextMenu={onContextMenu}
       style={{
         backgroundColor: panelBg,
+        height: `${desiredHeightDip}px`,
         transformOrigin,
         transform: `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
         opacity: panelOpacity,
         borderRadius: `${panelBorderRadiusPx}px`,
         transition: morphTransition,
       }}
-      className={`flex w-[340px] flex-col overflow-hidden border border-zinc-200 px-3 pt-1.5 pb-1 text-zinc-900 select-none dark:border-zinc-800 dark:text-zinc-100 ${className}`}>
+      className={`flex w-[340px] max-w-[340px] min-w-[340px] flex-col overflow-hidden border border-zinc-200 px-3 pt-1.5 pb-1 text-zinc-900 select-none dark:border-zinc-800 dark:text-zinc-100 ${className}`}>
       {/* Compact Single-Line Draggable Header: Title + Total Speeds + Actions */}
       <div
         data-testid="total-traffic-row"
@@ -159,14 +161,18 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
           </span>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="flex items-center gap-0.5 whitespace-nowrap" style={{ color: downloadColorHex }}>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div
+            className="flex w-[66px] shrink-0 items-center justify-end gap-0.5 whitespace-nowrap"
+            style={{ color: downloadColorHex }}>
             <span className="font-mono text-[11px] font-semibold">↓</span>
             <span data-testid="total-download-rate" className="font-mono text-[11px] font-semibold tabular-nums">
               {formatCompactRate(totalDownloadBytesPerSec, speedUnit)}
             </span>
           </div>
-          <div className="flex items-center gap-0.5 whitespace-nowrap" style={{ color: uploadColorHex }}>
+          <div
+            className="flex w-[66px] shrink-0 items-center justify-end gap-0.5 whitespace-nowrap"
+            style={{ color: uploadColorHex }}>
             <span className="font-mono text-[11px] font-semibold">↑</span>
             <span data-testid="total-upload-rate" className="font-mono text-[11px] font-semibold tabular-nums">
               {formatCompactRate(totalUploadBytesPerSec, speedUnit)}
@@ -197,7 +203,12 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
       </div>
 
       {/* Dynamic Top N Application Rows */}
-      <div className="mt-0.5 flex flex-col overflow-hidden transition-[height] duration-250 ease-out">
+      <div
+        style={{
+          height: `${contentHeightDip}px`,
+          transition: prefersReducedMotion ? 'none' : 'height 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+        }}
+        className="mt-0.5 flex flex-col overflow-hidden">
         {!isCollectorRunning ? (
           <div className="flex h-11 items-center justify-center gap-1.5 px-3 text-center">
             <AlertCircle className="h-3.5 w-3.5 text-amber-500" />

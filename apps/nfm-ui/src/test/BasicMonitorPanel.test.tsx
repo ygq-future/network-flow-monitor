@@ -124,4 +124,83 @@ describe('BasicMonitorPanel', () => {
     fireEvent.contextMenu(panel)
     expect(handleContextMenu).toHaveBeenCalledTimes(1)
   })
+
+  it('applies explicit height and fixed 340px width for smooth height transitions without width jitter', () => {
+    const { rerender } = render(
+      <BridgeProvider bridge={new MockBridge(false)}>
+        <ThemeProvider>
+          <I18nProvider>
+            <BasicMonitorPanel
+              tick={{
+                seq: 1,
+                monotonicMs: 1000,
+                downloadBytesPerSec: 1022.3 * 1024,
+                uploadBytesPerSec: 1022.3 * 1024,
+              }}
+              status={mockStatus}
+              isPinned={false}
+              onTogglePin={vi.fn()}
+            />
+          </I18nProvider>
+        </ThemeProvider>
+      </BridgeProvider>,
+    )
+
+    const panel = screen.getByRole('region', { name: /Monitor Panel/i })
+    expect(panel).toHaveClass('w-[340px]', 'min-w-[340px]', 'max-w-[340px]')
+    expect(panel.style.height).toBe('84px')
+    expect(screen.getByTestId('total-download-rate')).toHaveTextContent('1.0 MB/s')
+    expect(screen.getByTestId('total-upload-rate')).toHaveTextContent('1.0 MB/s')
+
+    rerender(
+      <BridgeProvider bridge={new MockBridge(false)}>
+        <ThemeProvider>
+          <I18nProvider>
+            <BasicMonitorPanel
+              tick={mockTick}
+              ranking={{
+                seq: 2,
+                monotonicMs: 2000,
+                status: 'Ready',
+                totalDownloadBytesPerSec: 512 * 1024,
+                totalUploadBytesPerSec: 128 * 1024,
+                applications: [
+                  {
+                    id: 'app1',
+                    executablePath: 'C:\\a.exe',
+                    displayName: 'App 1',
+                    iconKey: 'a',
+                    downloadBytesPerSec: 256 * 1024,
+                    uploadBytesPerSec: 64 * 1024,
+                  },
+                  {
+                    id: 'app2',
+                    executablePath: 'C:\\b.exe',
+                    displayName: 'App 2',
+                    iconKey: 'b',
+                    downloadBytesPerSec: 256 * 1024,
+                    uploadBytesPerSec: 64 * 1024,
+                  },
+                  {
+                    id: 'app3',
+                    executablePath: 'C:\\c.exe',
+                    displayName: 'App 3',
+                    iconKey: 'c',
+                    downloadBytesPerSec: 256 * 1024,
+                    uploadBytesPerSec: 64 * 1024,
+                  },
+                ],
+              }}
+              status={mockStatus}
+              isPinned={false}
+              onTogglePin={vi.fn()}
+            />
+          </I18nProvider>
+        </ThemeProvider>
+      </BridgeProvider>,
+    )
+
+    expect(panel.style.height).toBe('136px')
+    expect(panel.style.transition).toContain('height 240ms cubic-bezier(0.22, 1, 0.36, 1)')
+  })
 })

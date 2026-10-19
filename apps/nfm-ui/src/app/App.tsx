@@ -64,7 +64,7 @@ export const ProductSurface: React.FC = () => {
       </div>
       <div
         aria-hidden={!isPanelActive}
-        className={`fixed top-0 z-20 ${isRightDock ? 'right-0' : 'left-0'} h-full ${
+        className={`fixed top-0 z-20 ${isRightDock ? 'right-0' : 'left-0'} w-[340px] ${
           isPanelActive ? 'pointer-events-auto' : 'pointer-events-none'
         }`}>
         <BasicMonitorPanel
@@ -81,7 +81,7 @@ export const ProductSurface: React.FC = () => {
             event.preventDefault()
             bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
           }}
-          className="h-full w-full"
+          className="w-[340px]"
         />
       </div>
     </div>

@@ -36,7 +36,7 @@ describe('LiveTracer component', () => {
 
     expect(screen.getByText('2.0')).toBeInTheDocument()
     expect(screen.getByText('MB/s')).toBeInTheDocument()
-    expect(screen.getByText('512.0')).toBeInTheDocument()
+    expect(screen.getByText('512')).toBeInTheDocument()
     expect(screen.getByText('KB/s')).toBeInTheDocument()
 
     mockBridge.destroy()

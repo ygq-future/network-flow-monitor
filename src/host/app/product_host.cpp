@@ -14,6 +14,7 @@ namespace nfm::host::app {
 namespace {
 constexpr int kSettingsSurfaceWidthDip = 520;
 constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
+constexpr std::chrono::milliseconds kPanelShrinkBoundsDelay{240};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -570,6 +571,14 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
             collapse_bounds_remaining_ -= elapsed;
         }
     }
+    if (panel_shrink_bounds_remaining_.count() > 0) {
+        if (elapsed >= panel_shrink_bounds_remaining_) {
+            panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
+            collapse_finished = true;
+        } else {
+            panel_shrink_bounds_remaining_ -= elapsed;
+        }
+    }
     if (coordinator_->state().presentation_state != before ||
         coordinator_->state().is_topmost != was_topmost ||
         coordinator_->state().is_auto_hidden != was_auto_hidden ||
@@ -848,6 +857,7 @@ void ProductHost::apply_coordinator_state() {
     if (state.presentation_state == coordinator::PresentationState::TrayOnly ||
         state.is_fullscreen_hidden) {
         collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+        panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
         last_applied_presentation_state_ = state.presentation_state;
         window_->clear_logical_hit_bounds();
         window_->set_click_through(false);
@@ -857,12 +867,16 @@ void ProductHost::apply_coordinator_state() {
             state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
             !state.is_dragging) {
             collapse_bounds_remaining_ = kPanelCollapseBoundsDelay;
+            panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
         } else if (state.presentation_state != coordinator::PresentationState::CapsuleVisible ||
                    state.is_dragging) {
             collapse_bounds_remaining_ = std::chrono::milliseconds{0};
         }
+        if (state.presentation_state != coordinator::PresentationState::PanelVisible ||
+            state.is_dragging) {
+            panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
+        }
         last_applied_presentation_state_ = state.presentation_state;
-
         window_->set_logical_hit_bounds(state.geometry.x_px, state.geometry.y_px,
                                         state.geometry.width_px, state.geometry.height_px);
         // Keep the floating HWND itself frameless & un-rounded so WebView2 renders
@@ -886,7 +900,10 @@ void ProductHost::apply_coordinator_state() {
         const bool is_collapsing =
             (state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
              collapse_bounds_remaining_.count() > 0 && !state.is_dragging);
-        if (!is_collapsing) {
+        const bool is_shrinking_panel =
+            (state.presentation_state == coordinator::PresentationState::PanelVisible &&
+             panel_shrink_bounds_remaining_.count() > 0 && !state.is_dragging);
+        if (!is_collapsing && !is_shrinking_panel) {
             if (webview_) {
                 webview_->resize(window_w, window_h);
             }
@@ -1022,7 +1039,17 @@ void ProductHost::on_resize_panel(int height_dip) {
     if (coordinator_) {
         const auto before = coordinator_->state().geometry;
         coordinator_->set_panel_height_dip(height_dip);
-        if (coordinator_->state().geometry != before) {
+        const auto& after = coordinator_->state().geometry;
+        if (after != before) {
+            if (coordinator_->state().presentation_state ==
+                    coordinator::PresentationState::PanelVisible &&
+                !coordinator_->state().is_dragging && after.height_px < before.height_px &&
+                after.x_px == before.x_px && after.y_px == before.y_px &&
+                after.width_px == before.width_px) {
+                panel_shrink_bounds_remaining_ = kPanelShrinkBoundsDelay;
+            } else {
+                panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
+            }
             apply_coordinator_state();
         }
     }

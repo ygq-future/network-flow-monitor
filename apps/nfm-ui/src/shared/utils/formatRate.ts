@@ -4,6 +4,10 @@ export interface FormattedRate {
   full: string
 }
 
+function formatMagnitude(val: number): string {
+  return val >= 100 ? Math.round(val).toString() : val.toFixed(1)
+}
+
 export function formatRate(bytesPerSec: number | bigint, unitMode: 'auto' | 'bytes' | 'bits' = 'auto'): FormattedRate {
   const bytes = Number(bytesPerSec)
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -18,17 +22,18 @@ export function formatRate(bytesPerSec: number | bigint, unitMode: 'auto' | 'byt
     const Kb = 1000
     const Mb = 1000 * Kb
     const Gb = 1000 * Mb
-    if (bits >= Gb) {
-      const value = (bits / Gb).toFixed(2)
+    if (bits >= 999.5 * Mb) {
+      const value = formatMagnitude(bits / Gb)
       return { value, unit: 'Gbps', full: `${value} Gbps` }
     }
-    if (bits >= Mb) {
-      const value = (bits / Mb).toFixed(1)
+    if (bits >= 999.5 * Kb) {
+      const value = formatMagnitude(bits / Mb)
       return { value, unit: 'Mbps', full: `${value} Mbps` }
     }
-    const value = (bits / Kb).toFixed(1)
+    const value = formatMagnitude(bits / Kb)
     return { value, unit: 'Kbps', full: `${value} Kbps` }
   }
+
   const KB = 1024
   const MB = 1024 * KB
   const GB = 1024 * MB
@@ -36,17 +41,14 @@ export function formatRate(bytesPerSec: number | bigint, unitMode: 'auto' | 'byt
   let value: string
   let unit: string
 
-  if (bytes >= GB) {
-    value = (bytes / GB).toFixed(2)
+  if (bytes >= 999.5 * MB) {
+    value = formatMagnitude(bytes / GB)
     unit = 'GB/s'
-  } else if (bytes >= MB) {
-    value = (bytes / MB).toFixed(1)
+  } else if (bytes >= 999.5 * KB) {
+    value = formatMagnitude(bytes / MB)
     unit = 'MB/s'
-  } else if (bytes >= KB) {
-    value = (bytes / KB).toFixed(1)
-    unit = 'KB/s'
   } else {
-    value = (bytes / KB).toFixed(1)
+    value = formatMagnitude(bytes / KB)
     unit = 'KB/s'
   }
 

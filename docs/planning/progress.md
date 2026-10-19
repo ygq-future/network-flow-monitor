@@ -185,3 +185,14 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **滚动诊断日志器与核心故障日志 (`rotating_file_logger.h/.cpp`, `collector_companion.h/.cpp`, `webview_controller.h/.cpp`, `product_host.cpp`)**：
   - 实现线程安全的 `RotatingFileLogger`：单文件上限 `2 MiB`（`kDefaultMaxLogFileSizeBytes`），最多保留 `5` 个历史归档分卷（`nfm-host.1.log` ~ `nfm-host.5.log`）；
   - 聚焦记录系统与边界诊断事件（宿主启动环境摘要、配置损坏/保存失败及 Win32 错误码、开机启动注册表同步及清理计数、Collector 伴侣进程拉起 PID / `CreateProcessW` 错误码 / 异常退出码 `exit_code` / IPC 鉴权失败、ETW 丢包增量变化、WebView2 `ProcessFailed` 崩溃类型及自动恢复）。
+
+## 第十轮监控面板恒定 340 DIP 防抖与丝滑高度过渡动画 — complete
+
+- **速率 3 位有效数字格式化与 `>= 1000` 自动进位 (`formatRate.ts`, `formatRate.test.ts`, `LiveTracer.test.tsx`)**：
+  - `< 100` 保留 1 位小数（如 `99.4 KB/s`），`100 ~ 999` 取整显示（如 `512 KB/s`），`>= 999.5` 自动进位至下一级单位（如 `1022.3 KB/s` -> `1.0 MB/s`），使任意极端流量下数字+单位恒定不超过 8 个字符。
+- **监控面板宽度锁死 340 DIP 与顶栏定宽速率槽位 (`App.tsx`, `BasicMonitorPanel.tsx`, `BasicMonitorPanel.test.tsx`)**：
+  - 移除 `App.tsx` 中覆盖面板宽高的 `w-full h-full`，将外层承载容器与 `BasicMonitorPanel` 严格锁定为 `w-[340px] min-w-[340px] max-w-[340px]`；
+  - 顶栏下载与上传速率槽位固定为 `w-[66px] justify-end tabular-nums`，彻底消除随速率位数变化产生的面板宽度与文字位置抖动。
+- **监控面板双向高度过渡动画与原生窗口延时收缩 (`BasicMonitorPanel.tsx`, `product_host.h`, `product_host.cpp`)**：
+  - 前端根节点与列表区显式绑定像素高度（`height: ${desiredHeightDip}px` / `${contentHeightDip}px`）及 `height 240ms cubic-bezier(0.22, 1, 0.36, 1)` 阻尼过渡；
+  - C++ `ProductHost::on_resize_panel` 在面板高度增加时立即扩展透明窗口画布，在面板高度减小时立即更新 `logical_hit_rect_` 并通过 `panel_shrink_bounds_remaining_ (240ms)` 延时收缩 Win32 窗口与 WebView2 视口，避免收缩动画被原生窗口提前裁切。

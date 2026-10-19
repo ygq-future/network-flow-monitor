@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings 0",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "lint": "eslint . --cache --cache-location node_modules/.cache/eslint/.eslintcache --max-warnings 0",
+    "format": "prettier --write --cache --cache-location node_modules/.cache/prettier/.prettiercache .",
+    "format:check": "prettier --check --cache --cache-location node_modules/.cache/prettier/.prettiercache .",
     "test": "vitest run"
   },
   "dependencies": {

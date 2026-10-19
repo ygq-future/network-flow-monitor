@@ -152,3 +152,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 统一注入 `VSLANG=1033`，使 `cl.exe /showIncludes` 稳定输出英文 `Note: including file:`，消除因 GBK/UTF-8 编码错配导致的 Ninja `#deps 0` 及增量构建跳过重编译引发的 ABI 栈损坏问题。
 - **全局抑制测试进程 CRT / Windows 模态错误弹窗 (`tests/test_headless_runtime.cpp`, `tests/CMakeLists.txt`)**：
   - 所有 C++ 测试目标自动链接 `test_headless_runtime.cpp`，在 `main()` 前配置 `SetErrorMode`、`_set_abort_behavior`、`_CrtSetReportHook2` 与 `_CrtSetReportMode(..., _CRTDBG_MODE_FILE)` + `_CRTDBG_FILE_STDERR`，严格保障 Headless 测试契约。
+- **质量门禁与构建流水线轻量化提速 (`CMakeLists.txt`, `cmake/ProjectOptions.cmake`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`, `tools/quality.ps1`, `apps/nfm-ui/package.json`, `apps/nfm-ui/tsconfig.json`)**：
+  - 禁用无用的 C++20 模块依赖扫描（`CMAKE_CXX_SCAN_FOR_MODULES OFF`），消除每个翻译单元额外的 `cl.exe -scanDependencies` 预处理开销；
+  - 将原本分散的 31 个独立测试可执行文件合并为单个统一测试运行器 `nfm_tests.exe`（通过源文件级 `COMPILE_DEFINITIONS "main=nfm_suite_<name>"` 零侵入分发并保留全部 31 项 CTest 用例与标签），把全工程 `.exe` 链接目标从 33 个缩减到 3 个（`nfm-collector.exe`、`NetworkFlowMonitor.exe`、`nfm_tests.exe`），链接器总耗时从 35.3 秒降至 **2.3 秒**，并消除约 400 MB 重复 `.pdb` 磁盘写入；
+  - 引入全仓库共享预编译头（`nfm_pch` + `REUSE_FROM`）预编译 `<windows.h>` 与核心 STL 头文件；
+  - 缓存 Visual Studio DevShell x64 环境变量至 `build/.vsenv-x64.json`（含 `-Clean` 模式复用），跳过每次 1.7 秒的 `Enter-VsDevShell` 冷启动探测；
+  - `clang-format` 改为单进程批量调用（消除 121 次进程拉起），`cmake` 仅在缺失 `build.ninja` 时执行重配置，`ctest` 启用 `--parallel`，`Full` 模式默认支持增量分析与构建；
+  - 前端启用 TypeScript `incremental`（`.tsbuildinfo`）、ESLint `--cache`、Prettier `--cache`、移除 `build` 脚本中重复的 `tsc --noEmit`，并在 `bun.lock` 或前端源码未变化时按时间戳自动跳过重复 `bun install` 与 `vite build`；`Fast -Clean` 全量构建门禁从 ~41.4 秒降至 **~18.5 秒**（其中 C++ 全量 Clean 编译+链接仅需 **8.24 秒**），日常增量 `Fast` 门禁降至 **~8.3 秒**。

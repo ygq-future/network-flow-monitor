@@ -38,24 +38,69 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer
 $frontendRoot = Join-Path $projectRoot 'apps\nfm-ui'
 $frontendManifest = Join-Path $frontendRoot 'package.json'
 
-if (-not (Test-Path -LiteralPath $vswhere)) {
-    throw "Visual Studio Installer was not found at $vswhere"
+$vsEnvCacheFile = Join-Path $projectRoot 'build\.vsenv-x64.json'
+$loadedFromCache = $false
+if (Test-Path -LiteralPath $vsEnvCacheFile) {
+    try {
+        $cached = Get-Content -LiteralPath $vsEnvCacheFile -Raw | ConvertFrom-Json
+        if ((Test-Path -LiteralPath $cached.cmake) -and (Test-Path -LiteralPath $cached.ninja) -and (Test-Path -LiteralPath $cached.clangFormat)) {
+            foreach ($prop in $cached.env.PSObject.Properties) {
+                [System.Environment]::SetEnvironmentVariable($prop.Name, $prop.Value, 'Process')
+            }
+            $cmake = $cached.cmake
+            $ninja = $cached.ninja
+            $cpack = $cached.cpack
+            $clangFormat = $cached.clangFormat
+            $clangTidy = $cached.clangTidy
+            $loadedFromCache = $true
+        }
+    } catch {
+        $loadedFromCache = $false
+    }
 }
-$vsInstall = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
-if ([string]::IsNullOrWhiteSpace($vsInstall)) {
-    throw 'Visual Studio with the x64 C++ workload is required.'
-}
-$installerDir = Split-Path -Parent $vswhere
-$env:PATH = "$installerDir;$env:PATH"
-Import-Module (Join-Path $vsInstall 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll') -Force
-Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
-$env:VSLANG = '1033'
 
-$cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
-$ninja = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' | Select-Object -First 1)
-$cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cpack.exe' | Select-Object -First 1)
-$clangFormat = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-format.exe' | Select-Object -First 1)
-$clangTidy = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-tidy.exe' | Select-Object -First 1)
+if (-not $loadedFromCache) {
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw "Visual Studio Installer was not found at $vswhere"
+    }
+    $vsInstall = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace($vsInstall)) {
+        throw 'Visual Studio with the x64 C++ workload is required.'
+    }
+    $installerDir = Split-Path -Parent $vswhere
+    $env:PATH = "$installerDir;$env:PATH"
+    Import-Module (Join-Path $vsInstall 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll') -Force
+    Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+
+    $cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
+    $ninja = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' | Select-Object -First 1)
+    $cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cpack.exe' | Select-Object -First 1)
+    $clangFormat = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-format.exe' | Select-Object -First 1)
+    $clangTidy = (& $vswhere -latest -products * -find 'VC\Tools\Llvm\x64\bin\clang-tidy.exe' | Select-Object -First 1)
+    $env:PATH = "$(Split-Path -Parent $cmake);$(Split-Path -Parent $ninja);$env:PATH"
+
+    try {
+        $buildDir = Join-Path $projectRoot 'build'
+        if (-not (Test-Path -LiteralPath $buildDir)) {
+            New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+        }
+        $envMap = @{}
+        foreach ($k in @('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'VCINSTALLDIR', 'VCToolsInstallDir', 'WindowsSdkDir', 'WindowsSDKVersion', 'UniversalCRTSdkDir', 'UCRTVersion', 'VSCMD_VER')) {
+            $val = [System.Environment]::GetEnvironmentVariable($k, 'Process')
+            if ($null -ne $val) { $envMap[$k] = $val }
+        }
+        @{
+            cmake = $cmake
+            ninja = $ninja
+            cpack = $cpack
+            clangFormat = $clangFormat
+            clangTidy = $clangTidy
+            env = $envMap
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $vsEnvCacheFile -Encoding UTF8
+    } catch {
+    }
+}
+$env:VSLANG = '1033'
 
 $requiredTools = @($cmake, $ninja, $clangFormat)
 if ($Mode -eq 'Full') {
@@ -66,8 +111,6 @@ foreach ($tool in $requiredTools) {
         throw "Required build tool was not found: $tool"
     }
 }
-$env:PATH = "$(Split-Path -Parent $cmake);$(Split-Path -Parent $ninja);$env:PATH"
-
 $sourceFiles = @(Get-ChildItem -Path (Join-Path $projectRoot 'src'), (Join-Path $projectRoot 'include'), (Join-Path $projectRoot 'tests') -Recurse -File |
     Where-Object { $_.Extension -in '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx' } |
     Sort-Object FullName)
@@ -250,11 +293,8 @@ Write-Host ''
 # ------------------------------------------------------------------------------
 if ($Mode -eq 'Format') {
     Invoke-GateStep -Name 'C++ format' -Action {
-        foreach ($file in $sourceFiles) {
-            & $clangFormat -i --style=file $file.FullName
-            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
-        }
-        return 0
+        & $clangFormat -i --style=file @($sourceFiles.FullName)
+        return $LASTEXITCODE
     } -ParseDetail { "$($sourceFiles.Count) files formatted" }
 
     if (Test-Path -LiteralPath $frontendManifest) {
@@ -318,19 +358,22 @@ Invoke-GateStep -Name 'Deprecation policy' -Action {
 
 # Phase A: C++ formatting check
 Invoke-GateStep -Name 'C++ format' -Action {
-    foreach ($file in $sourceFiles) {
-        $out = & $clangFormat --dry-run --Werror --style=file $file.FullName 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Output $out
-            return $LASTEXITCODE
-        }
+    $out = & $clangFormat --dry-run --Werror --style=file @($sourceFiles.FullName) 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output $out
+        return $LASTEXITCODE
     }
     return 0
 } -ParseDetail { "$($sourceFiles.Count) files" }
 
 # Phase B: C++ Debug configure
+$debugBuildNinja = Join-Path $projectRoot 'build\windows-x64-debug\build.ninja'
 Invoke-GateStep -Name 'C++ Debug configure' -Action {
-    & $cmake --preset windows-x64-debug
+    if (-not (Test-Path -LiteralPath $debugBuildNinja)) {
+        & $cmake --preset windows-x64-debug
+        return $LASTEXITCODE
+    }
+    return 0
 }
 
 # Phase C: C++ Debug build (incremental by default, --clean-first if $Clean)
@@ -344,7 +387,7 @@ Invoke-GateStep -Name 'C++ Debug build' -Action {
 
 # Phase D: C++ automated tests (headless, non-interactive, exclude admin)
 Invoke-GateStep -Name 'C++ tests' -Action {
-    & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin'
+    & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin' --parallel $Jobs
 } -ParseDetail {
     param($lines)
     $text = $lines -join "`n"
@@ -356,24 +399,37 @@ Invoke-GateStep -Name 'C++ tests' -Action {
     }
     return ''
 }
-
 # Phase E - J: Frontend verification (if apps/nfm-ui/package.json exists)
 if (Test-Path -LiteralPath $frontendManifest) {
     $packageJson = Get-Content -LiteralPath $frontendManifest -Raw | ConvertFrom-Json
     $hasFrontendTest = ($null -ne $packageJson.scripts) -and ($null -ne $packageJson.scripts.test)
 
     # E. Frontend dependencies
+    $nodeModulesDir = Join-Path $frontendRoot 'node_modules'
+    $bunLock = Join-Path $frontendRoot 'bun.lock'
+    $installStamp = Join-Path $nodeModulesDir '.cache\.install-stamp'
     Invoke-GateStep -Name 'Frontend dependencies' -Action {
+        $needsInstall = -not (Test-Path -LiteralPath $nodeModulesDir) -or -not (Test-Path -LiteralPath $installStamp)
+        if (-not $needsInstall) {
+            $stampTime = (Get-Item -LiteralPath $installStamp).LastWriteTimeUtc
+            if ((Get-Item -LiteralPath $frontendManifest).LastWriteTimeUtc -gt $stampTime -or
+                ((Test-Path -LiteralPath $bunLock) -and (Get-Item -LiteralPath $bunLock).LastWriteTimeUtc -gt $stampTime)) {
+                $needsInstall = $true
+            }
+        }
+        if (-not $needsInstall) { return 0 }
         Push-Location $frontendRoot
         try {
             & bun install --frozen-lockfile
             if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            $cacheDir = Split-Path -Parent $installStamp
+            if (-not (Test-Path -LiteralPath $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+            Set-Content -LiteralPath $installStamp -Value ([DateTime]::UtcNow.ToString('O'))
             return 0
         } finally {
             Pop-Location
         }
     }
-
     # F. Prettier check
     Invoke-GateStep -Name 'Prettier' -Action {
         Push-Location $frontendRoot
@@ -432,7 +488,24 @@ if (Test-Path -LiteralPath $frontendManifest) {
     }
 
     # J. Frontend production build
+    $distIndex = Join-Path $frontendRoot 'dist\index.html'
     Invoke-GateStep -Name 'Frontend build' -Action {
+        $needsBuild = $Clean -or ($Mode -eq 'Full') -or -not (Test-Path -LiteralPath $distIndex)
+        if (-not $needsBuild) {
+            $distTime = (Get-Item -LiteralPath $distIndex).LastWriteTimeUtc
+            $feInputs = @(Get-ChildItem -Path (Join-Path $frontendRoot 'src') -Recurse -File -ErrorAction SilentlyContinue)
+            foreach ($cfgName in @('index.html', 'package.json', 'vite.config.ts', 'tsconfig.json')) {
+                $cfgFile = Join-Path $frontendRoot $cfgName
+                if (Test-Path -LiteralPath $cfgFile) { $feInputs += (Get-Item -LiteralPath $cfgFile) }
+            }
+            foreach ($inp in $feInputs) {
+                if ($inp.LastWriteTimeUtc -gt $distTime) {
+                    $needsBuild = $true
+                    break
+                }
+            }
+        }
+        if (-not $needsBuild) { return 0 }
         Push-Location $frontendRoot
         try {
             & bun run build
@@ -454,14 +527,19 @@ if ($Mode -eq 'Fast') {
 # ------------------------------------------------------------------------------
 
 $fullBuildArgs = @('--parallel', $Jobs.ToString())
-if ($Clean -or $Mode -eq 'Full') {
+if ($Clean) {
     $fullBuildArgs += '--clean-first'
 }
 
 # Phase 11: clang-tidy & Clang Static Analyzer
 $tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
+$tidyNinja = Join-Path $tidyBuild 'build.ninja'
 Invoke-GateStep -Name 'Configure clang-tidy' -Action {
-    & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
+    if (-not (Test-Path -LiteralPath $tidyNinja)) {
+        & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
+        return $LASTEXITCODE
+    }
+    return 0
 }
 
 Invoke-GateStep -Name 'clang-tidy' -Action {
@@ -470,8 +548,13 @@ Invoke-GateStep -Name 'clang-tidy' -Action {
 
 # Phase 12: MSVC static analysis
 $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
+$analyzeNinja = Join-Path $analyzeBuild 'build.ninja'
 Invoke-GateStep -Name 'Configure MSVC analyze' -Action {
-    & $cmake -S $projectRoot -B $analyzeBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_MSVC_ANALYZE=ON "-DCMAKE_MAKE_PROGRAM=$ninja"
+    if (-not (Test-Path -LiteralPath $analyzeNinja)) {
+        & $cmake -S $projectRoot -B $analyzeBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_MSVC_ANALYZE=ON "-DCMAKE_MAKE_PROGRAM=$ninja"
+        return $LASTEXITCODE
+    }
+    return 0
 }
 
 Invoke-GateStep -Name 'MSVC analyze' -Action {
@@ -479,8 +562,13 @@ Invoke-GateStep -Name 'MSVC analyze' -Action {
 } -ParseDetail { '0 warnings' }
 
 # Phase 13: C++ Release configure & build
+$releaseNinja = Join-Path $projectRoot 'build\windows-x64-release\build.ninja'
 Invoke-GateStep -Name 'Configure Release x64' -Action {
-    & $cmake --preset windows-x64-release
+    if (-not (Test-Path -LiteralPath $releaseNinja)) {
+        & $cmake --preset windows-x64-release
+        return $LASTEXITCODE
+    }
+    return 0
 }
 
 Invoke-GateStep -Name 'C++ Release build' -Action {
@@ -489,7 +577,7 @@ Invoke-GateStep -Name 'C++ Release build' -Action {
 
 # Phase 14: C++ Release tests
 Invoke-GateStep -Name 'C++ Release tests' -Action {
-    & $cmake -E chdir 'build/windows-x64-release' ctest --output-on-failure -LE 'requires-admin'
+    & $cmake -E chdir 'build/windows-x64-release' ctest --output-on-failure -LE 'requires-admin' --parallel $Jobs
 } -ParseDetail {
     param($lines)
     $text = $lines -join "`n"
@@ -501,7 +589,6 @@ Invoke-GateStep -Name 'C++ Release tests' -Action {
     }
     return ''
 }
-
 # Phase 15: Package Release
 Invoke-GateStep -Name 'Package Release' -Action {
     & $cpack --config (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake') -B (Join-Path $projectRoot 'build\windows-x64-release')

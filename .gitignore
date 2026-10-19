@@ -83,6 +83,7 @@ node_modules/
 /apps/nfm-ui/dist/
 /apps/nfm-ui/node_modules/
 /apps/nfm-ui/.vite/
+*.tsbuildinfo
 
 # Local runtime configuration
 /NetworkFlowMonitor.json

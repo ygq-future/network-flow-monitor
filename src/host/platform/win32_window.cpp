@@ -45,6 +45,7 @@ constexpr int kCmdTrayPinMonitor = 1005;
 constexpr UINT_PTR kSurfaceClockTimerId = 1;
 constexpr UINT kSurfaceClockPeriodMs = 8;
 constexpr int kAutoHideTaskbarReservationDip = 4;
+constexpr WPARAM kSysCommandDragMove = SC_MOVE | HTCAPTION;
 
 std::string display_device_id(const wchar_t* device_name) {
     const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, device_name, -1,
@@ -171,6 +172,9 @@ void Win32Window::show(int cmd_show) {
         if (IsIconic(hwnd_) != 0 && cmd_show != SW_HIDE && cmd_show != SW_MINIMIZE) {
             ShowWindow(hwnd_, SW_RESTORE);
         }
+        if (cmd_show != SW_HIDE && cmd_show != SW_MINIMIZE && IsWindowVisible(hwnd_) != FALSE) {
+            return;
+        }
         ShowWindow(hwnd_, cmd_show);
         UpdateWindow(hwnd_);
     }
@@ -188,15 +192,79 @@ void Win32Window::set_bounds(int x, int y, int width, int height) {
     if (hwnd_ != nullptr) {
         if (IsIconic(hwnd_) != 0) {
             ShowWindow(hwnd_, SW_RESTORE);
+            bounds_initialized_ = false;
         }
-        SetWindowPos(hwnd_, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        if (bounds_initialized_ && last_x_px_ == x && last_y_px_ == y && last_width_px_ == width &&
+            last_height_px_ == height) {
+            return;
+        }
+        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        if (bounds_initialized_ && last_width_px_ == width && last_height_px_ == height) {
+            flags |= SWP_NOSIZE;
+        }
+        if (bounds_initialized_ && last_x_px_ == x && last_y_px_ == y) {
+            flags |= SWP_NOMOVE;
+        }
+        bounds_initialized_ = true;
+        last_x_px_ = x;
+        last_y_px_ = y;
+        last_width_px_ = width;
+        last_height_px_ = height;
+        SetWindowPos(hwnd_, nullptr, x, y, width, height, flags);
     }
 }
 
 void Win32Window::set_topmost(bool topmost) {
     if (hwnd_ != nullptr) {
+        if (topmost_initialized_ && last_topmost_ == topmost) {
+            return;
+        }
+        topmost_initialized_ = true;
+        last_topmost_ = topmost;
         SetWindowPos(hwnd_, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
+void Win32Window::begin_interactive_drag() noexcept {
+    surface_button_down_ = true;
+    if (hwnd_ != nullptr) {
+        SetCapture(hwnd_);
+    }
+}
+
+void Win32Window::perform_system_move() noexcept {
+    if (hwnd_ == nullptr) {
+        return;
+    }
+    surface_button_down_ = false;
+    bounds_initialized_ = false;
+    in_system_move_loop_ = true;
+    if (GetCapture() == hwnd_) {
+        ReleaseCapture();
+    }
+    SendMessageW(hwnd_, WM_SYSCOMMAND, kSysCommandDragMove, 0);
+    in_system_move_loop_ = false;
+    try {
+        const bool esc_canceled = ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0);
+        POINT end_pt{};
+        if (!esc_canceled && GetCursorPos(&end_pt) != FALSE) {
+            if (listener_ != nullptr) {
+                listener_->on_surface_pointer_up(
+                    surface::ScreenPoint{.x_px = end_pt.x, .y_px = end_pt.y});
+            }
+            RECT win_rc{};
+            if (GetWindowRect(hwnd_, &win_rc) != FALSE) {
+                const bool inside = (PtInRect(&win_rc, end_pt) != FALSE);
+                surface_pointer_inside_ = inside;
+                if (!inside && listener_ != nullptr) {
+                    listener_->on_surface_pointer_leave();
+                }
+            }
+        } else if (listener_ != nullptr) {
+            listener_->on_surface_pointer_cancel();
+        }
+    } catch (...) {
     }
 }
 
@@ -669,14 +737,11 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         }
         return 0;
     }
-    case kWebSurfacePointerDownMessage:
     case WM_LBUTTONDOWN: {
         POINT point{};
         GetCursorPos(&point);
         self->surface_button_down_ = true;
-        if (msg == WM_LBUTTONDOWN) {
-            SetCapture(hwnd);
-        }
+        SetCapture(hwnd);
         if (self->listener_ != nullptr) {
             self->listener_->on_surface_pointer_down(
                 surface::ScreenPoint{.x_px = point.x, .y_px = point.y});
@@ -717,15 +782,29 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
     case WM_CAPTURECHANGED:
     case WM_CANCELMODE: {
+        if (self->in_system_move_loop_) {
+            return 0;
+        }
         self->surface_button_down_ = false;
         if (self->listener_ != nullptr) {
             self->listener_->on_surface_pointer_cancel();
         }
         return 0;
     }
+    case WM_MOVE: {
+        const int x = static_cast<int>(static_cast<short>(LOWORD(lparam)));
+        const int y = static_cast<int>(static_cast<short>(HIWORD(lparam)));
+        self->last_x_px_ = x;
+        self->last_y_px_ = y;
+        if (self->listener_ != nullptr) {
+            self->listener_->on_window_position_changed();
+        }
+        return 0;
+    }
     case WM_TIMER: {
         if (wparam == kSurfaceClockTimerId && self->listener_ != nullptr) {
-            if (IsWindowVisible(hwnd) != FALSE && !self->click_through_enabled_) {
+            if (!self->in_system_move_loop_ && IsWindowVisible(hwnd) != FALSE &&
+                !self->click_through_enabled_) {
                 POINT pt{};
                 RECT rc{};
                 if (GetCursorPos(&pt) != FALSE && GetWindowRect(hwnd, &rc) != FALSE) {

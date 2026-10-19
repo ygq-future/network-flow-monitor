@@ -298,6 +298,12 @@ void ProductHost::on_window_size_changed(int width_px, int height_px) {
     }
 }
 
+void ProductHost::on_window_position_changed() {
+    if (webview_) {
+        webview_->notify_parent_window_position_changed();
+    }
+}
+
 void ProductHost::on_window_dpi_changed(std::uint32_t /*new_dpi*/, const RECT* /*suggested_rect*/) {
     if (coordinator_) {
         coordinator_->update_monitors(platform::Win32Window::enumerate_monitors());
@@ -415,8 +421,13 @@ void ProductHost::on_surface_pointer_move(surface::ScreenPoint point) {
     if (!coordinator_) {
         return;
     }
+    const bool was_dragging = coordinator_->state().is_dragging;
     const auto before = coordinator_->state().geometry;
     coordinator_->on_pointer_move(point);
+    if (!was_dragging && coordinator_->state().is_dragging && window_) {
+        window_->perform_system_move();
+        return;
+    }
     if (coordinator_->state().geometry != before) {
         apply_coordinator_state();
     }
@@ -544,6 +555,11 @@ void ProductHost::ensure_settings_window() {
             void on_window_size_changed(int width_px, int height_px) override {
                 if (host_->settings_webview_) {
                     host_->settings_webview_->resize(width_px, height_px);
+                }
+            }
+            void on_window_position_changed() override {
+                if (host_->settings_webview_) {
+                    host_->settings_webview_->notify_parent_window_position_changed();
                 }
             }
             void on_window_dpi_changed(std::uint32_t /*new_dpi*/,
@@ -1345,8 +1361,7 @@ void ProductHost::on_start_window_drag() {
         RECT settings_rc{};
         if (GetWindowRect(settings_window_->hwnd(), &settings_rc) != FALSE &&
             PtInRect(&settings_rc, pt) != FALSE) {
-            ReleaseCapture();
-            SendMessageW(settings_window_->hwnd(), WM_SYSCOMMAND, 0xF012, 0);
+            settings_window_->perform_system_move();
             return;
         }
     }

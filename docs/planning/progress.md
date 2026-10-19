@@ -111,3 +111,14 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 在「贴边胶囊」分类下提供两个全屏策略配置项：`floating.ignore_hover_when_fullscreen`（全屏时锁定并鼠标穿透，默认开启）与 `floating.hide_capsule_when_fullscreen`（全屏时隐藏胶囊，默认关闭）；
   - `Win32Window::is_foreground_fullscreen_on_same_monitor` 结合 `GA_ROOT`、`SHQueryUserNotificationState(QUNS_RUNNING_D3D_FULL_SCREEN)`、窗口矩形与客户端区域屏幕覆盖检测识别同显示器全屏应用与游戏；
   - 进入全屏时自动解除 `nfm_pinned` 固定状态并收起为胶囊：开启“全屏时锁定并鼠标穿透”时动态启用 `WS_EX_TRANSPARENT | WS_EX_LAYERED` 实现操作系统级鼠标穿透并锁定悬停/点击展开；开启“全屏时隐藏胶囊”时执行 `window_->hide()`，退出全屏后自动恢复。
+
+## 第四轮窗口拖动原生级流畅度优化 — complete
+
+- **统一接入 Windows 原生移动循环 (`win32_window.cpp`, `product_host.cpp`, `dock_capsule_coordinator.cpp`)**：
+  - 监控面板顶栏拖拽与贴边胶囊拖拽均遵循系统拖拽阈值（`SM_CXDRAG` / `SM_CYDRAG`）及指针捕获，跨越阈值后立即切换至 `Win32Window::perform_system_move()`（`WM_SYSCOMMAND` `SC_MOVE | HTCAPTION`），由 Windows 内核与 DWM 直接驱动窗口位置，消除 `WM_TIMER` 系统时钟粒度限制；
+  - 原生移动循环结束后自动采集成对的释放点物理坐标，触发 `DockCapsuleCoordinator::on_pointer_up` 完成多显示器识别、左右贴边吸附、Tie-Break 规则、工作区及自动隐藏任务栏边缘避让与配置持久化；未达阈值的胶囊点击仍立即展开面板。
+- **消除拖动期间跨进程冗余重排与重复 Win32 调用 (`win32_window.cpp`, `webview_controller.cpp`)**：
+  - `Win32Window` 缓存窗口位置、尺寸与 `topmost` 状态，仅在几何或置顶状态实际变化时调用 `SetWindowPos`；
+  - `WebView2Controller::resize` 缓存宽高，避免仅窗口位移时每帧发起跨进程 `ICoreWebView2Controller::put_Bounds` 重算；新增 `WM_MOVE` -> `ICoreWebView2Controller::NotifyParentWindowPositionChanged` 同步宿主窗口位置。
+- **清理子窗口冗余子类化消息 (`webview_controller.cpp`, `win32_window.h`)**：
+  - 移除对父窗口自身的重复 `SetWindowSubclass` 与无消费的 `kWebSurfacePointerDownMessage`，避免监控面板非拖拽区点击误触发拖拽候选。

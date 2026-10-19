@@ -481,6 +481,36 @@ void TestPointerMoveAutoRecoversLostPointerUp(TestContext& ctx) {
               "Snapped to Left edge on recovery");
 }
 
+void TestPanelHeaderDragThresholdAndSnap(TestContext& ctx) {
+    nfm::config::AppConfig cfg;
+    cfg.floating.anchor_side = nfm::config::DockSide::Right;
+    cfg.floating.anchor_vertical_offset_dip = 120;
+
+    DockCapsuleCoordinator coord(cfg);
+    coord.show_monitor();
+    ctx.Check(coord.state().presentation_state == PresentationState::PanelVisible,
+              "PanelVisible before header drag");
+
+    // Start drag candidate from panel header at (1700, 135)
+    coord.on_pointer_down_capsule(ScreenPoint{1700, 135});
+    coord.on_pointer_move(ScreenPoint{1701, 136});
+    ctx.Check(!coord.state().is_dragging,
+              "Sub-threshold movement on panel header does not start drag");
+
+    // Cross system drag threshold -> activates dragging and enters native move loop
+    coord.on_pointer_move(ScreenPoint{1680, 145});
+    ctx.Check(coord.state().is_dragging, "Panel header movement past threshold activates dragging");
+
+    // Release after native SC_MOVE loop at (300, 255)
+    coord.on_pointer_up(ScreenPoint{300, 255});
+    ctx.Check(!coord.state().is_dragging, "Dragging ended after release");
+    ctx.Check(coord.state().anchor_side == nfm::config::DockSide::Left,
+              "Panel snaps to Left side after native move release");
+    ctx.Check(coord.state().anchor_vertical_offset_dip == 240,
+              "Vertical offset preserves grab offset after native move release");
+    ctx.Check(coord.state().geometry.x_px == 0, "Panel docked at left edge x = 0");
+}
+
 } // namespace
 
 int main() {
@@ -496,6 +526,7 @@ int main() {
     TestDpiScalingAndDisplayChangeFallback(ctx);
     TestAutoHideTaskbarEdgeReservation(ctx);
     TestPointerMoveAutoRecoversLostPointerUp(ctx);
+    TestPanelHeaderDragThresholdAndSnap(ctx);
 
     if (ctx.failures() > 0) {
         std::cerr << ctx.failures() << " test(s) failed.\n";

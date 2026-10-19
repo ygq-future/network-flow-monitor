@@ -32,8 +32,6 @@ LRESULT CALLBACK WebViewChildSubclassProc(HWND hwnd, UINT msg, WPARAM wparam, LP
                                      .dwHoverTime = HOVER_DEFAULT};
             TrackMouseEvent(&tracking);
             PostMessageW(parent, platform::kWebSurfacePointerMoveMessage, wparam, lparam);
-        } else if (msg == WM_LBUTTONDOWN) {
-            PostMessageW(parent, platform::kWebSurfacePointerDownMessage, wparam, lparam);
         } else if (msg == WM_LBUTTONUP) {
             PostMessageW(parent, platform::kWebSurfacePointerUpMessage, wparam, lparam);
         } else if (msg == WM_MOUSELEAVE) {
@@ -50,7 +48,6 @@ void SubclassWebViewChildren(HWND parent_hwnd) {
     if (parent_hwnd == nullptr) {
         return;
     }
-    SetWindowSubclass(parent_hwnd, WebViewChildSubclassProc, kWebViewChildSubclassId, 0);
     EnumChildWindows(
         parent_hwnd,
         [](HWND child, LPARAM) -> BOOL {
@@ -63,7 +60,6 @@ void UnsubclassWebViewChildren(HWND parent_hwnd) {
     if (parent_hwnd == nullptr) {
         return;
     }
-    RemoveWindowSubclass(parent_hwnd, WebViewChildSubclassProc, kWebViewChildSubclassId);
     EnumChildWindows(
         parent_hwnd,
         [](HWND child, LPARAM) -> BOOL {
@@ -90,6 +86,8 @@ struct WebView2Controller::Impl {
     bool is_ready_{false};
     bool is_creating_{false};
     bool desired_visible_{true};
+    int last_width_px_{-1};
+    int last_height_px_{-1};
     EventRegistrationToken message_token_{};
     EventRegistrationToken navigation_token_{};
     EventRegistrationToken new_window_token_{};
@@ -317,6 +315,8 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                     RECT client_rect{};
                     GetClientRect(impl_->parent_hwnd_, &client_rect);
                     ctrl->put_Bounds(client_rect);
+                    impl_->last_width_px_ = client_rect.right - client_rect.left;
+                    impl_->last_height_px_ = client_rect.bottom - client_rect.top;
                     ctrl->put_IsVisible(impl_->desired_visible_ ? TRUE : FALSE);
                     SubclassWebViewChildren(impl_->parent_hwnd_);
                     impl_->is_ready_ = true;
@@ -360,11 +360,21 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
 
 void WebView2Controller::resize(int width_px, int height_px) {
     if (impl_->controller_.Get() != nullptr) {
-        RECT bounds{.left = 0, .top = 0, .right = width_px, .bottom = height_px};
-        impl_->controller_->put_Bounds(bounds);
+        if (impl_->last_width_px_ != width_px || impl_->last_height_px_ != height_px) {
+            impl_->last_width_px_ = width_px;
+            impl_->last_height_px_ = height_px;
+            RECT bounds{.left = 0, .top = 0, .right = width_px, .bottom = height_px};
+            impl_->controller_->put_Bounds(bounds);
+        }
         if (impl_->desired_visible_) {
             impl_->controller_->put_IsVisible(TRUE);
         }
+    }
+}
+
+void WebView2Controller::notify_parent_window_position_changed() {
+    if (impl_->controller_.Get() != nullptr) {
+        static_cast<void>(impl_->controller_->NotifyParentWindowPositionChanged());
     }
 }
 

@@ -24,7 +24,6 @@
 namespace nfm::host::platform {
 
 inline constexpr UINT kWebSurfacePointerMoveMessage = WM_APP + 0x31;
-inline constexpr UINT kWebSurfacePointerDownMessage = WM_APP + 0x32;
 inline constexpr UINT kWebSurfacePointerUpMessage = WM_APP + 0x33;
 inline constexpr UINT kWebSurfacePointerLeaveMessage = WM_APP + 0x34;
 
@@ -62,6 +61,7 @@ class IWindowEventListener {
 
     virtual void on_window_created(HWND hwnd) = 0;
     virtual void on_window_size_changed(int width_px, int height_px) = 0;
+    virtual void on_window_position_changed() {}
     virtual void on_window_dpi_changed(std::uint32_t new_dpi, const RECT* suggested_rect) = 0;
     virtual void on_window_close_requested() = 0;
     virtual void on_window_destroyed() = 0;
@@ -111,9 +111,8 @@ class Win32Window {
     void set_click_through(bool click_through);
     void set_taskbar_visibility(bool app_window);
     void configure_surface_chrome(bool rounded_frame, bool dark_mode);
-    void begin_interactive_drag() noexcept {
-        surface_button_down_ = true;
-    }
+    void begin_interactive_drag() noexcept;
+    void perform_system_move() noexcept;
     void show_context_menu(const ContextMenuOptions& options);
     static std::vector<surface::MonitorArea> enumerate_monitors();
     [[nodiscard]] static bool is_foreground_fullscreen_on_same_monitor(HWND product_window);
@@ -147,6 +146,14 @@ class Win32Window {
     bool surface_pointer_inside_{false};
     bool surface_button_down_{false};
     bool outside_button_was_down_{false};
+    bool in_system_move_loop_{false};
+    int last_x_px_{CW_USEDEFAULT};
+    int last_y_px_{CW_USEDEFAULT};
+    int last_width_px_{0};
+    int last_height_px_{0};
+    bool bounds_initialized_{false};
+    bool topmost_initialized_{false};
+    bool last_topmost_{false};
     bool last_rounded_frame_{false};
     bool last_dark_mode_{true};
     bool last_app_window_{false};

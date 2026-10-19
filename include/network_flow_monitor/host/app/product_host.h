@@ -44,6 +44,7 @@ class ProductHost : public platform::IWindowEventListener,
     // IWindowEventListener implementation
     void on_window_created(HWND hwnd) override;
     void on_window_size_changed(int width_px, int height_px) override;
+    void on_window_position_changed() override;
     void on_window_dpi_changed(std::uint32_t new_dpi, const RECT* suggested_rect) override;
     void on_window_close_requested() override;
     void on_window_destroyed() override;

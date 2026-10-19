@@ -45,25 +45,46 @@ export const ProductSurface: React.FC = () => {
   const sessionReset = useSessionReset()
 
   if (surface.surface === 'tray') return null
-  if (surface.surface === 'capsule') return <DockCapsule key={sessionReset?.collectorInstanceId ?? 'initial'} />
   if (surface.surface === 'settings') return <SettingsSurface />
 
+  const isRightDock = surface.dockSide === 'right'
+  const isPanelActive = surface.surface === 'panel'
+
   return (
-    <BasicMonitorPanel
-      tick={tick}
-      ranking={ranking}
-      status={status}
-      isPinned={surface.pinned}
-      onTogglePin={() => bridge.sendCommand('setPin', { pinned: !surface.pinned })}
-      onStartDrag={() => bridge.sendCommand('startWindowDrag')}
-      onOpenSettings={() => bridge.sendCommand('openSettings', { route: 'general' })}
-      onClose={() => bridge.sendCommand('hideMonitor')}
-      onContextMenu={event => {
-        event.preventDefault()
-        bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
-      }}
-      className="h-full w-full rounded-none border-0"
-    />
+    <div className="relative h-full w-full overflow-hidden bg-transparent">
+      <div
+        aria-hidden={isPanelActive}
+        className={`fixed top-0 z-10 ${isRightDock ? 'right-0' : 'left-0'} ${
+          isPanelActive ? 'pointer-events-none' : 'pointer-events-auto'
+        }`}>
+        <DockCapsule
+          key={sessionReset?.collectorInstanceId ?? 'initial'}
+          transitionPhase={isPanelActive ? 'expanding-to-panel' : 'capsule-idle'}
+        />
+      </div>
+      <div
+        aria-hidden={!isPanelActive}
+        className={`fixed top-0 z-20 ${isRightDock ? 'right-0' : 'left-0'} h-full ${
+          isPanelActive ? 'pointer-events-auto' : 'pointer-events-none'
+        }`}>
+        <BasicMonitorPanel
+          tick={tick}
+          ranking={ranking}
+          status={status}
+          isPinned={surface.pinned}
+          transitionState={isPanelActive ? 'entered' : 'exiting'}
+          onTogglePin={() => bridge.sendCommand('setPin', { pinned: !surface.pinned })}
+          onStartDrag={() => bridge.sendCommand('startWindowDrag')}
+          onOpenSettings={() => bridge.sendCommand('openSettings', { route: 'general' })}
+          onClose={() => bridge.sendCommand('hideMonitor')}
+          onContextMenu={event => {
+            event.preventDefault()
+            bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
+          }}
+          className="h-full w-full"
+        />
+      </div>
+    </div>
   )
 }
 

@@ -107,6 +107,8 @@ class Win32Window {
     void close();
 
     void set_bounds(int x, int y, int width, int height);
+    void set_logical_hit_bounds(int x, int y, int width, int height) noexcept;
+    void clear_logical_hit_bounds() noexcept;
     void set_topmost(bool topmost);
     void set_click_through(bool click_through);
     void set_taskbar_visibility(bool app_window);
@@ -151,12 +153,15 @@ class Win32Window {
     int last_y_px_{CW_USEDEFAULT};
     int last_width_px_{0};
     int last_height_px_{0};
+    bool has_logical_hit_bounds_{false};
+    RECT logical_hit_rect_{};
     bool bounds_initialized_{false};
     bool topmost_initialized_{false};
     bool last_topmost_{false};
     bool last_rounded_frame_{false};
     bool last_dark_mode_{true};
     bool last_app_window_{false};
+    bool explicit_click_through_{false};
     bool click_through_enabled_{false};
     bool chrome_initialized_{false};
     HBRUSH background_brush_{nullptr};

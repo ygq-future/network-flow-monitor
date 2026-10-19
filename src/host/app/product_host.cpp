@@ -12,6 +12,7 @@ namespace nfm::host::app {
 
 namespace {
 constexpr int kSettingsSurfaceWidthDip = 520;
+constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -476,14 +477,25 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
         window_ &&
         platform::Win32Window::is_foreground_fullscreen_on_same_monitor(window_->hwnd()));
     coordinator_->advance_time(elapsed);
+    bool collapse_finished = false;
+    if (collapse_bounds_remaining_.count() > 0) {
+        if (elapsed >= collapse_bounds_remaining_) {
+            collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+            collapse_finished = true;
+        } else {
+            collapse_bounds_remaining_ -= elapsed;
+        }
+    }
     if (coordinator_->state().presentation_state != before ||
         coordinator_->state().is_topmost != was_topmost ||
         coordinator_->state().is_auto_hidden != was_auto_hidden ||
         coordinator_->state().is_fullscreen_hidden != was_fullscreen_hidden ||
         coordinator_->state().is_click_through != was_click_through ||
-        coordinator_->state().is_pinned != was_pinned || was_iconic) {
+        coordinator_->state().is_pinned != was_pinned || was_iconic || collapse_finished) {
         apply_coordinator_state();
-        publish_surface_state();
+        if (!collapse_finished) {
+            publish_surface_state();
+        }
     }
     watchdog_elapsed_ += elapsed;
     if (watchdog_elapsed_ >= std::chrono::milliseconds{1000}) {
@@ -725,20 +737,54 @@ void ProductHost::apply_coordinator_state() {
     window_->set_taskbar_visibility(false);
     if (state.presentation_state == coordinator::PresentationState::TrayOnly ||
         state.is_fullscreen_hidden) {
+        collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+        last_applied_presentation_state_ = state.presentation_state;
+        window_->clear_logical_hit_bounds();
         window_->set_click_through(false);
         window_->hide();
     } else {
-        const bool is_panel =
-            (state.presentation_state == coordinator::PresentationState::PanelVisible);
-        window_->configure_surface_chrome(is_panel, dark_mode);
-        window_->set_bounds(state.geometry.x_px, state.geometry.y_px, state.geometry.width_px,
-                            state.geometry.height_px);
+        if (last_applied_presentation_state_ == coordinator::PresentationState::PanelVisible &&
+            state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
+            !state.is_dragging) {
+            collapse_bounds_remaining_ = kPanelCollapseBoundsDelay;
+        } else if (state.presentation_state != coordinator::PresentationState::CapsuleVisible ||
+                   state.is_dragging) {
+            collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+        }
+        last_applied_presentation_state_ = state.presentation_state;
+
+        window_->set_logical_hit_bounds(state.geometry.x_px, state.geometry.y_px,
+                                        state.geometry.width_px, state.geometry.height_px);
+        // Keep the floating HWND itself frameless & un-rounded so WebView2 renders
+        // the morphing transition between capsule and panel without a rigid DWM border box.
+        window_->configure_surface_chrome(false, dark_mode);
+        int window_x = state.geometry.x_px;
+        const int window_y = state.geometry.y_px;
+        int window_w = state.geometry.width_px;
+        const int window_h = state.geometry.height_px;
+        if (state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
+            !state.is_dragging) {
+            if (const auto* mon = coordinator_->active_monitor(); mon != nullptr) {
+                const auto canvas_w = static_cast<int>(std::round(
+                    coordinator::DockCapsuleCoordinator::kDefaultPanelWidthDip * mon->dpi_scale()));
+                if (state.anchor_side == config::DockSide::Right) {
+                    window_x = (state.geometry.x_px + state.geometry.width_px) - canvas_w;
+                }
+                window_w = canvas_w;
+            }
+        }
+        const bool is_collapsing =
+            (state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
+             collapse_bounds_remaining_.count() > 0 && !state.is_dragging);
+        if (!is_collapsing) {
+            if (webview_) {
+                webview_->resize(window_w, window_h);
+            }
+            window_->set_bounds(window_x, window_y, window_w, window_h);
+        }
         window_->set_click_through(state.is_click_through);
         window_->set_topmost(state.is_topmost);
         window_->show(SW_SHOWNOACTIVATE);
-        if (webview_) {
-            webview_->resize(state.geometry.width_px, state.geometry.height_px);
-        }
     }
     if (state.anchor_updated || state.pin_updated) {
         if (state.anchor_updated) {
@@ -1366,6 +1412,10 @@ void ProductHost::on_start_window_drag() {
         }
     }
     if (coordinator_) {
+        if (collapse_bounds_remaining_.count() > 0) {
+            collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+            apply_coordinator_state();
+        }
         window_->begin_interactive_drag();
         coordinator_->on_pointer_down_capsule(surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
     }

@@ -30,4 +30,20 @@ describe('ProductSurface', () => {
     act(() => bridge.emit('surfaceChanged', { surface: 'settings', pinned: false, dockSide: 'right' }))
     expect(screen.getAllByText('General').length).toBeGreaterThan(0)
   })
+
+  it('morphs scale and opacity between capsule and panel', () => {
+    const bridge = new MockBridge(false)
+    renderSurface(bridge)
+
+    act(() => bridge.emit('surfaceChanged', { surface: 'panel', pinned: false, dockSide: 'right' }))
+    const expandedPanel = screen.getByRole('region', { name: 'Monitor Panel' })
+    expect(expandedPanel.style.transform).toBe('scale(1.0000, 1.0000)')
+    expect(expandedPanel.style.opacity).toBe('1')
+
+    act(() => bridge.emit('surfaceChanged', { surface: 'capsule', pinned: false, dockSide: 'right' }))
+    const collapsedPanel = screen.getByRole('region', { name: 'Monitor Panel', hidden: true })
+    expect(collapsedPanel.style.transform).not.toBe('scale(1.0000, 1.0000)')
+    expect(collapsedPanel.style.opacity).toBe('0')
+    expect(screen.getByRole('button', { name: 'Network Flow Monitor' })).toBeInTheDocument()
+  })
 })

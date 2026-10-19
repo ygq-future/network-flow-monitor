@@ -198,7 +198,7 @@ void Win32Window::set_bounds(int x, int y, int width, int height) {
             last_height_px_ == height) {
             return;
         }
-        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
         if (bounds_initialized_ && last_width_px_ == width && last_height_px_ == height) {
             flags |= SWP_NOSIZE;
         }
@@ -212,6 +212,15 @@ void Win32Window::set_bounds(int x, int y, int width, int height) {
         last_height_px_ = height;
         SetWindowPos(hwnd_, nullptr, x, y, width, height, flags);
     }
+}
+
+void Win32Window::set_logical_hit_bounds(int x, int y, int width, int height) noexcept {
+    has_logical_hit_bounds_ = true;
+    logical_hit_rect_ = RECT{.left = x, .top = y, .right = x + width, .bottom = y + height};
+}
+
+void Win32Window::clear_logical_hit_bounds() noexcept {
+    has_logical_hit_bounds_ = false;
 }
 
 void Win32Window::set_topmost(bool topmost) {
@@ -255,7 +264,8 @@ void Win32Window::perform_system_move() noexcept {
             }
             RECT win_rc{};
             if (GetWindowRect(hwnd_, &win_rc) != FALSE) {
-                const bool inside = (PtInRect(&win_rc, end_pt) != FALSE);
+                const RECT& check_rc = has_logical_hit_bounds_ ? logical_hit_rect_ : win_rc;
+                const bool inside = (PtInRect(&check_rc, end_pt) != FALSE);
                 surface_pointer_inside_ = inside;
                 if (!inside && listener_ != nullptr) {
                     listener_->on_surface_pointer_leave();
@@ -269,15 +279,28 @@ void Win32Window::perform_system_move() noexcept {
 }
 
 void Win32Window::set_click_through(bool click_through) {
-    if (hwnd_ == nullptr || click_through_enabled_ == click_through) {
+    if (hwnd_ == nullptr) {
         return;
     }
-    click_through_enabled_ = click_through;
-    LONG_PTR ex_style = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    explicit_click_through_ = click_through;
+    bool effective = click_through;
+    if (!effective && has_logical_hit_bounds_ && !surface_button_down_) {
+        POINT pt{};
+        if (GetCursorPos(&pt) != FALSE) {
+            effective = (PtInRect(&logical_hit_rect_, pt) == FALSE);
+        }
+    }
     if (click_through) {
-        ex_style |= static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
         surface_pointer_inside_ = false;
         surface_button_down_ = false;
+    }
+    if (click_through_enabled_ == effective) {
+        return;
+    }
+    click_through_enabled_ = effective;
+    LONG_PTR ex_style = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    if (effective) {
+        ex_style |= static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
     } else {
         ex_style &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
     }
@@ -714,13 +737,24 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
     case kWebSurfacePointerMoveMessage:
     case WM_MOUSEMOVE: {
+        POINT point{};
+        GetCursorPos(&point);
+        if (self->has_logical_hit_bounds_ && !self->surface_button_down_ &&
+            PtInRect(&self->logical_hit_rect_, point) == FALSE) {
+            if (self->surface_pointer_inside_) {
+                self->surface_pointer_inside_ = false;
+                if (self->listener_ != nullptr) {
+                    self->listener_->on_surface_pointer_leave();
+                }
+            }
+            return 0;
+        }
         if (!self->surface_pointer_inside_) {
             self->surface_pointer_inside_ = true;
             if (self->listener_ != nullptr) {
                 self->listener_->on_surface_pointer_enter();
             }
         }
-        POINT point{};
         GetCursorPos(&point);
         const bool left_pressed = ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
         if (self->surface_button_down_ && !left_pressed) {
@@ -767,8 +801,11 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         if (!self->surface_button_down_) {
             POINT pt{};
             RECT rc{};
-            if (GetCursorPos(&pt) != FALSE && GetWindowRect(hwnd, &rc) != FALSE &&
-                PtInRect(&rc, pt) != FALSE) {
+            const bool has_pt = (GetCursorPos(&pt) != FALSE);
+            const bool has_rc =
+                self->has_logical_hit_bounds_ ? true : (GetWindowRect(hwnd, &rc) != FALSE);
+            const RECT& check_rc = self->has_logical_hit_bounds_ ? self->logical_hit_rect_ : rc;
+            if (has_pt && has_rc && PtInRect(&check_rc, pt) != FALSE) {
                 return 0;
             }
             if (self->surface_pointer_inside_) {
@@ -804,42 +841,64 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_TIMER: {
         if (wparam == kSurfaceClockTimerId && self->listener_ != nullptr) {
             if (!self->in_system_move_loop_ && IsWindowVisible(hwnd) != FALSE &&
-                !self->click_through_enabled_) {
+                !self->explicit_click_through_) {
                 POINT pt{};
                 RECT rc{};
                 if (GetCursorPos(&pt) != FALSE && GetWindowRect(hwnd, &rc) != FALSE) {
-                    const bool inside = (PtInRect(&rc, pt) != FALSE);
-                    const SHORT left_state = GetAsyncKeyState(VK_LBUTTON);
-                    const SHORT right_state = GetAsyncKeyState(VK_RBUTTON);
-                    const bool left_pressed = ((left_state & 0x8000) != 0);
-                    const bool right_pressed = ((right_state & 0x8000) != 0);
-                    const bool any_pressed = (left_pressed || right_pressed);
-                    if (self->surface_button_down_) {
-                        if (left_pressed) {
-                            self->listener_->on_surface_pointer_move(
-                                surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
-                        } else {
-                            self->surface_button_down_ = false;
-                            self->listener_->on_surface_pointer_up(
-                                surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
-                            self->surface_pointer_inside_ = inside;
-                            if (!inside) {
-                                self->listener_->on_surface_pointer_leave();
+                    const RECT& hit_rc =
+                        self->has_logical_hit_bounds_ ? self->logical_hit_rect_ : rc;
+                    const bool inside = (PtInRect(&hit_rc, pt) != FALSE);
+                    if (self->has_logical_hit_bounds_ && !self->surface_button_down_) {
+                        const bool want_click_through = !inside;
+                        if (self->click_through_enabled_ != want_click_through) {
+                            self->click_through_enabled_ = want_click_through;
+                            LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                            if (want_click_through) {
+                                ex_style |=
+                                    static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
+                            } else {
+                                ex_style &=
+                                    ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT | WS_EX_LAYERED);
                             }
-                        }
-                    } else {
-                        if (inside && !self->surface_pointer_inside_) {
-                            self->surface_pointer_inside_ = true;
-                            self->listener_->on_surface_pointer_enter();
-                        } else if (!inside && self->surface_pointer_inside_) {
-                            self->surface_pointer_inside_ = false;
-                            self->listener_->on_surface_pointer_leave();
-                        }
-                        if (!inside && any_pressed && !self->outside_button_was_down_) {
-                            self->listener_->on_surface_outside_click();
+                            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
+                            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                                             SWP_FRAMECHANGED);
                         }
                     }
-                    self->outside_button_was_down_ = any_pressed;
+                    {
+                        const SHORT left_state = GetAsyncKeyState(VK_LBUTTON);
+                        const SHORT right_state = GetAsyncKeyState(VK_RBUTTON);
+                        const bool left_pressed = ((left_state & 0x8000) != 0);
+                        const bool right_pressed = ((right_state & 0x8000) != 0);
+                        const bool any_pressed = (left_pressed || right_pressed);
+                        if (self->surface_button_down_) {
+                            if (left_pressed) {
+                                self->listener_->on_surface_pointer_move(
+                                    surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
+                            } else {
+                                self->surface_button_down_ = false;
+                                self->listener_->on_surface_pointer_up(
+                                    surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
+                                self->surface_pointer_inside_ = inside;
+                                if (!inside) {
+                                    self->listener_->on_surface_pointer_leave();
+                                }
+                            }
+                        } else {
+                            if (inside && !self->surface_pointer_inside_) {
+                                self->surface_pointer_inside_ = true;
+                                self->listener_->on_surface_pointer_enter();
+                            } else if (!inside && self->surface_pointer_inside_) {
+                                self->surface_pointer_inside_ = false;
+                                self->listener_->on_surface_pointer_leave();
+                            }
+                            if (!inside && any_pressed && !self->outside_button_was_down_) {
+                                self->listener_->on_surface_outside_click();
+                            }
+                        }
+                        self->outside_button_was_down_ = any_pressed;
+                    }
                 }
             }
             self->listener_->on_surface_clock_tick(

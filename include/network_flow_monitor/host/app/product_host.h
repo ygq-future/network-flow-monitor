@@ -128,6 +128,9 @@ class ProductHost : public platform::IWindowEventListener,
     bool is_shutting_down_{false};
     bool settings_surface_visible_{false};
     int settings_height_dip_{260};
+    coordinator::PresentationState last_applied_presentation_state_{
+        coordinator::PresentationState::CapsuleVisible};
+    std::chrono::milliseconds collapse_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
 };
 

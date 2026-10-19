@@ -122,3 +122,14 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `WebView2Controller::resize` 缓存宽高，避免仅窗口位移时每帧发起跨进程 `ICoreWebView2Controller::put_Bounds` 重算；新增 `WM_MOVE` -> `ICoreWebView2Controller::NotifyParentWindowPositionChanged` 同步宿主窗口位置。
 - **清理子窗口冗余子类化消息 (`webview_controller.cpp`, `win32_window.h`)**：
   - 移除对父窗口自身的重复 `SetWindowSubclass` 与无消费的 `kWebSurfacePointerDownMessage`，避免监控面板非拖拽区点击误触发拖拽候选。
+
+## 第五轮胶囊与监控面板双向形变缩放过渡优化 — complete
+
+- **双层常驻同场形变过渡舞台 (`App.tsx`, `DockCapsule.tsx`, `BasicMonitorPanel.tsx`)**：
+  - `<DockCapsule />` 与 `<BasicMonitorPanel />` 在浮动窗口中常驻挂载并锚定于停靠侧顶角（`fixed top-0 right-0 / left-0`），在渲染期同步驱动双向 CSS Transition；
+  - 展开（Capsule → Panel）：监控面板从胶囊的真实宽高比（`scaleX = capsuleWidth / 340`、`scaleY = capsuleHeight / panelHeight`、32px 大圆角）经 `320ms cubic-bezier(0.16, 1, 0.3, 1)` 阻尼曲线放大展开至完整面板；
+  - 收拢（Panel → Capsule）：收到 `surfaceChanged(capsule)` 同一帧内，监控面板以 `260ms cubic-bezier(0.36, 0, 0.66, -0.05)` 从完整面板坍缩回贴边胶囊尺寸并淡出，同时贴边胶囊同步浮现；
+  - 严格遵循 `prefersReducedMotion`（开启减少动态效果时 `0ms` 立即切换）。
+- **C++ 恒定宽度透明画布、逻辑命中区与动态鼠标穿透 (`product_host.h`, `product_host.cpp`, `win32_window.h`, `win32_window.cpp`)**：
+  - 主浮动窗口保持 `340 DIP` 面板等宽透明画布并启用 `SWP_NOCOPYBITS`，使胶囊与面板在恒定水平画布内平滑过渡；
+  - `Win32Window` 引入 `logical_hit_rect_` 与非命中区动态 `WS_EX_TRANSPARENT | WS_EX_LAYERED` 穿透：胶囊态下仅 `16 × 64` DIP 胶囊逻辑矩形响应鼠标悬停/点击/拖拽，其余透明画布区域直接穿透至底层桌面应用。

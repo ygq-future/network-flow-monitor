@@ -9,7 +9,10 @@ import {
   RateTransitionConfig,
 } from './rateMapping'
 
+export type CapsuleTransitionPhase = 'capsule-idle' | 'expanding-to-panel' | 'collapsing-to-capsule'
+
 export interface DockCapsuleProps {
+  transitionPhase?: CapsuleTransitionPhase
   className?: string
 }
 
@@ -45,7 +48,7 @@ function mixHexColor(hex: string, targetHex: string, ratio: number): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 
-export const DockCapsule: React.FC<DockCapsuleProps> = ({ className = '' }) => {
+export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'capsule-idle', className = '' }) => {
   const { t } = useTranslation()
   const { resolvedTheme, prefersReducedMotion } = useTheme()
   const bridge = useBridge()
@@ -86,6 +89,13 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ className = '' }) => {
   const isRightDock = surface.dockSide === 'right'
   const autoHideOffsetPx = surface.autoHidden ? Math.max(0, widthDip - 4) : 0
   const translateX = surface.autoHidden ? (isRightDock ? autoHideOffsetPx : -autoHideOffsetPx) : 0
+  const transformOrigin = isRightDock ? 'right top' : 'left top'
+  const isExpandingOut = transitionPhase === 'expanding-to-panel'
+  const hitWidthDip = Math.max(widthDip, 16)
+  const morphScaleX = isExpandingOut ? 1.8 : 1
+  const morphScaleY = isExpandingOut ? 1.2 : 1
+  const morphOpacity = isExpandingOut ? 0 : 1
+  const morphDurationMs = prefersReducedMotion ? 0 : isExpandingOut ? 0 : 220
 
   return (
     <button
@@ -106,18 +116,28 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ className = '' }) => {
         event.preventDefault()
         bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
       }}
-      className={`relative flex h-full w-full cursor-pointer items-center overflow-hidden bg-transparent outline-hidden ${isRightDock ? 'justify-end' : 'justify-start'} ${className}`}>
+      style={{
+        width: `${hitWidthDip}px`,
+        height: `${heightDip}px`,
+      }}
+      className={`relative flex cursor-pointer items-start overflow-visible bg-transparent outline-hidden ${isRightDock ? 'justify-end' : 'justify-start'} ${className}`}>
       {!connected && <span className="sr-only">{t.common.disconnected}</span>}
       <span
         data-testid="capsule-visual"
         data-connected={connected}
-        className="relative block overflow-hidden p-[1px] transition-all duration-300 ease-out"
+        className="relative block overflow-hidden p-[1px]"
         style={{
           width: `${widthDip}px`,
           height: `${heightDip}px`,
           borderRadius: `${roundingDip}px`,
           backgroundColor: isDark ? '#09090b' : '#ffffff',
-          transform: `translateX(${translateX}px)`,
+          transformOrigin,
+          transform: `translateX(${translateX}px) scale(${morphScaleX}, ${morphScaleY})`,
+          opacity: morphOpacity,
+          transition:
+            morphDurationMs === 0
+              ? 'none'
+              : `transform ${morphDurationMs}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${Math.round(morphDurationMs * 0.85)}ms ease-out`,
         }}>
         <span
           className="relative block h-full w-full overflow-hidden"

@@ -8,11 +8,14 @@ import { formatRate } from '../../shared/utils/formatRate'
 import { IconButton } from '../../shared/components/IconButton'
 import { AppLogo } from '../../shared/components/AppLogo'
 
+export type MonitorPanelTransitionState = 'entering' | 'entered' | 'exiting'
+
 export interface BasicMonitorPanelProps {
   tick: TrafficTickDto
   status: CollectorStatusDto
   ranking?: RankingSnapshotDto
   isPinned: boolean
+  transitionState?: MonitorPanelTransitionState
   onTogglePin: () => void
   onStartDrag?: () => void
   onOpenSettings?: () => void
@@ -33,6 +36,7 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   status,
   ranking,
   isPinned,
+  transitionState,
   onTogglePin,
   onStartDrag,
   onOpenSettings,
@@ -40,19 +44,19 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   className = '',
 }) => {
   const { t, resolvedLocale } = useTranslation()
-  const { resolvedTheme } = useTheme()
+  const { resolvedTheme, prefersReducedMotion } = useTheme()
   const bridge = useBridge()
   const surface = useSurface()
   const config = useAppConfig()
   const isZh = resolvedLocale === 'SimplifiedChinese'
   const isDark = resolvedTheme === 'Dark'
 
-  const [entered, setEntered] = useState(false)
+  const [selfEntered, setSelfEntered] = useState(false)
   useEffect(() => {
-    const id = requestAnimationFrame(() => setEntered(true))
+    const id = requestAnimationFrame(() => setSelfEntered(true))
     return () => cancelAnimationFrame(id)
   }, [])
-
+  const activeTransitionState: MonitorPanelTransitionState = transitionState ?? (selfEntered ? 'entered' : 'entering')
   const isCollectorRunning = status.state === 'Running' || status.etwSessionActive
   const speedUnit = config.general.speedUnit
   const downloadColorHex = config.capsule.downloadColorHex || '#38bdf8'
@@ -68,9 +72,10 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   const panelRef = useRef<HTMLDivElement>(null)
   const desiredHeightDip = Math.min(520, Math.max(92, 36 + 30 + (apps.length === 0 ? 44 : apps.length * 32) + 16))
   useLayoutEffect(() => {
-    bridge.sendCommand('resizePanel', { heightDip: desiredHeightDip })
-  }, [bridge, desiredHeightDip])
-
+    if (activeTransitionState !== 'exiting') {
+      bridge.sendCommand('resizePanel', { heightDip: desiredHeightDip })
+    }
+  }, [bridge, desiredHeightDip, activeTransitionState])
   // FLIP animation for Top N application rows when ranking order changes
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const prevTopsRef = useRef<Map<string, number>>(new Map())
@@ -100,7 +105,19 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   }, [appOrderSignature])
 
   const panelBg = isDark ? '#09090b' : '#ffffff'
-  const transformOrigin = surface.dockSide === 'left' ? 'left center' : 'right center'
+  const transformOrigin = surface.dockSide === 'left' ? 'left top' : 'right top'
+  const capsuleScaleX = Math.max(0.03, Math.min(0.18, config.capsule.widthDip / 340))
+  const capsuleScaleY = Math.max(0.16, Math.min(0.75, config.capsule.heightDip / Math.max(92, desiredHeightDip)))
+  const isCollapsedToCapsule = activeTransitionState !== 'entered' && !prefersReducedMotion
+  const scaleX = isCollapsedToCapsule ? capsuleScaleX : 1
+  const scaleY = isCollapsedToCapsule ? capsuleScaleY : 1
+  const panelOpacity = isCollapsedToCapsule ? 0 : 1
+  const panelBorderRadiusPx = isCollapsedToCapsule ? 32 : 12
+  const morphTransition = prefersReducedMotion
+    ? 'none'
+    : activeTransitionState === 'exiting'
+      ? 'transform 260ms cubic-bezier(0.36, 0, 0.66, -0.05), opacity 220ms cubic-bezier(0.4, 0, 1, 1), border-radius 260ms ease-in, height 250ms ease-out'
+      : 'transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out, border-radius 320ms cubic-bezier(0.16, 1, 0.3, 1), height 250ms ease-out'
   return (
     <div
       ref={panelRef}
@@ -110,10 +127,12 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
       style={{
         backgroundColor: panelBg,
         transformOrigin,
+        transform: `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
+        opacity: panelOpacity,
+        borderRadius: `${panelBorderRadiusPx}px`,
+        transition: morphTransition,
       }}
-      className={`flex w-[340px] flex-col overflow-hidden rounded-xl border border-zinc-200 px-3 py-2 text-zinc-900 transition-[height,transform,opacity,background-color] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] select-none dark:border-zinc-800 dark:text-zinc-100 ${
-        entered ? 'scale-100 opacity-100' : 'scale-x-50 scale-y-75 opacity-0'
-      } ${className}`}>
+      className={`flex w-[340px] flex-col overflow-hidden border border-zinc-200 px-3 py-2 text-zinc-900 select-none dark:border-zinc-800 dark:text-zinc-100 ${className}`}>
       {/* Compact Single-Line Draggable Header */}
       <div
         onMouseDown={event => {

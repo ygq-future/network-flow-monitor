@@ -83,6 +83,7 @@ struct WebView2Controller::Impl {
 
     WebMessageReceivedCallback message_cb_;
     NavigationCompletedCallback navigation_cb_;
+    WebViewDiagnosticCallback diagnostic_cb_;
     bool is_ready_{false};
     bool is_creating_{false};
     bool desired_visible_{true};
@@ -278,6 +279,12 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                 if (args != nullptr) {
                                     static_cast<void>(args->get_ProcessFailedKind(&kind));
                                 }
+                                if (impl_->diagnostic_cb_) {
+                                    impl_->diagnostic_cb_(
+                                        "WebView2 ProcessFailed triggered (kind=" +
+                                        std::to_string(static_cast<int>(kind)) +
+                                        "); attempting automatic recovery");
+                                }
                                 if (kind ==
                                     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
                                     g_shared_env.Reset();
@@ -420,6 +427,9 @@ void WebView2Controller::set_message_callback(WebMessageReceivedCallback callbac
 
 void WebView2Controller::set_navigation_callback(NavigationCompletedCallback callback) {
     impl_->navigation_cb_ = std::move(callback);
+}
+void WebView2Controller::set_diagnostic_callback(const WebViewDiagnosticCallback& callback) {
+    impl_->diagnostic_cb_ = callback;
 }
 
 bool WebView2Controller::is_ready() const noexcept {

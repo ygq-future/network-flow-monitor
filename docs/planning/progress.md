@@ -172,3 +172,16 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 应用列表直接紧接顶栏分割线，应用行采用 `rounded-md` 圆角悬浮背景高亮，底部进度条使用 `calculateRateFillPercent` 对数速率映射与下载/上传双色比例分段展示。
 - **贴边胶囊纯净无框渲染 (`DockCapsule.tsx`, `app_config.cpp`, `nativeBridge.ts`)**：
   - 贴边胶囊采用 `p-0` 全幅圆角填充渲染。
+
+## 第九轮开机启动跨路径清理、便携包数据目录收敛与高价值滚动诊断日志 — complete
+
+- **开机启动全量治理 (`startup_registration.h/.cpp`, `product_host.cpp`, ADR 0013)**：
+  - 新增 `StartupRegistration` 平台组件，管理 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 与用户 `Startup` 启动文件夹；
+  - 关闭开机启动时：遍历 `Run` 注册表项与 `Startup` 文件夹，凡是键名匹配应用名（`NetworkFlowMonitor`）或命令行指向同名可执行文件（`NetworkFlowMonitor.exe`，无论位于哪个磁盘目录或使用何种键名）的启动项一律全部删除；
+  - 开启开机启动与宿主启动同步时：先清理所有历史同名启动项，再将当前运行实例的带引号绝对路径写入 `NetworkFlowMonitor` 注册表值；若系统拒绝写入则记录 Win32 错误码并向前端报错，保持配置与注册表严格一致。
+- **便携包应用根目录全量收敛 (`config_paths.h/.cpp`, `webview2_environment.cpp`, `product_host.cpp`, `tools/package.ps1`, ADR 0012)**：
+  - 所有运行期数据与日志统一归口于便携包应用根目录：配置文件位于 `<app_root>/data/config.json`（兼容迁移根目录 `config.json`），WebView2 用户数据目录位于 `<app_root>/data/webview2`，日志位于 `<app_root>/logs/`；
+  - 升级 `tools/package.ps1`：自动执行前端 `bun install --frozen-lockfile` 与 `bun run build`，构建 Release 便携包并校验归档条目完整性（`NetworkFlowMonitor.exe`、`nfm-collector.exe`、`ui/index.html`）。
+- **滚动诊断日志器与核心故障日志 (`rotating_file_logger.h/.cpp`, `collector_companion.h/.cpp`, `webview_controller.h/.cpp`, `product_host.cpp`)**：
+  - 实现线程安全的 `RotatingFileLogger`：单文件上限 `2 MiB`（`kDefaultMaxLogFileSizeBytes`），最多保留 `5` 个历史归档分卷（`nfm-host.1.log` ~ `nfm-host.5.log`）；
+  - 聚焦记录系统与边界诊断事件（宿主启动环境摘要、配置损坏/保存失败及 Win32 错误码、开机启动注册表同步及清理计数、Collector 伴侣进程拉起 PID / `CreateProcessW` 错误码 / 异常退出码 `exit_code` / IPC 鉴权失败、ETW 丢包增量变化、WebView2 `ProcessFailed` 崩溃类型及自动恢复）。

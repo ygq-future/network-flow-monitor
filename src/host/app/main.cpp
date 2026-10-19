@@ -42,9 +42,8 @@ int WINAPI wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevInst
     nfm::host::app::ProductHostOptions options;
 
     // Determine executable directory
-    std::array<wchar_t, MAX_PATH> exe_path_buf{};
-    GetModuleFileNameW(nullptr, exe_path_buf.data(), MAX_PATH);
-    std::filesystem::path exe_dir = std::filesystem::path(exe_path_buf.data()).parent_path();
+    const std::filesystem::path exe_dir =
+        nfm::host::platform::StartupRegistration::current_executable_path().parent_path();
 
     options.collector_executable_path = exe_dir / "nfm-collector.exe";
 

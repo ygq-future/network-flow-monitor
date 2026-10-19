@@ -120,11 +120,12 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
         return {};
     }
 
-    constexpr int kIconSize = 20;
+    constexpr std::size_t kIconSize = 20U;
+    constexpr int kIconSizePx = 20;
     BITMAPV5HEADER bi{};
     bi.bV5Size = sizeof(BITMAPV5HEADER);
-    bi.bV5Width = kIconSize;
-    bi.bV5Height = kIconSize; // bottom-up
+    bi.bV5Width = kIconSizePx;
+    bi.bV5Height = kIconSizePx; // bottom-up
     bi.bV5Planes = 1;
     bi.bV5BitCount = 32;
     bi.bV5Compression = BI_BITFIELDS;
@@ -141,11 +142,10 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     std::string result;
     if (dib != nullptr && bits != nullptr) {
         HGDIOBJ old_bmp = SelectObject(mem_dc, dib);
-        std::memset(bits, 0, static_cast<std::size_t>(kIconSize * kIconSize * 4));
-        DrawIconEx(mem_dc, 0, 0, sfi.hIcon, kIconSize, kIconSize, 0, nullptr, DI_NORMAL);
+        constexpr std::size_t pixel_bytes = kIconSize * kIconSize * 4U;
+        std::memset(bits, 0, pixel_bytes);
+        DrawIconEx(mem_dc, 0, 0, sfi.hIcon, kIconSizePx, kIconSizePx, 0, nullptr, DI_NORMAL);
         GdiFlush();
-
-        const std::size_t pixel_bytes = static_cast<std::size_t>(kIconSize * kIconSize * 4);
         auto* px = static_cast<std::uint8_t*>(bits);
         bool any_alpha = false;
         for (std::size_t idx = 3; idx < pixel_bytes; idx += 4) {
@@ -233,8 +233,28 @@ void CollectorCompanion::set_session_reset_callback(SessionResetCallback callbac
     const std::scoped_lock lock(mutex_);
     session_reset_cb_ = std::move(callback);
 }
+void CollectorCompanion::set_diagnostic_callback(DiagnosticCallback callback) {
+    const std::scoped_lock lock(mutex_);
+    diagnostic_cb_ = std::move(callback);
+}
+
+void CollectorCompanion::emit_diagnostic(bool is_error, std::string_view message) noexcept {
+    try {
+        DiagnosticCallback cb;
+        {
+            const std::scoped_lock lock(mutex_);
+            cb = diagnostic_cb_;
+        }
+        if (cb) {
+            cb(is_error, message);
+        }
+    } catch (...) {
+    }
+}
 
 bool CollectorCompanion::start() {
+    std::string diag_msg;
+    bool diag_error = false;
     {
         const std::scoped_lock lock(mutex_);
         if (info_.state == CollectorState::Running || info_.state == CollectorState::Starting) {
@@ -253,6 +273,11 @@ bool CollectorCompanion::start() {
             HANDLE event_h = CreateEventW(nullptr, TRUE, FALSE, w_event_name.c_str());
             if (event_h != nullptr) {
                 stop_event_handle_ = static_cast<void*>(event_h);
+            } else {
+                const DWORD evt_err = GetLastError();
+                diag_error = true;
+                diag_msg = "CreateEventW failed for collector stop event '" + stop_event_name_ +
+                           "' (win32_error=" + std::to_string(evt_err) + ")";
             }
 
             std::wstring cmd = L"\"" + collector_path_.wstring() + L"\" --collector --parent-pid " +
@@ -272,11 +297,25 @@ bool CollectorCompanion::start() {
                 CloseHandle(pi.hThread);
                 collector_process_handle_ = static_cast<void*>(pi.hProcess);
                 info_.process_id = pi.dwProcessId;
+                diag_msg = "Collector companion launched (pid=" + std::to_string(pi.dwProcessId) +
+                           ", stop_event=" + stop_event_name_ + ")";
             } else {
+                const DWORD create_err = GetLastError();
                 info_.state = CollectorState::Failed;
-                info_.error_message = "Failed to launch collector process";
+                info_.error_message = "Failed to launch collector process (win32_error=" +
+                                      std::to_string(create_err) + ")";
+                diag_error = true;
+                diag_msg = info_.error_message;
             }
+        } else if (!collector_path_.empty()) {
+            info_.state = CollectorState::Failed;
+            info_.error_message = "Collector executable not found";
+            diag_error = true;
+            diag_msg = "Collector executable missing at configured path";
         }
+    }
+    if (!diag_msg.empty()) {
+        emit_diagnostic(diag_error, diag_msg);
     }
 
     if (ipc_client_) {
@@ -334,12 +373,41 @@ bool CollectorCompanion::is_running() const noexcept {
 
 void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
     try {
-        const std::scoped_lock lock(mutex_);
-        if (state == ipc::IpcClientState::Streaming) {
-            info_.state = CollectorState::Running;
-        } else if (state == ipc::IpcClientState::Failed ||
-                   state == ipc::IpcClientState::Unauthorized) {
-            info_.state = CollectorState::Failed;
+        std::string diag_msg;
+        bool diag_error = false;
+        {
+            const std::scoped_lock lock(mutex_);
+            if (state == ipc::IpcClientState::Streaming) {
+                info_.state = CollectorState::Running;
+            } else if (state == ipc::IpcClientState::Failed ||
+                       state == ipc::IpcClientState::Unauthorized) {
+                info_.state = CollectorState::Failed;
+                diag_error = true;
+                std::string exit_code_suffix;
+                if (collector_process_handle_ != nullptr) {
+                    DWORD exit_code = 0;
+                    if (GetExitCodeProcess(static_cast<HANDLE>(collector_process_handle_),
+                                           &exit_code) != FALSE &&
+                        exit_code != STILL_ACTIVE) {
+                        exit_code_suffix = ", collector_exit_code=" + std::to_string(exit_code);
+                    }
+                }
+                if (state == ipc::IpcClientState::Unauthorized) {
+                    info_.error_message = "IPC pipe authorization rejected";
+                    diag_msg = "Collector IPC state=Unauthorized (pid=" +
+                               std::to_string(info_.process_id) + exit_code_suffix + ")";
+                } else {
+                    if (info_.error_message.empty()) {
+                        info_.error_message = "Collector IPC connection failed";
+                    }
+                    diag_msg =
+                        "Collector IPC state=Failed (pid=" + std::to_string(info_.process_id) +
+                        exit_code_suffix + ")";
+                }
+            }
+        }
+        if (!diag_msg.empty()) {
+            emit_diagnostic(diag_error, diag_msg);
         }
     } catch (...) {
     }
@@ -463,8 +531,12 @@ void CollectorCompanion::inject_hello_ack(const ipc::HelloAckMessage& ack) {
         info_.instance_id = ack.collector_instance_id;
         info_.process_id = ack.collector_pid;
         info_.state = CollectorState::Running;
+        info_.error_message.clear();
         cb = session_reset_cb_;
     }
+    emit_diagnostic(
+        false, "Collector IPC handshake established (pid=" + std::to_string(ack.collector_pid) +
+                   ", instance=" + ack.collector_instance_id + ")");
     if (cb) {
         bridge::SessionResetDto dto{
             .collector_instance_id = ack.collector_instance_id,

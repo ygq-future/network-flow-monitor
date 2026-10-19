@@ -104,12 +104,21 @@ std::size_t EntryCount(const std::filesystem::path& directory) {
 }
 
 void CheckPaths(TestContext& context) {
+    context.Check(nfm::config::PortableDataDirectory(LR"(C:\Tools\NetworkFlowMonitor.exe)") ==
+                      LR"(C:\Tools\data)",
+                  "portable data directory");
+    context.Check(nfm::config::PortableLogDirectory(LR"(C:\Tools\NetworkFlowMonitor.exe)") ==
+                      LR"(C:\Tools\logs)",
+                  "portable log directory");
+    context.Check(nfm::config::PortableWebView2UserDataDirectory(
+                      LR"(C:\Tools\NetworkFlowMonitor.exe)") == LR"(C:\Tools\data\webview2)",
+                  "portable webview2 user data directory");
     context.Check(nfm::config::PortableConfigPath(LR"(C:\Tools\NetworkFlowMonitor.exe)") ==
-                      LR"(C:\Tools\NetworkFlowMonitor.json)",
+                      LR"(C:\Tools\data\config.json)",
                   "portable config path");
-    context.Check(nfm::config::InstalledUserConfigPath(LR"(C:\Users\Test\AppData\Local)") ==
-                      LR"(C:\Users\Test\AppData\Local\NetworkFlowMonitor\config.json)",
-                  "installed user config path");
+    context.Check(nfm::config::LegacyRootConfigPath(LR"(C:\Tools\NetworkFlowMonitor.exe)") ==
+                      LR"(C:\Tools\config.json)",
+                  "legacy root config path");
 }
 
 void CheckLoading(TestContext& context, const TestDirectory& directory) {

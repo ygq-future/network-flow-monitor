@@ -5,9 +5,8 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 
 #include <cmath>
-#include <cstdio>
-#include <fstream>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <utility>
 #include <yyjson.h>
 namespace nfm::host::app {
@@ -18,9 +17,8 @@ constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
-    std::array<wchar_t, MAX_PATH> exe_path_buf{};
-    GetModuleFileNameW(nullptr, exe_path_buf.data(), MAX_PATH);
-    std::filesystem::path exe_dir = std::filesystem::path(exe_path_buf.data()).parent_path();
+    const std::filesystem::path exe_path = platform::StartupRegistration::current_executable_path();
+    const std::filesystem::path exe_dir = exe_path.parent_path();
 
     if (options_.static_assets_dir.empty() ||
         !std::filesystem::exists(options_.static_assets_dir / "index.html")) {
@@ -54,8 +52,32 @@ ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(option
         }
     }
     if (options_.config_file_path.empty()) {
-        options_.config_file_path = exe_dir / "config.json";
+        options_.config_file_path = config::PortableConfigPath(exe_path);
+        const auto legacy_config_path = config::LegacyRootConfigPath(exe_path);
+        const DWORD target_attrs = GetFileAttributesW(options_.config_file_path.c_str());
+        const DWORD legacy_attrs = GetFileAttributesW(legacy_config_path.c_str());
+        if (target_attrs == INVALID_FILE_ATTRIBUTES && legacy_attrs != INVALID_FILE_ATTRIBUTES &&
+            (legacy_attrs & FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+            static_cast<void>(SHCreateDirectoryExW(
+                nullptr, options_.config_file_path.parent_path().c_str(), nullptr));
+            static_cast<void>(MoveFileExW(legacy_config_path.c_str(),
+                                          options_.config_file_path.c_str(),
+                                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH));
+        }
     }
+    if (options_.log_directory_path.empty()) {
+        const std::filesystem::path cfg_parent = options_.config_file_path.parent_path();
+        if (cfg_parent.filename() == L"data" && !cfg_parent.parent_path().empty()) {
+            options_.log_directory_path = cfg_parent.parent_path() / L"logs";
+        } else if (!cfg_parent.empty()) {
+            options_.log_directory_path = cfg_parent / L"logs";
+        } else {
+            options_.log_directory_path = config::PortableLogDirectory(exe_path);
+        }
+    }
+    logger_.set_options(platform::RotatingFileLoggerOptions{
+        .log_directory = options_.log_directory_path,
+    });
 }
 
 ProductHost::~ProductHost() {
@@ -71,16 +93,39 @@ bool ProductHost::initialize() {
     auto load_result =
         config::LoadConfigFile(options_.config_file_path, config::ConfigDocumentKind::User);
     current_config_ = load_result.config;
-    write_diagnostic_log(config::LogLevel::Info, "Host initializing; configuration loaded");
+    if (load_result.status == config::ConfigLoadStatus::Damaged ||
+        load_result.status == config::ConfigLoadStatus::IoError) {
+        std::string detail =
+            load_result.error.has_value() ? load_result.error->detail : "unknown config error";
+        if (load_result.error.has_value() && load_result.error->system_error != 0U) {
+            detail += " (win32_error=" + std::to_string(load_result.error->system_error) + ")";
+        }
+        write_diagnostic_log(config::LogLevel::Error,
+                             "Configuration load degraded to defaults: " + detail);
+    }
+
+    // Synchronize startup registry entry with authoritative config on launch
+    const auto current_exe = platform::StartupRegistration::current_executable_path();
+    if (!current_exe.empty()) {
+        const auto startup_sync = platform::StartupRegistration::sync_login_startup(
+            current_config_.startup.ui_at_login, current_exe, options_.startup_options);
+        if (!startup_sync.success) {
+            write_diagnostic_log(config::LogLevel::Error, "Startup registration sync failed: " +
+                                                              startup_sync.diagnostic_summary);
+        } else if (current_config_.startup.ui_at_login || startup_sync.removed_entries_count > 0U) {
+            write_diagnostic_log(config::LogLevel::Info, startup_sync.diagnostic_summary);
+        }
+    }
 
     // 1. Detect WebView2 Evergreen Runtime
     auto rt_info = platform::WebView2Environment::detect_runtime();
     if (!rt_info.is_available) {
+        write_diagnostic_log(config::LogLevel::Error,
+                             "WebView2 Evergreen Runtime not detected on host");
         MessageBoxW(nullptr, platform::WebView2Environment::get_recovery_guidance().c_str(),
                     L"Network Flow Monitor - Missing Requirement", MB_ICONERROR | MB_OK);
         return false;
     }
-
     // 2. Validate static assets existence if not using dev server
     if (options_.dev_server_url.empty() &&
         !std::filesystem::exists(options_.static_assets_dir / "index.html")) {
@@ -88,6 +133,7 @@ bool ProductHost::initialize() {
             L"Frontend UI static bundle was not found at:\n" +
             options_.static_assets_dir.wstring() +
             L"\n\nPlease ensure 'apps/nfm-ui/dist' is built or 'ui/' folder is present.";
+        write_diagnostic_log(config::LogLevel::Error, "Frontend static bundle index.html missing");
         MessageBoxW(nullptr, msg.c_str(), L"Network Flow Monitor - Missing Assets",
                     MB_ICONERROR | MB_OK);
         return false;
@@ -119,6 +165,8 @@ bool ProductHost::initialize() {
         }));
 
     webview_ = std::make_shared<webview::WebView2Controller>();
+    webview_->set_diagnostic_callback(
+        [this](std::string_view diag) { write_diagnostic_log(config::LogLevel::Error, diag); });
     native_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
         if (webview_ && webview_->is_ready()) {
             webview_->post_web_message_json(json);
@@ -186,6 +234,10 @@ bool ProductHost::initialize() {
             }
         });
 
+    collector_companion_->set_diagnostic_callback([this](bool is_error, std::string_view message) {
+        write_diagnostic_log(is_error ? config::LogLevel::Error : config::LogLevel::Info, message);
+    });
+
     collector_companion_->set_collector_status_callback(
         [this](const bridge::CollectorStatusDto& status) {
             if (window_ != nullptr) {
@@ -194,12 +246,23 @@ bool ProductHost::initialize() {
                     try {
                         if (status_ptr) {
                             latest_collector_status_ = *status_ptr;
-                            if (!status_ptr->last_error.empty()) {
+                            if (!status_ptr->last_error.empty() &&
+                                status_ptr->last_error != last_logged_collector_error_) {
+                                last_logged_collector_error_ = status_ptr->last_error;
                                 write_diagnostic_log(config::LogLevel::Error,
                                                      "Collector error: " + status_ptr->last_error);
-                            } else {
-                                write_diagnostic_log(config::LogLevel::Debug,
-                                                     "Collector state: " + status_ptr->state);
+                            } else if (status_ptr->last_error.empty()) {
+                                last_logged_collector_error_.clear();
+                            }
+                            if (status_ptr->dropped_packets > last_logged_dropped_packets_) {
+                                const auto delta =
+                                    status_ptr->dropped_packets - last_logged_dropped_packets_;
+                                last_logged_dropped_packets_ = status_ptr->dropped_packets;
+                                write_diagnostic_log(
+                                    config::LogLevel::Info,
+                                    "ETW packet drop detected (delta=" + std::to_string(delta) +
+                                        ", total_dropped=" +
+                                        std::to_string(status_ptr->dropped_packets) + ")");
                             }
                             broadcast_to_all_bridges([&status_ptr](bridge::INativeBridge& b) {
                                 b.post_collector_status(*status_ptr);
@@ -272,7 +335,17 @@ bool ProductHost::initialize() {
 
     window_->create_tray_icon();
     is_initialized_ = true;
-    write_diagnostic_log(config::LogLevel::Info, "Host initialization complete");
+    int wv_len =
+        WideCharToMultiByte(CP_UTF8, 0, rt_info.version.data(),
+                            static_cast<int>(rt_info.version.size()), nullptr, 0, nullptr, nullptr);
+    std::string wv_ver(wv_len > 0 ? static_cast<std::size_t>(wv_len) : 0U, '\0');
+    if (wv_len > 0) {
+        WideCharToMultiByte(CP_UTF8, 0, rt_info.version.data(),
+                            static_cast<int>(rt_info.version.size()), wv_ver.data(), wv_len,
+                            nullptr, nullptr);
+    }
+    write_diagnostic_log(config::LogLevel::Info, "Host ready (webview2=" + wv_ver + ", monitors=" +
+                                                     std::to_string(monitors.size()) + ")");
     return true;
 }
 
@@ -650,6 +723,8 @@ void ProductHost::ensure_settings_window() {
         apply_settings_window_chrome();
         settings_webview_ = std::make_shared<webview::WebView2Controller>();
         settings_webview_->set_visible(settings_surface_visible_);
+        settings_webview_->set_diagnostic_callback(
+            [this](std::string_view diag) { write_diagnostic_log(config::LogLevel::Error, diag); });
         settings_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
             if (settings_webview_ && settings_webview_->is_ready()) {
                 settings_webview_->post_web_message_json(json);
@@ -1057,8 +1132,19 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
 
     if (key == "startup.ui_at_login" || key == "general.uiAtLogin" || key == "uiAtLogin") {
         if (yyjson_is_bool(val)) {
-            current_config_.startup.ui_at_login = yyjson_get_bool(val);
-            updated = true;
+            const bool desired_startup = yyjson_get_bool(val);
+            const auto exe_path = platform::StartupRegistration::current_executable_path();
+            const auto sync_res = platform::StartupRegistration::sync_login_startup(
+                desired_startup, exe_path, options_.startup_options);
+            if (!sync_res.success) {
+                err_msg = sync_res.diagnostic_summary;
+                write_diagnostic_log(config::LogLevel::Error, "Failed to update login startup: " +
+                                                                  sync_res.diagnostic_summary);
+            } else {
+                current_config_.startup.ui_at_login = desired_startup;
+                updated = true;
+                write_diagnostic_log(config::LogLevel::Info, sync_res.diagnostic_summary);
+            }
         } else {
             err_msg = "Expected boolean for ui_at_login";
         }
@@ -1371,9 +1457,14 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
     }
 
     // Persist configuration atomically
-    static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
-                                             config::ConfigDocumentKind::User));
-    write_diagnostic_log(config::LogLevel::Info, "Updated setting: " + std::string(key));
+    const auto save_res = config::SaveConfigFile(options_.config_file_path, current_config_,
+                                                 config::ConfigDocumentKind::User);
+    if (!save_res.saved && save_res.error.has_value()) {
+        write_diagnostic_log(config::LogLevel::Error,
+                             "Failed to persist configuration: " + save_res.error->detail +
+                                 " (win32_error=" + std::to_string(save_res.error->system_error) +
+                                 ")");
+    }
 
     if (theme_changed) {
         std::string theme_str = "System";
@@ -1411,14 +1502,12 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
 }
 
 void ProductHost::on_retry_collector() {
-    write_diagnostic_log(config::LogLevel::Info, "Retrying collector connection");
     if (collector_companion_) {
         collector_companion_->restart();
     }
 }
 
 void ProductHost::on_restart_collector() {
-    write_diagnostic_log(config::LogLevel::Info, "Restarting collector companion process");
     if (collector_companion_) {
         collector_companion_->restart();
     }
@@ -1490,64 +1579,15 @@ void ProductHost::on_set_locale(std::string_view locale) {
 }
 
 std::filesystem::path ProductHost::log_directory_path() const {
-    std::filesystem::path base_dir = options_.config_file_path.parent_path();
-    if (base_dir.empty()) {
-        std::array<wchar_t, MAX_PATH> exe_path_buf{};
-        GetModuleFileNameW(nullptr, exe_path_buf.data(), MAX_PATH);
-        base_dir = std::filesystem::path(exe_path_buf.data()).parent_path();
-    }
-    return base_dir / L"logs";
+    return logger_.log_directory();
 }
 
 void ProductHost::write_diagnostic_log(config::LogLevel level,
                                        std::string_view message) const noexcept {
-    try {
-        const auto configured = current_config_.diagnostics.log_level;
-        if (configured == config::LogLevel::Off) {
-            return;
-        }
-        auto rank = [](config::LogLevel l) noexcept -> int {
-            switch (l) {
-            case config::LogLevel::Off:
-                return 0;
-            case config::LogLevel::Error:
-                return 1;
-            case config::LogLevel::Info:
-                return 2;
-            case config::LogLevel::Debug:
-                return 3;
-            }
-            return 0;
-        };
-        if (rank(level) > rank(configured)) {
-            return;
-        }
-        const auto log_dir = log_directory_path();
-        std::error_code ec;
-        std::filesystem::create_directories(log_dir, ec);
-        const auto log_file = log_dir / L"nfm-host.log";
-        SYSTEMTIME st{};
-        GetLocalTime(&st);
-        const char* level_tag = "INFO";
-        if (level == config::LogLevel::Error) {
-            level_tag = "ERROR";
-        } else if (level == config::LogLevel::Debug) {
-            level_tag = "DEBUG";
-        }
-        std::array<char, 64> ts_buf{};
-        static_cast<void>(std::snprintf(
-            ts_buf.data(), ts_buf.size(), "%04u-%02u-%02u %02u:%02u:%02u.%03u", st.wYear, st.wMonth,
-            st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds));
-        std::ofstream out(log_file, std::ios::app);
-        if (out.is_open()) {
-            out << '[' << ts_buf.data() << "] [" << level_tag << "] " << message << '\n';
-        }
-    } catch (...) {
-    }
+    logger_.write(current_config_.diagnostics.log_level, level, message);
 }
 
 void ProductHost::on_open_log_directory() {
-    write_diagnostic_log(config::LogLevel::Info, "Opening diagnostic log directory");
     const std::filesystem::path log_dir = log_directory_path();
     std::error_code ec;
     std::filesystem::create_directories(log_dir, ec);

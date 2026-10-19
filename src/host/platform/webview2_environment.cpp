@@ -1,9 +1,9 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 
+#include "network_flow_monitor/config/config_paths.h"
+#include "network_flow_monitor/host/platform/startup_registration.h"
 #include "network_flow_monitor/host/platform/webview2_includes.h"
 
-#include <array>
-#include <shlobj.h>
 #include <string>
 
 namespace nfm::host::platform {
@@ -24,14 +24,14 @@ WebView2RuntimeInfo WebView2Environment::detect_runtime() {
 }
 
 std::wstring WebView2Environment::get_user_data_directory() {
-    std::array<wchar_t, MAX_PATH> local_app_data{};
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT,
-                                   local_app_data.data()))) {
-        std::wstring path = local_app_data.data();
-        path += L"\\NetworkFlowMonitor\\WebView2";
-        return path;
+    const auto exe_path = StartupRegistration::current_executable_path();
+    if (!exe_path.empty()) {
+        const auto dir = config::PortableWebView2UserDataDirectory(exe_path);
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return dir.wstring();
     }
-    return L".\\WebView2_UserData";
+    return L".\\data\\webview2";
 }
 
 bool WebView2Environment::is_allowed_origin(std::string_view url) noexcept {

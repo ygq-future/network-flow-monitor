@@ -32,6 +32,7 @@ using TrafficTickCallback = std::function<void(const bridge::TrafficTickDto&)>;
 using RankingSnapshotCallback = std::function<void(const bridge::RankingSnapshotDto&)>;
 using CollectorStatusCallback = std::function<void(const bridge::CollectorStatusDto&)>;
 using SessionResetCallback = std::function<void(const bridge::SessionResetDto&)>;
+using DiagnosticCallback = std::function<void(bool is_error, std::string_view message)>;
 
 class CollectorCompanion : public ipc::IpcClientObserver {
   public:
@@ -47,6 +48,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     void set_ranking_snapshot_callback(RankingSnapshotCallback callback);
     void set_collector_status_callback(CollectorStatusCallback callback);
     void set_session_reset_callback(SessionResetCallback callback);
+    void set_diagnostic_callback(DiagnosticCallback callback);
 
     bool start();
     void stop();
@@ -77,12 +79,14 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     RankingSnapshotCallback ranking_snapshot_cb_;
     CollectorStatusCallback collector_status_cb_;
     SessionResetCallback session_reset_cb_;
+    DiagnosticCallback diagnostic_cb_;
 
     std::unique_ptr<ipc::PipeTransportFactory> transport_factory_;
     std::unique_ptr<ipc::IpcClient> ipc_client_;
     void* collector_process_handle_{nullptr};
     void* stop_event_handle_{nullptr};
     std::string stop_event_name_;
+    void emit_diagnostic(bool is_error, std::string_view message) noexcept;
 };
 
 } // namespace nfm::host::lifecycle

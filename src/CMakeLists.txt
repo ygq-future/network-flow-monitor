@@ -100,6 +100,8 @@ add_library(
         host/bridge/native_bridge.cpp
         host/coordinator/dock_capsule_coordinator.cpp
         host/lifecycle/collector_companion.cpp
+        host/platform/rotating_file_logger.cpp
+        host/platform/startup_registration.cpp
         host/platform/webview2_environment.cpp
         host/platform/win32_window.cpp
         host/webview/webview_controller.cpp

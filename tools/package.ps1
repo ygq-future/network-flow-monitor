@@ -18,6 +18,18 @@ Import-Module (Join-Path $vsInstall 'Common7\Tools\Microsoft.VisualStudio.DevShe
 Enter-VsDevShell -VsInstallPath $vsInstall -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 $cmake = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1)
 $cpack = (& $vswhere -latest -products * -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cpack.exe' | Select-Object -First 1)
+$frontendRoot = Join-Path $projectRoot 'apps\nfm-ui'
+$frontendManifest = Join-Path $frontendRoot 'package.json'
+if (Test-Path -LiteralPath $frontendManifest) {
+    Push-Location $frontendRoot
+    try {
+        Invoke-Native 'bun' @('install', '--frozen-lockfile')
+        Invoke-Native 'bun' @('run', 'build')
+    } finally {
+        Pop-Location
+    }
+}
+
 $preset = "windows-x64-$($Configuration.ToLowerInvariant())"
 $buildRoot = Join-Path $projectRoot "build\$preset"
 $distRoot = Join-Path $projectRoot 'dist'
@@ -30,5 +42,28 @@ Invoke-Native $cpack @('--config', (Join-Path $buildRoot 'CPackConfig.cmake'), '
 $archive = Get-ChildItem -LiteralPath $distRoot -Filter 'NetworkFlowMonitor-*-win-x64.zip' -File |
     Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 if ($null -eq $archive) { throw 'CPack did not produce the expected ZIP archive.' }
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+try {
+    $entryNames = @($zip.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+    foreach ($required in @('NetworkFlowMonitor.exe', 'nfm-collector.exe', 'ui/index.html')) {
+        if ($entryNames -notcontains $required) {
+            throw "Portable archive is missing required entry: $required"
+        }
+    }
+} finally {
+    $zip.Dispose()
+}
+
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+$stream = [System.IO.File]::OpenRead($archive.FullName)
+try {
+    $hashBytes = $sha256.ComputeHash($stream)
+    $hashHex = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '')
+} finally {
+    $stream.Dispose()
+    $sha256.Dispose()
+}
 Write-Host "Package: $($archive.FullName)"
-Write-Host "SHA256: $((Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash)"
+Write-Host "SHA256: $hashHex"

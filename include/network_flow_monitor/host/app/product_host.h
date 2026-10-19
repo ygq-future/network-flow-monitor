@@ -7,6 +7,8 @@
 #include "network_flow_monitor/host/bridge/native_bridge.h"
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
+#include "network_flow_monitor/host/platform/rotating_file_logger.h"
+#include "network_flow_monitor/host/platform/startup_registration.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 #include "network_flow_monitor/host/webview/webview_controller.h"
 
@@ -20,6 +22,8 @@ struct ProductHostOptions {
     std::filesystem::path static_assets_dir;
     std::filesystem::path collector_executable_path;
     std::filesystem::path config_file_path;
+    std::filesystem::path log_directory_path;
+    platform::StartupRegistrationOptions startup_options;
     bool enable_dev_tools{false};
     std::wstring dev_server_url; // Optional: e.g. L"http://localhost:5173"
 };
@@ -135,6 +139,9 @@ class ProductHost : public platform::IWindowEventListener,
         coordinator::PresentationState::CapsuleVisible};
     std::chrono::milliseconds collapse_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
+    mutable platform::RotatingFileLogger logger_;
+    std::string last_logged_collector_error_;
+    std::uint64_t last_logged_dropped_packets_{0};
 };
 
 } // namespace nfm::host::app

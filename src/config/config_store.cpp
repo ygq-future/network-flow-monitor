@@ -262,6 +262,10 @@ ConfigSaveResult SaveConfigFile(const std::filesystem::path& path, const AppConf
     if (!serialized.ok()) {
         return ConfigSaveResult{.saved = false, .error = std::move(serialized.error)};
     }
+    if (const auto parent = path.parent_path(); !parent.empty()) {
+        std::error_code dir_ec;
+        std::filesystem::create_directories(parent, dir_ec);
+    }
 
     auto temporary = CreateTemporarySibling(path);
     if (!temporary.handle.valid()) {

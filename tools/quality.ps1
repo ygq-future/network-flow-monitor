@@ -368,8 +368,9 @@ Invoke-GateStep -Name 'C++ format' -Action {
 
 # Phase B: C++ Debug configure
 $debugBuildNinja = Join-Path $projectRoot 'build\windows-x64-debug\build.ninja'
+$debugBuildCache = Join-Path $projectRoot 'build\windows-x64-debug\CMakeCache.txt'
 Invoke-GateStep -Name 'C++ Debug configure' -Action {
-    if (-not (Test-Path -LiteralPath $debugBuildNinja)) {
+    if (-not (Test-Path -LiteralPath $debugBuildNinja) -or -not (Test-Path -LiteralPath $debugBuildCache)) {
         & $cmake --preset windows-x64-debug
         return $LASTEXITCODE
     }
@@ -534,8 +535,9 @@ if ($Clean) {
 # Phase 11: clang-tidy & Clang Static Analyzer
 $tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
 $tidyNinja = Join-Path $tidyBuild 'build.ninja'
+$tidyCache = Join-Path $tidyBuild 'CMakeCache.txt'
 Invoke-GateStep -Name 'Configure clang-tidy' -Action {
-    if (-not (Test-Path -LiteralPath $tidyNinja)) {
+    if (-not (Test-Path -LiteralPath $tidyNinja) -or -not (Test-Path -LiteralPath $tidyCache)) {
         & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
         return $LASTEXITCODE
     }
@@ -549,8 +551,9 @@ Invoke-GateStep -Name 'clang-tidy' -Action {
 # Phase 12: MSVC static analysis
 $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
 $analyzeNinja = Join-Path $analyzeBuild 'build.ninja'
+$analyzeCache = Join-Path $analyzeBuild 'CMakeCache.txt'
 Invoke-GateStep -Name 'Configure MSVC analyze' -Action {
-    if (-not (Test-Path -LiteralPath $analyzeNinja)) {
+    if (-not (Test-Path -LiteralPath $analyzeNinja) -or -not (Test-Path -LiteralPath $analyzeCache)) {
         & $cmake -S $projectRoot -B $analyzeBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_MSVC_ANALYZE=ON "-DCMAKE_MAKE_PROGRAM=$ninja"
         return $LASTEXITCODE
     }
@@ -563,8 +566,9 @@ Invoke-GateStep -Name 'MSVC analyze' -Action {
 
 # Phase 13: C++ Release configure & build
 $releaseNinja = Join-Path $projectRoot 'build\windows-x64-release\build.ninja'
+$releaseCache = Join-Path $projectRoot 'build\windows-x64-release\CMakeCache.txt'
 Invoke-GateStep -Name 'Configure Release x64' -Action {
-    if (-not (Test-Path -LiteralPath $releaseNinja)) {
+    if (-not (Test-Path -LiteralPath $releaseNinja) -or -not (Test-Path -LiteralPath $releaseCache)) {
         & $cmake --preset windows-x64-release
         return $LASTEXITCODE
     }

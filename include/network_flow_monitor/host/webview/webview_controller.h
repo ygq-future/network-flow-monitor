@@ -19,6 +19,7 @@ namespace nfm::host::webview {
 
 using WebMessageReceivedCallback = std::function<void(std::string_view message_json)>;
 using NavigationCompletedCallback = std::function<void(bool success, int http_status)>;
+using WebViewDiagnosticCallback = std::function<void(std::string_view diagnostic)>;
 
 class IWebViewController {
   public:
@@ -38,6 +39,7 @@ class IWebViewController {
     virtual void execute_script(std::wstring_view script) = 0;
     virtual void set_message_callback(WebMessageReceivedCallback callback) = 0;
     virtual void set_navigation_callback(NavigationCompletedCallback callback) = 0;
+    virtual void set_diagnostic_callback(const WebViewDiagnosticCallback& /*callback*/) {}
     [[nodiscard]] virtual bool is_ready() const noexcept = 0;
     virtual bool ensure_alive() = 0;
 };
@@ -61,6 +63,7 @@ class WebView2Controller : public IWebViewController {
     void execute_script(std::wstring_view script) override;
     void set_message_callback(WebMessageReceivedCallback callback) override;
     void set_navigation_callback(NavigationCompletedCallback callback) override;
+    void set_diagnostic_callback(const WebViewDiagnosticCallback& callback) override;
     [[nodiscard]] bool is_ready() const noexcept override;
     bool ensure_alive() override;
 

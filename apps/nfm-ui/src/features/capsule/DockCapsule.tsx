@@ -72,7 +72,8 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
   const widthDip = config.capsule.widthDip
   const heightDip = config.capsule.heightDip
   const roundingDip = Math.min(config.capsule.effectiveEndRoundingDip, widthDip / 2)
-  const innerRoundingDip = Math.max(0, roundingDip - 1)
+  const showBorder = config.capsule.showCapsuleBorder ?? true
+  const innerRoundingDip = showBorder ? Math.max(0, roundingDip - 1) : roundingDip
   const downloadFill = useAnimatedFill(download, prefersReducedMotion, peakCeilingRef.current)
   const uploadFill = useAnimatedFill(upload, prefersReducedMotion, peakCeilingRef.current)
 
@@ -125,7 +126,7 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
       <span
         data-testid="capsule-visual"
         data-connected={connected}
-        className="relative block overflow-hidden p-[1px]"
+        className={`relative block overflow-hidden ${showBorder ? 'p-[1px]' : 'p-0'}`}
         style={{
           width: `${widthDip}px`,
           height: `${heightDip}px`,
@@ -172,12 +173,15 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
             }}
           />
         </span>
-        <span
-          aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 rounded-[inherit] border ${
-            connected ? (isDark ? 'border-zinc-700' : 'border-zinc-300') : 'border-amber-500'
-          }`}
-        />
+        {showBorder && (
+          <span
+            data-testid="capsule-border"
+            aria-hidden="true"
+            className={`pointer-events-none absolute inset-0 rounded-[inherit] border ${
+              connected ? (isDark ? 'border-zinc-700' : 'border-zinc-300') : 'border-amber-500'
+            }`}
+          />
+        )}
       </span>
     </button>
   )

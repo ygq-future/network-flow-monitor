@@ -121,6 +121,7 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       autoHideDelayMs: 500,
       downloadColorHex: '#38bdf8',
       uploadColorHex: '#2dd4bf',
+      showCapsuleBorder: true,
       ignoreHoverWhenFullscreen: true,
       hideCapsuleWhenFullscreen: false,
     },
@@ -277,6 +278,12 @@ export class MockBridge extends NativeBridge {
       key === 'blurStrengthPercent'
     ) {
       cfg.monitor.blurStrengthPercent = Number(value)
+    } else if (
+      key === 'floating.show_capsule_border' ||
+      key === 'capsule.showCapsuleBorder' ||
+      key === 'showCapsuleBorder'
+    ) {
+      cfg.capsule.showCapsuleBorder = Boolean(value)
     } else if (
       key === 'floating.ignore_hover_when_fullscreen' ||
       key === 'capsule.ignoreHoverWhenFullscreen' ||

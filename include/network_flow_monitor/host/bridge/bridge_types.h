@@ -51,6 +51,7 @@ enum class WebCommandType : std::uint8_t {
     OpenContextMenu,
     ResizePanel,
     ResizeSettingsWindow,
+    OpenLogDirectory,
     Unknown,
 };
 

@@ -38,6 +38,8 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "resizePanel";
     case WebCommandType::ResizeSettingsWindow:
         return "resizeSettingsWindow";
+    case WebCommandType::OpenLogDirectory:
+        return "openLogDirectory";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -95,6 +97,9 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     }
     if (name == "resizeSettingsWindow") {
         return WebCommandType::ResizeSettingsWindow;
+    }
+    if (name == "openLogDirectory") {
+        return WebCommandType::OpenLogDirectory;
     }
     return WebCommandType::Unknown;
 }

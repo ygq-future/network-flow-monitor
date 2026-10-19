@@ -23,6 +23,7 @@ describe('DockCapsule', () => {
     renderCapsule(new MockBridge(false))
     const visual = screen.getByTestId('capsule-visual')
     expect(visual).toHaveStyle({ width: '10px', height: '64px', borderRadius: '5px' })
+    expect(screen.getByTestId('capsule-border')).toBeInTheDocument()
     expect(screen.queryByText('Download')).not.toBeInTheDocument()
   })
 

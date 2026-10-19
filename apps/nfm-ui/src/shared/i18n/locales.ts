@@ -117,6 +117,8 @@ export interface TranslationSchema {
     opacityDesc: string
     blurStrength: string
     blurStrengthDesc: string
+    showCapsuleBorder: string
+    showCapsuleBorderDesc: string
     ignoreHoverFullscreen: string
     ignoreHoverFullscreenDesc: string
     hideCapsuleFullscreen: string
@@ -156,6 +158,7 @@ export interface TranslationSchema {
     logLevelError: string
     logLevelInfo: string
     logLevelDebug: string
+    openLogDirectory: string
     systemDiagnostics: string
     systemDiagnosticsDesc: string
     webviewRuntime: string

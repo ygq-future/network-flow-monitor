@@ -19,7 +19,7 @@ export type WebCommandType =
   | 'openContextMenu'
   | 'resizePanel'
   | 'resizeSettingsWindow'
-
+  | 'openLogDirectory'
 export type NativeEventType =
   | 'trafficTick'
   | 'rankingSnapshot'
@@ -132,6 +132,7 @@ export interface CapsuleConfigDto {
   autoHideDelayMs: number
   downloadColorHex?: string
   uploadColorHex?: string
+  showCapsuleBorder?: boolean
   ignoreHoverWhenFullscreen?: boolean
   hideCapsuleWhenFullscreen?: boolean
 }

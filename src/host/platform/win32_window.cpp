@@ -249,9 +249,8 @@ void Win32Window::perform_system_move() noexcept {
     surface_button_down_ = false;
     bounds_initialized_ = false;
     in_system_move_loop_ = true;
-    if (GetCapture() == hwnd_) {
-        ReleaseCapture();
-    }
+    ReleaseCapture();
+    SetForegroundWindow(hwnd_);
     SendMessageW(hwnd_, WM_SYSCOMMAND, kSysCommandDragMove, 0);
     in_system_move_loop_ = false;
     try {

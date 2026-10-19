@@ -1,17 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import {
-  Sliders,
-  Palette,
-  Layers,
-  Monitor,
-  BarChart2,
-  Activity,
-  FileText,
-  X,
-  RefreshCw,
-  RotateCw,
-  AlertCircle,
-} from 'lucide-react'
+import { Sliders, Layers, Activity, FolderOpen, X, RefreshCw, RotateCw, AlertCircle } from 'lucide-react'
 import { useBridge } from '../../bridge/BridgeContext'
 import {
   AppConfigDto,
@@ -34,12 +22,19 @@ import { Card } from '../../shared/components/Card'
 import { SettingsRow } from '../../shared/components/SettingsRow'
 import { AppLogo } from '../../shared/components/AppLogo'
 
-export type SettingsTab = 'general' | 'appearance' | 'capsule' | 'monitor' | 'ranking' | 'collector' | 'diagnostics'
+export type SettingsTab = 'general' | 'capsule' | 'collector'
+export type LegacySettingsTab = SettingsTab | 'appearance' | 'monitor' | 'ranking' | 'diagnostics'
 
 export interface SettingsCenterProps {
-  initialTab?: SettingsTab
+  initialTab?: LegacySettingsTab
   onBack?: () => void
   onStartDrag?: () => void
+}
+
+function normalizeSettingsTab(tab: LegacySettingsTab): SettingsTab {
+  if (tab === 'capsule' || tab === 'monitor') return 'capsule'
+  if (tab === 'collector' || tab === 'diagnostics') return 'collector'
+  return 'general'
 }
 
 interface CapsuleColorPreset {
@@ -61,7 +56,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   const { setTheme } = useTheme()
   const bridge = useBridge()
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeSettingsTab(initialTab))
   const [config, setConfig] = useState<AppConfigDto>(defaultMockConfigChanged.config)
   const [schema, setSchema] = useState<ConfigSchemaDto>(defaultMockConfigChanged.schema)
   const [collectorStatus, setCollectorStatus] = useState<CollectorStatusDto>({
@@ -75,20 +70,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     isElevated: true,
   })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
-
-  // Detect prefers-reduced-motion
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
-      setPrefersReducedMotion(mql.matches)
-      const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches)
-      mql.addEventListener('change', handler)
-      return () => mql.removeEventListener('change', handler)
-    }
-  }, [])
-
   // Listen to bridge events
   useEffect(() => {
     const unsubConfig = bridge.on<ConfigChangedDto>('configChanged', data => {
@@ -129,7 +111,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     const reportHeight = () => {
       const contentHeight = el.scrollHeight
       // 32px header + 33px tab bar + contentHeight + 2px border
-      const desiredHeightDip = Math.min(540, Math.max(150, 67 + contentHeight))
+      const desiredHeightDip = Math.min(640, Math.max(150, 67 + contentHeight))
       bridge.sendCommand('resizeSettingsWindow', { heightDip: desiredHeightDip })
     }
     reportHeight()
@@ -146,14 +128,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
 
   const tabs: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'general', label: t.settings.general, icon: Sliders },
-    { id: 'appearance', label: t.settings.appearance, icon: Palette },
     { id: 'capsule', label: t.settings.capsule, icon: Layers },
-    { id: 'monitor', label: t.settings.monitor, icon: Monitor },
-    { id: 'ranking', label: t.settings.ranking, icon: BarChart2 },
     { id: 'collector', label: t.settings.collector, icon: Activity },
-    { id: 'diagnostics', label: t.settings.diagnostics, icon: FileText },
   ]
-
   return (
     <div className="flex h-full w-full flex-col select-none">
       {/* Pure Title Bar: App Icon + Title + Close Button */}
@@ -186,7 +163,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
 
       {/* Top Horizontal Tab Bar + Bottom Dynamic Inspector Content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-        <nav className="grid shrink-0 grid-cols-7 gap-0.5 border-b border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900/60">
+        <nav className="grid shrink-0 grid-cols-3 gap-1 border-b border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900/60">
           {tabs.map(tab => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -241,12 +218,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
-            </Card>
-          )}
-
-          {/* 2. Appearance Tab */}
-          {activeTab === 'appearance' && (
-            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.theme}
                 description={t.settings.themeDesc}
@@ -286,18 +257,52 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
-                label={t.settings.reducedMotion}
-                description={t.settings.reducedMotionDesc}
+                label={t.settings.topN}
+                description={t.settings.topNDesc}
                 control={
-                  <Badge variant={prefersReducedMotion ? 'success' : 'default'}>
-                    {prefersReducedMotion ? t.settings.reducedMotionActive : t.settings.reducedMotionInactive}
-                  </Badge>
+                  <Slider
+                    value={config.ranking.topN}
+                    min={schema.topN.min}
+                    max={schema.topN.max}
+                    onChange={val => handleUpdate('ranking.top_n', val)}
+                    ariaLabel={t.settings.topN}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.rankingWindow}
+                description={t.settings.rankingWindowDesc}
+                control={
+                  <Slider
+                    value={config.ranking.windowMs}
+                    min={schema.rankingWindow.min}
+                    max={schema.rankingWindow.max}
+                    step={schema.rankingWindow.step}
+                    unit={schema.rankingWindow.unit}
+                    onChange={val => handleUpdate('ranking.window_ms', val)}
+                    ariaLabel={t.settings.rankingWindow}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.refreshInterval}
+                description={t.settings.refreshIntervalDesc}
+                control={
+                  <Slider
+                    value={config.ranking.refreshIntervalMs}
+                    min={schema.refreshInterval.min}
+                    max={schema.refreshInterval.max}
+                    step={schema.refreshInterval.step}
+                    unit={schema.refreshInterval.unit}
+                    onChange={val => handleUpdate('display.refresh_interval_ms', val)}
+                    ariaLabel={t.settings.refreshInterval}
+                  />
                 }
               />
             </Card>
           )}
 
-          {/* 3. Capsule Tab */}
+          {/* 2. Capsule Tab */}
           {activeTab === 'capsule' && (
             <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
@@ -358,6 +363,21 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
+                label={t.settings.dismissDelay}
+                description={t.settings.dismissDelayDesc}
+                control={
+                  <Slider
+                    value={config.monitor.dismissDelayMs}
+                    min={schema.dismissDelay.min}
+                    max={schema.dismissDelay.max}
+                    step={schema.dismissDelay.step}
+                    unit={schema.dismissDelay.unit}
+                    onChange={val => handleUpdate('interaction.dismiss_delay_ms', val)}
+                    ariaLabel={t.settings.dismissDelay}
+                  />
+                }
+              />
+              <SettingsRow
                 label={t.settings.autoHide}
                 description={t.settings.autoHideDesc}
                 control={
@@ -365,6 +385,17 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     checked={config.capsule.autoHideEnabled}
                     onChange={val => handleUpdate('floating.auto_hide_enabled', val)}
                     ariaLabel={t.settings.autoHide}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showCapsuleBorder}
+                description={t.settings.showCapsuleBorderDesc}
+                control={
+                  <Toggle
+                    checked={config.capsule.showCapsuleBorder ?? true}
+                    onChange={val => handleUpdate('floating.show_capsule_border', val)}
+                    ariaLabel={t.settings.showCapsuleBorder}
                   />
                 }
               />
@@ -451,89 +482,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
               />
             </Card>
           )}
-
-          {/* 4. Monitor Tab */}
-          {activeTab === 'monitor' && (
-            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
-              <SettingsRow
-                label={t.settings.pinned}
-                description={t.settings.pinnedDesc}
-                control={
-                  <Toggle
-                    checked={config.monitor.pinned}
-                    onChange={val => handleUpdate('floating.nfm_pinned', val)}
-                    ariaLabel={t.settings.pinned}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.dismissDelay}
-                description={t.settings.dismissDelayDesc}
-                control={
-                  <Slider
-                    value={config.monitor.dismissDelayMs}
-                    min={schema.dismissDelay.min}
-                    max={schema.dismissDelay.max}
-                    step={schema.dismissDelay.step}
-                    unit={schema.dismissDelay.unit}
-                    onChange={val => handleUpdate('interaction.dismiss_delay_ms', val)}
-                    ariaLabel={t.settings.dismissDelay}
-                  />
-                }
-              />
-            </Card>
-          )}
-
-          {/* 5. Ranking Tab */}
-          {activeTab === 'ranking' && (
-            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
-              <SettingsRow
-                label={t.settings.topN}
-                description={t.settings.topNDesc}
-                control={
-                  <Slider
-                    value={config.ranking.topN}
-                    min={schema.topN.min}
-                    max={schema.topN.max}
-                    onChange={val => handleUpdate('ranking.top_n', val)}
-                    ariaLabel={t.settings.topN}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.rankingWindow}
-                description={t.settings.rankingWindowDesc}
-                control={
-                  <Slider
-                    value={config.ranking.windowMs}
-                    min={schema.rankingWindow.min}
-                    max={schema.rankingWindow.max}
-                    step={schema.rankingWindow.step}
-                    unit={schema.rankingWindow.unit}
-                    onChange={val => handleUpdate('ranking.window_ms', val)}
-                    ariaLabel={t.settings.rankingWindow}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.refreshInterval}
-                description={t.settings.refreshIntervalDesc}
-                control={
-                  <Slider
-                    value={config.ranking.refreshIntervalMs}
-                    min={schema.refreshInterval.min}
-                    max={schema.refreshInterval.max}
-                    step={schema.refreshInterval.step}
-                    unit={schema.refreshInterval.unit}
-                    onChange={val => handleUpdate('display.refresh_interval_ms', val)}
-                    ariaLabel={t.settings.refreshInterval}
-                  />
-                }
-              />
-            </Card>
-          )}
-
-          {/* 6. Collector Tab */}
+          {/* 3. Collector & Diagnostics Tab */}
           {activeTab === 'collector' && (
             <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <div className="flex items-center justify-between gap-3 py-1.5 first:pt-0.5">
@@ -628,25 +577,30 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   }
                 />
               )}
-            </Card>
-          )}
-
-          {/* 7. Diagnostics Tab */}
-          {activeTab === 'diagnostics' && (
-            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
                 label={t.settings.logLevel}
+                description={t.settings.logLevelDesc}
                 control={
-                  <Select
-                    value={config.diagnostics.logLevel}
-                    onChange={val => handleUpdate('diagnostics.log_level', val)}
-                    options={[
-                      { value: 'off', label: t.settings.logLevelOff },
-                      { value: 'error', label: t.settings.logLevelError },
-                      { value: 'info', label: t.settings.logLevelInfo },
-                      { value: 'debug', label: t.settings.logLevelDebug },
-                    ]}
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={config.diagnostics.logLevel}
+                      onChange={val => handleUpdate('diagnostics.log_level', val)}
+                      options={[
+                        { value: 'off', label: t.settings.logLevelOff },
+                        { value: 'error', label: t.settings.logLevelError },
+                        { value: 'info', label: t.settings.logLevelInfo },
+                        { value: 'debug', label: t.settings.logLevelDebug },
+                      ]}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => bridge.sendCommand('openLogDirectory')}
+                      className="gap-1">
+                      <FolderOpen className="h-3 w-3" />
+                      <span>{t.settings.openLogDirectory}</span>
+                    </Button>
+                  </div>
                 }
               />
               <SettingsRow

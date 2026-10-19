@@ -57,6 +57,7 @@ class IBridgeCommandHandler {
     virtual void on_open_context_menu(int screen_x, int screen_y) = 0;
     virtual void on_resize_panel(int /*height_dip*/) {}
     virtual void on_resize_settings_window(int /*height_dip*/) {}
+    virtual void on_open_log_directory() {}
 };
 
 using WebMessageSender = std::function<void(std::string_view json)>;

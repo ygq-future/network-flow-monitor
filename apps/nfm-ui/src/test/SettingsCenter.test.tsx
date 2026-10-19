@@ -18,66 +18,51 @@ function renderWithProviders(ui: React.ReactElement, bridge: MockBridge) {
 }
 
 describe('SettingsCenter', () => {
-  it('renders all 7 tabs and default general section', () => {
+  it('renders 3 tabs and default general section', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /General/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Appearance/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Dock Capsule/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Monitor Panel/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Ranking/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Collector/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Diagnostics/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Collector & Logs/i })).toBeInTheDocument()
 
     // General tab content
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
     expect(screen.getByText('Speed Unit')).toBeInTheDocument()
+    expect(screen.getByText('Application Theme')).toBeInTheDocument()
+    expect(screen.getByText('Language')).toBeInTheDocument()
+    expect(screen.getByText('Top N Applications')).toBeInTheDocument()
+    expect(screen.getByText('Ranking Sliding Window')).toBeInTheDocument()
+    expect(screen.getByText('Display Refresh Interval')).toBeInTheDocument()
   })
 
-  it('switches tabs to Appearance, Capsule, Monitor, Ranking, Collector, Diagnostics', () => {
+  it('switches tabs to Capsule and Collector & Logs', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
-    // 1. Appearance tab
-    fireEvent.click(screen.getByRole('button', { name: /Appearance/i }))
-    expect(screen.getByText('Application Theme')).toBeInTheDocument()
-    expect(screen.getByText('Language')).toBeInTheDocument()
-    expect(screen.getByText('Reduced Motion')).toBeInTheDocument()
-
-    // 2. Capsule tab
+    // 1. Capsule tab
     fireEvent.click(screen.getByRole('button', { name: /Dock Capsule/i }))
     expect(screen.getByText('Capsule Width')).toBeInTheDocument()
     expect(screen.getByText('Capsule Height')).toBeInTheDocument()
     expect(screen.getByText('End Rounding')).toBeInTheDocument()
     expect(screen.getByText('Hover Expand Delay')).toBeInTheDocument()
+    expect(screen.getByText('Dismiss Delay')).toBeInTheDocument()
+    expect(screen.getByText('Show Capsule Border')).toBeInTheDocument()
     expect(screen.getByText('Capsule Rate Colors')).toBeInTheDocument()
     expect(screen.getByText('Lock & Click-Through on Full Screen')).toBeInTheDocument()
     expect(screen.getByText('Hide Capsule on Full Screen')).toBeInTheDocument()
-    // 3. Monitor tab
-    fireEvent.click(screen.getByRole('button', { name: /Monitor Panel/i }))
-    expect(screen.getByText('Pin Monitor Panel')).toBeInTheDocument()
-    expect(screen.getByText('Dismiss Delay')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Ranking/i }))
-    expect(screen.getByText('Top N Applications')).toBeInTheDocument()
-    expect(screen.getByText('Ranking Sliding Window')).toBeInTheDocument()
-    expect(screen.getByText('Display Refresh Interval')).toBeInTheDocument()
-
-    // 5. Collector tab
-    fireEvent.click(screen.getByRole('button', { name: /Collector/i }))
+    // 2. Collector & Logs tab
+    fireEvent.click(screen.getByRole('button', { name: /Collector & Logs/i }))
     expect(screen.getByText('Collector Process Status')).toBeInTheDocument()
     expect(screen.getByText('Process ID (PID)')).toBeInTheDocument()
     expect(screen.getByText('ETW Session Health')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Restart Collector/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Retry Connection/i })).toBeInTheDocument()
-
-    // 6. Diagnostics tab
-    fireEvent.click(screen.getByRole('button', { name: /Diagnostics/i }))
     expect(screen.getByText('Diagnostics Log Level')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Open Log Folder/i })).toBeInTheDocument()
     expect(screen.getByText('WebView2 Evergreen Runtime')).toBeInTheDocument()
   })
-
   it('triggers updateSetting on control changes', () => {
     const bridge = new MockBridge(false)
     const spySend = vi.spyOn(bridge, 'sendCommand')
@@ -100,6 +85,14 @@ describe('SettingsCenter', () => {
       value: 14,
     })
 
+    // Toggle show capsule border
+    const showBorderToggle = screen.getByRole('switch', { name: /Show Capsule Border/i })
+    fireEvent.click(showBorderToggle)
+    expect(spySend).toHaveBeenCalledWith('updateSetting', {
+      key: 'floating.show_capsule_border',
+      value: false,
+    })
+
     // Toggle fullscreen hide capsule
     const hideFullscreenToggle = screen.getByRole('switch', { name: /Hide Capsule on Full Screen/i })
     fireEvent.click(hideFullscreenToggle)
@@ -109,7 +102,7 @@ describe('SettingsCenter', () => {
     })
   })
 
-  it('triggers collector restart and retry commands', () => {
+  it('triggers collector restart, retry, and openLogDirectory commands', () => {
     const bridge = new MockBridge(false)
     const spySend = vi.spyOn(bridge, 'sendCommand')
     renderWithProviders(<SettingsCenter initialTab="collector" />, bridge)
@@ -119,8 +112,10 @@ describe('SettingsCenter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Retry Connection/i }))
     expect(spySend).toHaveBeenCalledWith('retryCollector')
-  })
 
+    fireEvent.click(screen.getByRole('button', { name: /Open Log Folder/i }))
+    expect(spySend).toHaveBeenCalledWith('openLogDirectory')
+  })
   it('handles close button navigation', () => {
     const bridge = new MockBridge(false)
     const handleBack = vi.fn()

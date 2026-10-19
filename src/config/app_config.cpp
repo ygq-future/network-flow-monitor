@@ -28,6 +28,7 @@ AppConfig DefaultAppConfig() noexcept {
                 .capsule_height_dip = 64,
                 .capsule_end_rounding_dip = 5,
                 .nfm_pinned = false,
+                .show_capsule_border = true,
                 .ignore_hover_when_fullscreen = true,
                 .hide_capsule_when_fullscreen = false,
                 .anchor_monitor_id = {},

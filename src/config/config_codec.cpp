@@ -50,7 +50,7 @@ constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
-constexpr std::array<std::string_view, 15> kFloatingKeys{"auto_hide_enabled",
+constexpr std::array<std::string_view, 16> kFloatingKeys{"auto_hide_enabled",
                                                          "auto_hide_delay_ms",
                                                          "opacity_percent",
                                                          "blur_strength_percent",
@@ -58,6 +58,7 @@ constexpr std::array<std::string_view, 15> kFloatingKeys{"auto_hide_enabled",
                                                          "capsule_height_dip",
                                                          "capsule_end_rounding_dip",
                                                          "nfm_pinned",
+                                                         "show_capsule_border",
                                                          "ignore_hover_when_fullscreen",
                                                          "hide_capsule_when_fullscreen",
                                                          "anchor_monitor_id",
@@ -501,6 +502,12 @@ std::optional<ConfigError> ParseFloating(yyjson_val* root, AppConfig& config, bo
                                  config.floating.nfm_pinned, &complete)) {
         return error;
     }
+    if (yyjson_obj_get(group, "show_capsule_border") != nullptr) {
+        if (auto error = ReadBoolean(group, "show_capsule_border", "floating.show_capsule_border",
+                                     config.floating.show_capsule_border, &complete)) {
+            return error;
+        }
+    }
     if (auto error = ReadBoolean(group, "ignore_hover_when_fullscreen",
                                  "floating.ignore_hover_when_fullscreen",
                                  config.floating.ignore_hover_when_fullscreen, &complete)) {
@@ -734,6 +741,8 @@ bool AddFloating(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig
            yyjson_mut_obj_add_sint(document, group, "capsule_end_rounding_dip",
                                    config.floating.capsule_end_rounding_dip) &&
            yyjson_mut_obj_add_bool(document, group, "nfm_pinned", config.floating.nfm_pinned) &&
+           yyjson_mut_obj_add_bool(document, group, "show_capsule_border",
+                                   config.floating.show_capsule_border) &&
            yyjson_mut_obj_add_bool(document, group, "ignore_hover_when_fullscreen",
                                    config.floating.ignore_hover_when_fullscreen) &&
            yyjson_mut_obj_add_bool(document, group, "hide_capsule_when_fullscreen",

@@ -89,6 +89,7 @@ class ProductHost : public platform::IWindowEventListener,
     void on_open_context_menu(int screen_x, int screen_y) override;
     void on_resize_panel(int height_dip) override;
     void on_resize_settings_window(int height_dip) override;
+    void on_open_log_directory() override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }
@@ -106,6 +107,8 @@ class ProductHost : public platform::IWindowEventListener,
     void close_settings_window();
     void apply_settings_window_chrome();
     void broadcast_to_all_bridges(const std::function<void(bridge::INativeBridge&)>& fn);
+    [[nodiscard]] std::filesystem::path log_directory_path() const;
+    void write_diagnostic_log(config::LogLevel level, std::string_view message) const noexcept;
 
     ProductHostOptions options_;
     std::unique_ptr<platform::Win32Window> window_;

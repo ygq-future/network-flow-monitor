@@ -52,7 +52,7 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     bool open_context_menu_called{false};
     int context_menu_x{-1};
     int context_menu_y{-1};
-
+    bool open_log_directory_called{false};
     void on_show_monitor() override {
         show_monitor_called = true;
     }
@@ -106,6 +106,9 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
         context_menu_x = screen_x;
         context_menu_y = screen_y;
     }
+    void on_open_log_directory() override {
+        open_log_directory_called = true;
+    }
 };
 
 void CheckEnumMappings(TestContext& context) {
@@ -124,6 +127,8 @@ void CheckEnumMappings(TestContext& context) {
                   "Parse toggleMaximize");
     context.Check(parse_web_command_type("resizePanel") == WebCommandType::ResizePanel,
                   "Parse resizePanel");
+    context.Check(parse_web_command_type("openLogDirectory") == WebCommandType::OpenLogDirectory,
+                  "Parse openLogDirectory");
     context.Check(parse_web_command_type("invalidCommand") == WebCommandType::Unknown,
                   "Parse invalid command");
 
@@ -262,6 +267,16 @@ void CheckDispatchCommands(TestContext& context) {
         context.Check(handler->open_context_menu_called, "handler->on_open_context_menu called");
         context.Check(handler->context_menu_x == 100, "context_menu_x is 100");
         context.Check(handler->context_menu_y == 200, "context_menu_y is 200");
+    }
+
+    // 11. OpenLogDirectory
+    {
+        BridgeErrorDto err;
+        CommandResponseDto resp;
+        bool ok = dispatcher.dispatch_web_message(
+            R"({"type":"openLogDirectory","version":1,"commandId":"cmd_11"})", &err, &resp);
+        context.Check(ok, "dispatch openLogDirectory succeeds");
+        context.Check(handler->open_log_directory_called, "handler->on_open_log_directory called");
     }
 }
 

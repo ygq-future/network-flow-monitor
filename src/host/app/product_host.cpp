@@ -5,9 +5,11 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 
 #include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <shellapi.h>
 #include <utility>
 #include <yyjson.h>
-
 namespace nfm::host::app {
 
 namespace {
@@ -69,6 +71,7 @@ bool ProductHost::initialize() {
     auto load_result =
         config::LoadConfigFile(options_.config_file_path, config::ConfigDocumentKind::User);
     current_config_ = load_result.config;
+    write_diagnostic_log(config::LogLevel::Info, "Host initializing; configuration loaded");
 
     // 1. Detect WebView2 Evergreen Runtime
     auto rt_info = platform::WebView2Environment::detect_runtime();
@@ -191,6 +194,13 @@ bool ProductHost::initialize() {
                     try {
                         if (status_ptr) {
                             latest_collector_status_ = *status_ptr;
+                            if (!status_ptr->last_error.empty()) {
+                                write_diagnostic_log(config::LogLevel::Error,
+                                                     "Collector error: " + status_ptr->last_error);
+                            } else {
+                                write_diagnostic_log(config::LogLevel::Debug,
+                                                     "Collector state: " + status_ptr->state);
+                            }
                             broadcast_to_all_bridges([&status_ptr](bridge::INativeBridge& b) {
                                 b.post_collector_status(*status_ptr);
                             });
@@ -262,6 +272,7 @@ bool ProductHost::initialize() {
 
     window_->create_tray_icon();
     is_initialized_ = true;
+    write_diagnostic_log(config::LogLevel::Info, "Host initialization complete");
     return true;
 }
 
@@ -587,9 +598,33 @@ void ProductHost::ensure_settings_window() {
                 host_->close_settings_window();
             }
             void on_window_destroyed() override {}
+            void on_surface_pointer_down(surface::ScreenPoint point) override {
+                drag_origin_ = point;
+                drag_armed_ = true;
+            }
+            void on_surface_pointer_move(surface::ScreenPoint point) override {
+                if (!drag_armed_ || !host_->settings_window_) {
+                    return;
+                }
+                const auto threshold = platform::Win32Window::system_drag_threshold();
+                const int dx = std::abs(point.x_px - drag_origin_.x_px);
+                const int dy = std::abs(point.y_px - drag_origin_.y_px);
+                if (dx >= threshold.horizontal_px || dy >= threshold.vertical_px) {
+                    drag_armed_ = false;
+                    host_->settings_window_->perform_system_move();
+                }
+            }
+            void on_surface_pointer_up(surface::ScreenPoint /*point*/) override {
+                drag_armed_ = false;
+            }
+            void on_surface_pointer_cancel() override {
+                drag_armed_ = false;
+            }
 
           private:
             ProductHost* host_;
+            surface::ScreenPoint drag_origin_{};
+            bool drag_armed_{false};
         };
 
         settings_listener_ = std::make_unique<SettingsWindowListener>(this);
@@ -919,7 +954,7 @@ void ProductHost::on_resize_panel(int height_dip) {
 }
 
 void ProductHost::on_resize_settings_window(int height_dip) {
-    const int clamped_dip = std::clamp(height_dip, 140, 560);
+    const int clamped_dip = std::clamp(height_dip, 140, 680);
     if (settings_height_dip_ == clamped_dip && !settings_window_) {
         return;
     }
@@ -1239,6 +1274,14 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected integer for blur_strength_percent";
         }
+    } else if (key == "floating.show_capsule_border" || key == "capsule.showCapsuleBorder" ||
+               key == "showCapsuleBorder") {
+        if (yyjson_is_bool(val)) {
+            current_config_.floating.show_capsule_border = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_capsule_border";
+        }
     } else if (key == "floating.ignore_hover_when_fullscreen" ||
                key == "capsule.ignoreHoverWhenFullscreen" ||
                key == "monitor.ignoreHoverWhenFullscreen" || key == "ignoreHoverWhenFullscreen") {
@@ -1330,6 +1373,7 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
     // Persist configuration atomically
     static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
                                              config::ConfigDocumentKind::User));
+    write_diagnostic_log(config::LogLevel::Info, "Updated setting: " + std::string(key));
 
     if (theme_changed) {
         std::string theme_str = "System";
@@ -1367,12 +1411,14 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
 }
 
 void ProductHost::on_retry_collector() {
+    write_diagnostic_log(config::LogLevel::Info, "Retrying collector connection");
     if (collector_companion_) {
         collector_companion_->restart();
     }
 }
 
 void ProductHost::on_restart_collector() {
+    write_diagnostic_log(config::LogLevel::Info, "Restarting collector companion process");
     if (collector_companion_) {
         collector_companion_->restart();
     }
@@ -1407,7 +1453,11 @@ void ProductHost::on_start_window_drag() {
         RECT settings_rc{};
         if (GetWindowRect(settings_window_->hwnd(), &settings_rc) != FALSE &&
             PtInRect(&settings_rc, pt) != FALSE) {
-            settings_window_->perform_system_move();
+            settings_window_->begin_interactive_drag();
+            if (settings_listener_) {
+                settings_listener_->on_surface_pointer_down(
+                    surface::ScreenPoint{.x_px = pt.x, .y_px = pt.y});
+            }
             return;
         }
     }
@@ -1439,4 +1489,71 @@ void ProductHost::on_set_locale(std::string_view locale) {
     });
 }
 
+std::filesystem::path ProductHost::log_directory_path() const {
+    std::filesystem::path base_dir = options_.config_file_path.parent_path();
+    if (base_dir.empty()) {
+        std::array<wchar_t, MAX_PATH> exe_path_buf{};
+        GetModuleFileNameW(nullptr, exe_path_buf.data(), MAX_PATH);
+        base_dir = std::filesystem::path(exe_path_buf.data()).parent_path();
+    }
+    return base_dir / L"logs";
+}
+
+void ProductHost::write_diagnostic_log(config::LogLevel level,
+                                       std::string_view message) const noexcept {
+    try {
+        const auto configured = current_config_.diagnostics.log_level;
+        if (configured == config::LogLevel::Off) {
+            return;
+        }
+        auto rank = [](config::LogLevel l) noexcept -> int {
+            switch (l) {
+            case config::LogLevel::Off:
+                return 0;
+            case config::LogLevel::Error:
+                return 1;
+            case config::LogLevel::Info:
+                return 2;
+            case config::LogLevel::Debug:
+                return 3;
+            }
+            return 0;
+        };
+        if (rank(level) > rank(configured)) {
+            return;
+        }
+        const auto log_dir = log_directory_path();
+        std::error_code ec;
+        std::filesystem::create_directories(log_dir, ec);
+        const auto log_file = log_dir / L"nfm-host.log";
+        SYSTEMTIME st{};
+        GetLocalTime(&st);
+        const char* level_tag = "INFO";
+        if (level == config::LogLevel::Error) {
+            level_tag = "ERROR";
+        } else if (level == config::LogLevel::Debug) {
+            level_tag = "DEBUG";
+        }
+        std::array<char, 64> ts_buf{};
+        static_cast<void>(std::snprintf(
+            ts_buf.data(), ts_buf.size(), "%04u-%02u-%02u %02u:%02u:%02u.%03u", st.wYear, st.wMonth,
+            st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds));
+        std::ofstream out(log_file, std::ios::app);
+        if (out.is_open()) {
+            out << '[' << ts_buf.data() << "] [" << level_tag << "] " << message << '\n';
+        }
+    } catch (...) {
+    }
+}
+
+void ProductHost::on_open_log_directory() {
+    write_diagnostic_log(config::LogLevel::Info, "Opening diagnostic log directory");
+    const std::filesystem::path log_dir = log_directory_path();
+    std::error_code ec;
+    std::filesystem::create_directories(log_dir, ec);
+    const std::filesystem::path target_dir =
+        std::filesystem::exists(log_dir, ec) ? log_dir : log_dir.parent_path();
+    static_cast<void>(
+        ShellExecuteW(nullptr, L"open", target_dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+}
 } // namespace nfm::host::app

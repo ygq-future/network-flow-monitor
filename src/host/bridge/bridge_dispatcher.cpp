@@ -381,6 +381,9 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
             handler_->on_resize_settings_window(*cmd.panel_height_dip);
         }
         break;
+    case WebCommandType::OpenLogDirectory:
+        handler_->on_open_log_directory();
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);
@@ -572,11 +575,12 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
                            config.floating.download_color_hex.data());
     yyjson_mut_obj_add_str(doc.get(), cap, "uploadColorHex",
                            config.floating.upload_color_hex.data());
+    yyjson_mut_obj_add_bool(doc.get(), cap, "showCapsuleBorder",
+                            config.floating.show_capsule_border);
     yyjson_mut_obj_add_bool(doc.get(), cap, "ignoreHoverWhenFullscreen",
                             config.floating.ignore_hover_when_fullscreen);
     yyjson_mut_obj_add_bool(doc.get(), cap, "hideCapsuleWhenFullscreen",
                             config.floating.hide_capsule_when_fullscreen);
-    // monitor
     yyjson_mut_val* mon = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "monitor", mon);
     yyjson_mut_obj_add_bool(doc.get(), mon, "pinned", config.floating.nfm_pinned);

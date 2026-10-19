@@ -133,3 +133,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **C++ 恒定宽度透明画布、逻辑命中区与动态鼠标穿透 (`product_host.h`, `product_host.cpp`, `win32_window.h`, `win32_window.cpp`)**：
   - 主浮动窗口保持 `340 DIP` 面板等宽透明画布并启用 `SWP_NOCOPYBITS`，使胶囊与面板在恒定水平画布内平滑过渡；
   - `Win32Window` 引入 `logical_hit_rect_` 与非命中区动态 `WS_EX_TRANSPARENT | WS_EX_LAYERED` 穿透：胶囊态下仅 `16 × 64` DIP 胶囊逻辑矩形响应鼠标悬停/点击/拖拽，其余透明画布区域直接穿透至底层桌面应用。
+
+## 第六轮设置中心三分类整合、胶囊边框控制与诊断日志落盘 — complete
+
+- **设置中心 3 大核心标签页 (`SettingsCenter.tsx`, `zh-CN.ts`, `en-US.ts`, `locales.ts`)**：
+  - **通用 (`general`)**：集中提供登录自动启动、速率单位、应用主题、界面语言、排行显示数量 (Top N)、排行滑动窗口与刷新周期设置。
+  - **贴边胶囊 (`capsule`)**：提供胶囊尺寸与圆角、悬停展开延迟、收起延迟、自动隐藏、胶囊边框显示开关 (`floating.show_capsule_border`)、双色渐变配色与全屏防误触策略。
+  - **采集与诊断 (`collector`)**：一站式展示采集器进程状态、重试/重启操作、ETW 会话健康度、诊断日志级别与系统组件状态，并提供「打开日志目录」快捷按钮。
+- **`openLogDirectory` 桥接命令、真实文件日志落盘与设置窗口拖拽增强 (`bridge_types.h/.cpp`, `native_bridge.h`, `bridge_dispatcher.cpp`, `product_host.h/.cpp`, `win32_window.cpp`)**：
+  - 在 Bridge 白名单协议中注册 `openLogDirectory` 命令，`ProductHost::on_open_log_directory()` 自动创建并打开 `logs` 目录。
+  - 实现 `ProductHost::write_diagnostic_log()`，按 `diagnostics.log_level`（`off` / `error` / `info` / `debug`）将宿主启动、设置变更、Collector 状态/重试与错误信息实时追加写入 `logs/nfm-host.log`。
+  - 在 `Win32Window::perform_system_move()` 中释放当前线程鼠标捕获并激活窗口，为 `SettingsWindowListener` 接入系统拖拽阈值移动链路。
+  - 设置窗口自适应高度上限设为 `680 DIP`，确保各标签页完整展示。

@@ -1,5 +1,6 @@
 #include "network_flow_monitor/collector/windows_etw_session.h"
 
+#include "network_flow_monitor/collector/etw_authorization.h"
 #include "network_flow_monitor/process/windows_process_probe.h"
 
 #include <algorithm>
@@ -72,6 +73,7 @@ void RecordSchema(const SchemaMaskWriters masks, const EVENT_DESCRIPTOR& descrip
 
 ULONG WindowsEtwApi::StartController(PTRACEHANDLE handle, LPCWSTR name,
                                      PEVENT_TRACE_PROPERTIES properties) noexcept {
+    static_cast<void>(EnableCollectorPrivileges());
     return StartTraceW(handle, name, properties);
 }
 

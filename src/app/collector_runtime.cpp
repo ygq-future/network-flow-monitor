@@ -154,12 +154,19 @@ CollectorPrincipalResult BuildPortablePrincipal() noexcept {
             return {.source_error = ::GetLastError()};
         }
         const KernelHandle token{raw_token};
+        auto user_sid = QueryTokenSid(token.get(), TokenUser);
         auto logon_sid = QueryCurrentLogonSid(token.get());
-        if (logon_sid.empty()) {
+        if (user_sid.empty() && logon_sid.empty()) {
             return {.source_error = ERROR_INVALID_SID};
         }
+        if (user_sid.empty()) {
+            user_sid = logon_sid;
+        }
+        if (logon_sid.empty()) {
+            logon_sid = user_sid;
+        }
         return {.principal = {.mode = ipc::CollectorEndpointMode::Portable,
-                              .authorized_sid = logon_sid,
+                              .authorized_sid = std::move(user_sid),
                               .server_logon_sid = std::move(logon_sid)}};
     } catch (...) {
         return {.source_error = ERROR_NOT_ENOUGH_MEMORY};

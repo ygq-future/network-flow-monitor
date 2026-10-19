@@ -4,8 +4,10 @@
 
 #include <windows.h>
 
+#include <array>
 #include <cstddef>
 #include <evntcons.h>
+#include <lm.h>
 #include <ntsecapi.h>
 #include <vector>
 
@@ -66,6 +68,30 @@ class ScopedToken final {
     }
 }
 
+void TryAddCurrentUserToPerformanceLogUsers(PSID user_sid) noexcept {
+    if (user_sid == nullptr || ::IsValidSid(user_sid) == FALSE) {
+        return;
+    }
+    std::array<std::byte, SECURITY_MAX_SID_SIZE> group_sid_buf{};
+    auto group_sid_size = static_cast<DWORD>(group_sid_buf.size());
+    if (::CreateWellKnownSid(WinBuiltinPerfLoggingUsersSid, nullptr, group_sid_buf.data(),
+                             &group_sid_size) == FALSE) {
+        return;
+    }
+    std::array<wchar_t, 256> group_name{};
+    std::array<wchar_t, 256> domain_name{};
+    auto group_name_len = static_cast<DWORD>(group_name.size());
+    auto domain_name_len = static_cast<DWORD>(domain_name.size());
+    SID_NAME_USE name_use = SidTypeUnknown;
+    if (::LookupAccountSidW(nullptr, group_sid_buf.data(), group_name.data(), &group_name_len,
+                            domain_name.data(), &domain_name_len, &name_use) == FALSE) {
+        return;
+    }
+    LOCALGROUP_MEMBERS_INFO_0 member_info{.lgrmi0_sid = user_sid};
+    static_cast<void>(::NetLocalGroupAddMembers(nullptr, group_name.data(), 0U,
+                                                reinterpret_cast<LPBYTE>(&member_info), 1U));
+}
+
 } // namespace
 
 std::uint32_t AuthorizeCollectorForCurrentUser() noexcept {
@@ -74,6 +100,9 @@ std::uint32_t AuthorizeCollectorForCurrentUser() noexcept {
         return ERROR_INVALID_SID;
     }
     auto* const sid_ptr = reinterpret_cast<PSID>(sid.data());
+
+    // Best-effort: add current user to Performance Log Users local group per ADR 0015.
+    TryAddCurrentUserToPerformanceLogUsers(sid_ptr);
 
     // 1. Grant SeSystemProfilePrivilege to the user account.
     LSA_OBJECT_ATTRIBUTES attributes{};
@@ -112,6 +141,46 @@ std::uint32_t AuthorizeCollectorForCurrentUser() noexcept {
     };
     return ::EventAccessControl(&provider_guid, EventSecurityAddDACL, sid_ptr, TRACELOG_GUID_ENABLE,
                                 TRUE);
+}
+
+std::uint32_t EnableCollectorPrivileges() noexcept {
+    HANDLE raw_token{};
+    if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                           &raw_token) == FALSE) {
+        return ::GetLastError();
+    }
+    const ScopedToken token{raw_token};
+
+    LUID luid{};
+    if (::LookupPrivilegeValueW(nullptr, SE_SYSTEM_PROFILE_NAME, &luid) == FALSE) {
+        return ::GetLastError();
+    }
+
+    TOKEN_PRIVILEGES tp{};
+    tp.PrivilegeCount = 1U;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    ::SetLastError(ERROR_SUCCESS);
+    if (::AdjustTokenPrivileges(token.get(), FALSE, &tp, sizeof(tp), nullptr, nullptr) == FALSE) {
+        return ::GetLastError();
+    }
+    return ::GetLastError();
+}
+
+bool IsCurrentProcessElevated() noexcept {
+    HANDLE raw_token{};
+    if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &raw_token) == FALSE) {
+        return false;
+    }
+    const ScopedToken token{raw_token};
+    TOKEN_ELEVATION elevation{};
+    DWORD size = sizeof(elevation);
+    if (::GetTokenInformation(token.get(), TokenElevation, &elevation, sizeof(elevation), &size) ==
+        FALSE) {
+        return false;
+    }
+    return elevation.TokenIsElevated != 0U;
 }
 
 } // namespace nfm::collector

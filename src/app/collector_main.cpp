@@ -50,6 +50,11 @@ int wmain() {
         return ResultCode(ERROR_INVALID_PARAMETER);
     }
 
+    if (nfm::collector::IsCurrentProcessElevated()) {
+        static_cast<void>(nfm::collector::AuthorizeCollectorForCurrentUser());
+    }
+    static_cast<void>(nfm::collector::EnableCollectorPrivileges());
+
     try {
         const auto principal = nfm::app::BuildCollectorPrincipal();
         if (!principal.ok()) {

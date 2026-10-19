@@ -129,6 +129,9 @@ bool IdentityMatches(const AuthorizedPrincipal& principal,
                      const QueriedClientIdentity& identity) noexcept {
     switch (principal.mode) {
     case CollectorEndpointMode::Portable:
+        if (SidsEqual(identity.user_sid, principal.authorized_sid)) {
+            return true;
+        }
         return std::ranges::any_of(identity.group_sids, [&](const auto& group_sid) {
             return SidsEqual(group_sid, principal.authorized_sid);
         });

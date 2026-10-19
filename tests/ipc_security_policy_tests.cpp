@@ -193,6 +193,13 @@ void CheckIdentity(TestContext& context) {
     context.Check(result.authorized() && valid.revert_calls == 1,
                   "matching logon group is authorized and reverted");
 
+    FakeSecurityApi valid_user_sid;
+    valid_user_sid.identity.user_sid = principal.authorized_sid;
+    valid_user_sid.identity.group_sids = {WellKnownSid(WinBuiltinUsersSid)};
+    result = VerifyPipeClient(GetCurrentProcess(), principal, valid_user_sid);
+    context.Check(result.authorized() && valid_user_sid.revert_calls == 1,
+                  "matching user SID across UAC split token is authorized and reverted");
+
     FakeSecurityApi wrong;
     wrong.identity.group_sids = {WellKnownSid(WinBuiltinGuestsSid)};
     result = VerifyPipeClient(GetCurrentProcess(), principal, wrong);

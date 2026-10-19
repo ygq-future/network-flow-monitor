@@ -49,7 +49,7 @@ add_library(
         collector/windows_process_probe_adapter.cpp
 )
 target_include_directories(nfm_collector PUBLIC "${PROJECT_SOURCE_DIR}/include")
-target_link_libraries(nfm_collector PUBLIC nfm_process nfm_ranking PRIVATE Advapi32 Tdh)
+target_link_libraries(nfm_collector PUBLIC nfm_process nfm_ranking PRIVATE Advapi32 Tdh Netapi32)
 nfm_configure_target(nfm_collector)
 nfm_enable_shared_pch(nfm_collector)
 nfm_enable_static_analysis(nfm_collector ENABLE_EXCEPTIONS)

@@ -20,6 +20,35 @@ namespace nfm::host::lifecycle {
 
 namespace {
 
+std::vector<std::byte> QueryCurrentProcessUserSid() {
+    HANDLE token{};
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE) {
+        return {};
+    }
+    DWORD required{};
+    static_cast<void>(GetTokenInformation(token, TokenUser, nullptr, 0U, &required));
+    if (required < sizeof(TOKEN_USER)) {
+        CloseHandle(token);
+        return {};
+    }
+    std::vector<std::byte> storage(required);
+    if (GetTokenInformation(token, TokenUser, storage.data(), required, &required) == FALSE) {
+        CloseHandle(token);
+        return {};
+    }
+    CloseHandle(token);
+    const auto* user = reinterpret_cast<const TOKEN_USER*>(storage.data());
+    if (user->User.Sid == nullptr || IsValidSid(user->User.Sid) == FALSE) {
+        return {};
+    }
+    const auto length = GetLengthSid(user->User.Sid);
+    std::vector<std::byte> sid(length);
+    if (CopySid(length, sid.data(), user->User.Sid) != FALSE) {
+        return sid;
+    }
+    return {};
+}
+
 std::vector<std::byte> QueryCurrentProcessLogonSid() {
     HANDLE token{};
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == FALSE) {
@@ -51,6 +80,41 @@ std::vector<std::byte> QueryCurrentProcessLogonSid() {
         }
     }
     return {};
+}
+
+bool IsAuthorizationExitCode(DWORD exit_code) noexcept {
+    return exit_code == ERROR_ACCESS_DENIED || exit_code == ERROR_PRIVILEGE_NOT_HELD;
+}
+
+bool LaunchElevatedCollectorProcess(const std::filesystem::path& collector_path,
+                                    const std::wstring& parameters, void*& out_process_handle,
+                                    std::uint32_t& out_process_id,
+                                    DWORD& out_win32_error) noexcept {
+    out_process_handle = nullptr;
+    out_process_id = 0U;
+    out_win32_error = ERROR_SUCCESS;
+
+    const std::wstring exe_path = collector_path.wstring();
+    const std::wstring work_dir = collector_path.parent_path().wstring();
+
+    SHELLEXECUTEINFOW sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exe_path.c_str();
+    sei.lpParameters = parameters.c_str();
+    sei.lpDirectory = work_dir.empty() ? nullptr : work_dir.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (ShellExecuteExW(&sei) == FALSE) {
+        out_win32_error = GetLastError();
+        return false;
+    }
+    if (sei.hProcess != nullptr) {
+        out_process_handle = static_cast<void*>(sei.hProcess);
+        out_process_id = static_cast<std::uint32_t>(GetProcessId(sei.hProcess));
+    }
+    return true;
 }
 
 std::string Base64Encode(const std::vector<std::uint8_t>& data) {
@@ -200,10 +264,17 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
 CollectorCompanion::CollectorCompanion(std::filesystem::path collector_executable_path)
     : collector_path_(std::move(collector_executable_path)),
       transport_factory_(std::make_unique<ipc::WindowsPipeTransportFactory>()) {
+    auto user_sid = QueryCurrentProcessUserSid();
     auto logon_sid = QueryCurrentProcessLogonSid();
+    if (user_sid.empty()) {
+        user_sid = logon_sid;
+    }
+    if (logon_sid.empty()) {
+        logon_sid = user_sid;
+    }
     ipc::AuthorizedPrincipal principal{
         .mode = ipc::CollectorEndpointMode::Portable,
-        .authorized_sid = logon_sid,
+        .authorized_sid = std::move(user_sid),
         .server_logon_sid = std::move(logon_sid),
     };
     ipc_client_ =
@@ -255,6 +326,8 @@ void CollectorCompanion::emit_diagnostic(bool is_error, std::string_view message
 bool CollectorCompanion::start() {
     std::string diag_msg;
     bool diag_error = false;
+    CollectorStatusCallback status_cb;
+    CollectorInfo status_snapshot;
     {
         const std::scoped_lock lock(mutex_);
         if (info_.state == CollectorState::Running || info_.state == CollectorState::Starting) {
@@ -280,8 +353,10 @@ bool CollectorCompanion::start() {
                            "' (win32_error=" + std::to_string(evt_err) + ")";
             }
 
-            std::wstring cmd = L"\"" + collector_path_.wstring() + L"\" --collector --parent-pid " +
-                               std::to_wstring(current_pid) + L" --stop-event " + w_event_name;
+            const std::wstring params = L"--collector --parent-pid " +
+                                        std::to_wstring(current_pid) + L" --stop-event " +
+                                        w_event_name;
+            const std::wstring cmd = L"\"" + collector_path_.wstring() + L"\" " + params;
 
             STARTUPINFOW si{};
             si.cb = sizeof(si);
@@ -293,19 +368,73 @@ bool CollectorCompanion::start() {
             BOOL created = CreateProcessW(nullptr, cmd_buf.data(), nullptr, nullptr, FALSE,
                                           CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
 
+            bool needs_elevation_retry = false;
+            DWORD create_err = ERROR_SUCCESS;
+            DWORD initial_exit_code = STILL_ACTIVE;
+
             if (created != FALSE) {
                 CloseHandle(pi.hThread);
-                collector_process_handle_ = static_cast<void*>(pi.hProcess);
-                info_.process_id = pi.dwProcessId;
-                diag_msg = "Collector companion launched (pid=" + std::to_string(pi.dwProcessId) +
-                           ", stop_event=" + stop_event_name_ + ")";
+                // Wait briefly to see if standard-privilege collector immediately exits due to
+                // ETW access denied (5) or privilege not held (1314).
+                const DWORD wait_res = WaitForSingleObject(pi.hProcess, 180U);
+                if (wait_res == WAIT_OBJECT_0 &&
+                    GetExitCodeProcess(pi.hProcess, &initial_exit_code) != FALSE &&
+                    IsAuthorizationExitCode(initial_exit_code)) {
+                    CloseHandle(pi.hProcess);
+                    needs_elevation_retry = true;
+                } else if (wait_res == WAIT_OBJECT_0 && initial_exit_code != STILL_ACTIVE &&
+                           initial_exit_code != 0U) {
+                    CloseHandle(pi.hProcess);
+                    info_.state = CollectorState::Failed;
+                    info_.error_message = "Collector exited immediately (exit_code=" +
+                                          std::to_string(initial_exit_code) + ")";
+                    diag_error = true;
+                    diag_msg = info_.error_message;
+                } else {
+                    collector_process_handle_ = static_cast<void*>(pi.hProcess);
+                    info_.process_id = pi.dwProcessId;
+                    diag_msg =
+                        "Collector companion launched (pid=" + std::to_string(pi.dwProcessId) +
+                        ", stop_event=" + stop_event_name_ + ")";
+                }
             } else {
-                const DWORD create_err = GetLastError();
-                info_.state = CollectorState::Failed;
-                info_.error_message = "Failed to launch collector process (win32_error=" +
-                                      std::to_string(create_err) + ")";
-                diag_error = true;
-                diag_msg = info_.error_message;
+                create_err = GetLastError();
+                if (create_err == ERROR_ELEVATION_REQUIRED || create_err == ERROR_ACCESS_DENIED ||
+                    create_err == ERROR_PRIVILEGE_NOT_HELD) {
+                    needs_elevation_retry = true;
+                } else {
+                    info_.state = CollectorState::Failed;
+                    info_.error_message = "Failed to launch collector process (win32_error=" +
+                                          std::to_string(create_err) + ")";
+                    diag_error = true;
+                    diag_msg = info_.error_message;
+                }
+            }
+
+            if (needs_elevation_retry) {
+                void* elevated_proc = nullptr;
+                std::uint32_t elevated_pid = 0U;
+                DWORD uac_err = ERROR_SUCCESS;
+                if (LaunchElevatedCollectorProcess(collector_path_, params, elevated_proc,
+                                                   elevated_pid, uac_err)) {
+                    collector_process_handle_ = elevated_proc;
+                    info_.process_id = elevated_pid;
+                    diag_msg = "Collector companion launched via UAC elevation (pid=" +
+                               std::to_string(elevated_pid) + ", stop_event=" + stop_event_name_ +
+                               ")";
+                } else {
+                    info_.state = CollectorState::Failed;
+                    if (uac_err == ERROR_CANCELLED) {
+                        info_.error_message =
+                            "Administrator UAC prompt was declined (win32_error=1223)";
+                    } else {
+                        info_.error_message =
+                            "Failed to launch elevated collector via UAC (win32_error=" +
+                            std::to_string(uac_err) + ")";
+                    }
+                    diag_error = true;
+                    diag_msg = info_.error_message;
+                }
             }
         } else if (!collector_path_.empty()) {
             info_.state = CollectorState::Failed;
@@ -313,12 +442,29 @@ bool CollectorCompanion::start() {
             diag_error = true;
             diag_msg = "Collector executable missing at configured path";
         }
+        status_cb = collector_status_cb_;
+        status_snapshot = info_;
     }
     if (!diag_msg.empty()) {
         emit_diagnostic(diag_error, diag_msg);
     }
 
-    if (ipc_client_) {
+    if (status_snapshot.state == CollectorState::Failed && status_cb) {
+        bridge::CollectorStatusDto dto{
+            .monotonic_ms = static_cast<std::uint64_t>(GetTickCount64()),
+            .etw_session_active = false,
+            .dropped_packets = 0,
+            .active_pids = 0,
+            .state = "Failed",
+            .process_id = status_snapshot.process_id,
+            .instance_id = status_snapshot.instance_id,
+            .is_elevated = false,
+            .last_error = status_snapshot.error_message,
+        };
+        status_cb(dto);
+    }
+
+    if (ipc_client_ && status_snapshot.state != CollectorState::Failed) {
         static_cast<void>(ipc_client_->Start());
     }
 

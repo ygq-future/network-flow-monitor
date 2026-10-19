@@ -196,3 +196,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **监控面板双向高度过渡动画与原生窗口延时收缩 (`BasicMonitorPanel.tsx`, `product_host.h`, `product_host.cpp`)**：
   - 前端根节点与列表区显式绑定像素高度（`height: ${desiredHeightDip}px` / `${contentHeightDip}px`）及 `height 240ms cubic-bezier(0.22, 1, 0.36, 1)` 阻尼过渡；
   - C++ `ProductHost::on_resize_panel` 在面板高度增加时立即扩展透明窗口画布，在面板高度减小时立即更新 `logical_hit_rect_` 并通过 `panel_shrink_bounds_remaining_ (240ms)` 延时收缩 Win32 窗口与 WebView2 视口，避免收缩动画被原生窗口提前裁切。
+
+## 第十一轮普通权限双击启动、采集器动态原生 UAC 提权与跨 UAC 令牌 IPC 对齐 — complete
+
+- **跨 UAC 拆分令牌（Split Token）的命名管道身份对齐 (`collector_runtime.cpp`, `collector_companion.cpp`, `windows_pipe_security.cpp`, `ipc_security_policy_tests.cpp`)**：
+  - 普通权限 Host 与通过 UAC 提权运行的 `nfm-collector.exe` 拥有不同的 `Logon SID` 但共享完全相同的账户 `User SID (TokenUser)`；
+  - 将便携模式的 `authorized_sid` 统一为当前账户 `TokenUser` SID，`VerifyPipeClient` 同时校验客户端 `user_sid` 与 `group_sids`，确保普通权限 Host 能与管理员权限 Collector 无缝建立 owner-scoped 命名管道连接，同时继续严格拒绝其他账户与远程连接。
+- **采集器特权显式激活与一次性 ETW 持久授权 (`etw_authorization.h/.cpp`, `windows_etw_session.cpp`, `collector_main.cpp`, `src/CMakeLists.txt`)**：
+  - 新增 `EnableCollectorPrivileges()`（通过 `AdjustTokenPrivileges` 显式激活当前令牌中的 `SeSystemProfilePrivilege`）并在 `StartTraceW` 前自动调用；
+  - 当 `nfm-collector.exe` 以管理员权限启动时自动执行 `AuthorizeCollectorForCurrentUser()`（将当前用户加入本地 `Performance Log Users` 组、授予 `SeSystemProfilePrivilege` 并配置 ETW Session 与 `SystemTraceProvider` GUID DACL），使后续登录会话下的普通权限启动及 `HKCU\Run` 开机自启无需每次重复弹出 UAC。
+- **采集器伴侣进程按需动态原生 UAC (`ShellExecuteExW` `"runas"`) 提权启动 (`collector_companion.cpp`)**：
+  - `NetworkFlowMonitor.exe` 保持普通权限秒开 UI，不影响 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 开机自启；
+  - `CollectorCompanion::start()` 优先以普通权限 `CreateProcessW` 启动 `nfm-collector.exe`；若进程因权限不足立即退出（`ERROR_ACCESS_DENIED (5)` 或 `ERROR_PRIVILEGE_NOT_HELD (1314)`），自动回退调用 `ShellExecuteExW(..., L"runas", ...)` 弹出 Windows 原生 UAC 授权窗拉起采集器；若用户拒绝 UAC（`ERROR_CANCELLED (1223)`），立即更新状态为 `Failed` 并写入诊断日志，用户随时可通过右键菜单或设置页点击「重试 / 重启」再次触发 UAC 授权。

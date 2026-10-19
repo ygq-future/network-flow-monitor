@@ -74,5 +74,15 @@ foreach(entry IN LISTS NFM_TEST_SUITES)
     set_tests_properties(${test_name} PROPERTIES LABELS "${labels}")
 endforeach()
 
+set_tests_properties(
+    collector.host
+    ipc.named_pipe_transport
+    ipc.server_integration
+    ipc.snapshot_publisher
+    ipc.client
+    ipc.integration
+    host.lifecycle
+    PROPERTIES RESOURCE_LOCK nfm_named_pipe
+)
 set_tests_properties(ipc.integration PROPERTIES RUN_SERIAL TRUE)
 set_tests_properties(collector.etw_integration PROPERTIES RUN_SERIAL TRUE)

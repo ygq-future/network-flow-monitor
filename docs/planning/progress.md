@@ -159,3 +159,16 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 缓存 Visual Studio DevShell x64 环境变量至 `build/.vsenv-x64.json`（含 `-Clean` 模式复用），跳过每次 1.7 秒的 `Enter-VsDevShell` 冷启动探测；
   - `clang-format` 改为单进程批量调用（消除 121 次进程拉起），`cmake` 仅在缺失 `build.ninja` 时执行重配置，`ctest` 启用 `--parallel`，`Full` 模式默认支持增量分析与构建；
   - 前端启用 TypeScript `incremental`（`.tsbuildinfo`）、ESLint `--cache`、Prettier `--cache`、移除 `build` 脚本中重复的 `tsc --noEmit`，并在 `bun.lock` 或前端源码未变化时按时间戳自动跳过重复 `bun install` 与 `vite build`；`Fast -Clean` 全量构建门禁从 ~41.4 秒降至 **~18.5 秒**（其中 C++ 全量 Clean 编译+链接仅需 **8.24 秒**），日常增量 `Fast` 门禁降至 **~8.3 秒**。
+
+## 第八轮设置标题栏融合与监控面板交互精修 — complete
+
+- **设置中心单行融合标题栏与可操作项置顶 (`SettingsCenter.tsx`)**：
+  - 将「通用 / 贴边胶囊 / 采集与诊断」分段式切换按钮集成于 `36px (h-9)` 顶部可拖拽标题栏，动态窗口高度顶部基准设为 `38 DIP`；
+  - 「贴边胶囊」页将「胶囊速率配色」置顶于首位，随后依次排列胶囊尺寸/圆角与悬停/收起/自动隐藏/全屏防误触交互项；
+  - 「采集与诊断」页将可操作的「采集器进程状态（重试/重启）」与「诊断日志级别（含打开日志目录）」集中置于顶部，下方统一排列只读遥测指标。
+- **监控面板单行速率顶栏、双语短标题与双色对数进度条 (`BasicMonitorPanel.tsx`, `zh-CN.ts`, `en-US.ts`)**：
+  - 中英文主标题统一为「流量监视器 / Flow Monitor」；
+  - 全局实时上下行总速率（`↓` 下载 / `↑` 上传）集成于顶部标题栏中部，在 `rankingSnapshot` 就绪时读取 `ranking.totalDownloadBytesPerSec` / `totalUploadBytesPerSec`，与下方应用列表保持同一滑动时间窗与刷新周期（1Hz）；
+  - 应用列表直接紧接顶栏分割线，应用行采用 `rounded-md` 圆角悬浮背景高亮，底部进度条使用 `calculateRateFillPercent` 对数速率映射与下载/上传双色比例分段展示。
+- **贴边胶囊纯净无框渲染 (`DockCapsule.tsx`, `app_config.cpp`, `nativeBridge.ts`)**：
+  - 贴边胶囊采用 `p-0` 全幅圆角填充渲染。

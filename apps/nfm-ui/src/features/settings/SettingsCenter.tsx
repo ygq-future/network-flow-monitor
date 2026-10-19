@@ -110,8 +110,8 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     if (!el) return
     const reportHeight = () => {
       const contentHeight = el.scrollHeight
-      // 32px header + 33px tab bar + contentHeight + 2px border
-      const desiredHeightDip = Math.min(640, Math.max(150, 67 + contentHeight))
+      // 36px fused header + contentHeight + 2px border
+      const desiredHeightDip = Math.min(640, Math.max(150, 38 + contentHeight))
       bridge.sendCommand('resizeSettingsWindow', { heightDip: desiredHeightDip })
     }
     reportHeight()
@@ -133,20 +133,47 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   ]
   return (
     <div className="flex h-full w-full flex-col select-none">
-      {/* Pure Title Bar: App Icon + Title + Close Button */}
+      {/* Unified Title Bar: App Icon + Title + Fused Segmented Tabs + Close Button */}
       <header
         onMouseDown={event => {
           if (event.button === 0 && !(event.target as HTMLElement).closest('button')) {
             onStartDrag?.()
           }
         }}
-        className="flex h-8 shrink-0 cursor-move items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2">
-          <AppLogo className="h-4 w-4" />
-          <h1 className="text-xs font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{t.settings.title}</h1>
+        className="flex h-9 shrink-0 cursor-move items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex shrink-0 items-center gap-2">
+          <AppLogo className="h-4 w-4 shrink-0" />
+          <h1 className="text-xs font-semibold tracking-tight whitespace-nowrap text-zinc-900 dark:text-zinc-100">
+            {t.settings.title}
+          </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <nav className="flex items-center gap-1 rounded-md border border-zinc-200/80 bg-zinc-200/50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
+          {tabs.map(tab => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex h-6 cursor-pointer items-center justify-center gap-1 rounded-[5px] px-2.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+                  isActive
+                    ? 'bg-zinc-900 font-semibold text-white shadow-xs dark:bg-zinc-100 dark:text-zinc-950'
+                    : 'text-zinc-600 hover:bg-zinc-200/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+                }`}>
+                <Icon
+                  className={`h-3 w-3 shrink-0 ${
+                    isActive ? 'text-white dark:text-zinc-950' : 'text-zinc-500 dark:text-zinc-400'
+                  }`}
+                />
+                <span>{tab.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2">
           {errorMessage && (
             <div className="flex items-center gap-1.5 rounded-sm border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
               <AlertCircle className="h-3 w-3 shrink-0" />
@@ -161,33 +188,8 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
         </div>
       </header>
 
-      {/* Top Horizontal Tab Bar + Bottom Dynamic Inspector Content */}
+      {/* Bottom Dynamic Inspector Content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-950">
-        <nav className="grid shrink-0 grid-cols-3 gap-1 border-b border-zinc-200 bg-zinc-50 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-900/60">
-          {tabs.map(tab => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative flex h-6 cursor-pointer items-center justify-center gap-1 rounded-sm px-1 text-[11px] font-medium whitespace-nowrap transition-colors ${
-                  isActive
-                    ? 'bg-zinc-900 font-semibold text-white dark:bg-zinc-100 dark:text-zinc-950'
-                    : 'text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
-                }`}>
-                <Icon
-                  className={`h-3 w-3 shrink-0 ${
-                    isActive ? 'text-white dark:text-zinc-950' : 'text-zinc-500 dark:text-zinc-400'
-                  }`}
-                />
-                <span className="truncate">{tab.label}</span>
-              </button>
-            )
-          })}
-        </nav>
-
-        {/* Bottom Inspector Canvas */}
         <div ref={contentRef} className="flex min-w-0 flex-col gap-2.5 p-3">
           {/* 1. General Tab */}
           {activeTab === 'general' && (
@@ -306,6 +308,65 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
           {activeTab === 'capsule' && (
             <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
               <SettingsRow
+                label={t.settings.capsuleColors}
+                description={t.settings.capsuleColorsDesc}
+                control={
+                  <div className="flex items-center gap-2">
+                    {/* Modern Dual-Tone Pill Preset Bar */}
+                    <div
+                      className="flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-100/70 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/80"
+                      role="group"
+                      aria-label={t.settings.colorPresets}>
+                      {CAPSULE_COLOR_PRESETS.map(preset => {
+                        const isSelected =
+                          downloadColor === preset.downloadHex.toLowerCase() &&
+                          uploadColor === preset.uploadHex.toLowerCase()
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              handleUpdate('floating.download_color_hex', preset.downloadHex)
+                              handleUpdate('floating.upload_color_hex', preset.uploadHex)
+                            }}
+                            title={`${preset.downloadHex} / ${preset.uploadHex}`}
+                            className={`group relative flex h-5 w-7 cursor-pointer items-center justify-center rounded-[5px] p-[2px] transition-all ${
+                              isSelected
+                                ? 'bg-white shadow-xs ring-1 ring-zinc-900 dark:bg-zinc-950 dark:ring-zinc-100'
+                                : 'opacity-75 hover:bg-white/60 hover:opacity-100 dark:hover:bg-zinc-800/60'
+                            }`}>
+                            <span
+                              className="block h-full w-full rounded-[3px] ring-1 ring-black/10 ring-inset dark:ring-white/10"
+                              style={{
+                                background: `linear-gradient(135deg, ${preset.downloadHex} 0%, ${preset.downloadHex} 50%, ${preset.uploadHex} 50%, ${preset.uploadHex} 100%)`,
+                              }}
+                            />
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Custom Popover Color Pickers */}
+                    <div className="flex items-center gap-1.5">
+                      <ColorPicker
+                        prefix="↓"
+                        label={t.settings.downloadColor}
+                        ariaLabel={t.settings.downloadColor}
+                        value={downloadColor}
+                        onChange={hex => handleUpdate('floating.download_color_hex', hex)}
+                      />
+                      <ColorPicker
+                        prefix="↑"
+                        label={t.settings.uploadColor}
+                        ariaLabel={t.settings.uploadColor}
+                        value={uploadColor}
+                        onChange={hex => handleUpdate('floating.upload_color_hex', hex)}
+                      />
+                    </div>
+                  </div>
+                }
+              />
+              <SettingsRow
                 label={t.settings.capsuleWidth}
                 description={t.settings.capsuleWidthDesc}
                 control={
@@ -389,76 +450,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
-                label={t.settings.showCapsuleBorder}
-                description={t.settings.showCapsuleBorderDesc}
-                control={
-                  <Toggle
-                    checked={config.capsule.showCapsuleBorder ?? true}
-                    onChange={val => handleUpdate('floating.show_capsule_border', val)}
-                    ariaLabel={t.settings.showCapsuleBorder}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.capsuleColors}
-                description={t.settings.capsuleColorsDesc}
-                control={
-                  <div className="flex items-center gap-2">
-                    {/* Modern Dual-Tone Pill Preset Bar */}
-                    <div
-                      className="flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-100/70 p-0.5 dark:border-zinc-800 dark:bg-zinc-900/80"
-                      role="group"
-                      aria-label={t.settings.colorPresets}>
-                      {CAPSULE_COLOR_PRESETS.map(preset => {
-                        const isSelected =
-                          downloadColor === preset.downloadHex.toLowerCase() &&
-                          uploadColor === preset.uploadHex.toLowerCase()
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => {
-                              handleUpdate('floating.download_color_hex', preset.downloadHex)
-                              handleUpdate('floating.upload_color_hex', preset.uploadHex)
-                            }}
-                            title={`${preset.downloadHex} / ${preset.uploadHex}`}
-                            className={`group relative flex h-5 w-7 cursor-pointer items-center justify-center rounded-[5px] p-[2px] transition-all ${
-                              isSelected
-                                ? 'bg-white shadow-xs ring-1 ring-zinc-900 dark:bg-zinc-950 dark:ring-zinc-100'
-                                : 'opacity-75 hover:bg-white/60 hover:opacity-100 dark:hover:bg-zinc-800/60'
-                            }`}>
-                            <span
-                              className="block h-full w-full rounded-[3px] ring-1 ring-black/10 ring-inset dark:ring-white/10"
-                              style={{
-                                background: `linear-gradient(135deg, ${preset.downloadHex} 0%, ${preset.downloadHex} 50%, ${preset.uploadHex} 50%, ${preset.uploadHex} 100%)`,
-                              }}
-                            />
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Custom Popover Color Pickers */}
-                    <div className="flex items-center gap-1.5">
-                      <ColorPicker
-                        prefix="↓"
-                        label={t.settings.downloadColor}
-                        ariaLabel={t.settings.downloadColor}
-                        value={downloadColor}
-                        onChange={hex => handleUpdate('floating.download_color_hex', hex)}
-                      />
-                      <ColorPicker
-                        prefix="↑"
-                        label={t.settings.uploadColor}
-                        ariaLabel={t.settings.uploadColor}
-                        value={uploadColor}
-                        onChange={hex => handleUpdate('floating.upload_color_hex', hex)}
-                      />
-                    </div>
-                  </div>
-                }
-              />
-              <SettingsRow
                 label={t.settings.ignoreHoverFullscreen}
                 description={t.settings.ignoreHoverFullscreenDesc}
                 control={
@@ -528,6 +519,32 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
               </div>
 
               <SettingsRow
+                label={t.settings.logLevel}
+                description={t.settings.logLevelDesc}
+                control={
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={config.diagnostics.logLevel}
+                      onChange={val => handleUpdate('diagnostics.log_level', val)}
+                      options={[
+                        { value: 'off', label: t.settings.logLevelOff },
+                        { value: 'error', label: t.settings.logLevelError },
+                        { value: 'info', label: t.settings.logLevelInfo },
+                        { value: 'debug', label: t.settings.logLevelDebug },
+                      ]}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => bridge.sendCommand('openLogDirectory')}
+                      className="gap-1">
+                      <FolderOpen className="h-3 w-3" />
+                      <span>{t.settings.openLogDirectory}</span>
+                    </Button>
+                  </div>
+                }
+              />
+              <SettingsRow
                 label={t.settings.processId}
                 control={
                   <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
@@ -577,32 +594,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   }
                 />
               )}
-              <SettingsRow
-                label={t.settings.logLevel}
-                description={t.settings.logLevelDesc}
-                control={
-                  <div className="flex items-center gap-1.5">
-                    <Select
-                      value={config.diagnostics.logLevel}
-                      onChange={val => handleUpdate('diagnostics.log_level', val)}
-                      options={[
-                        { value: 'off', label: t.settings.logLevelOff },
-                        { value: 'error', label: t.settings.logLevelError },
-                        { value: 'info', label: t.settings.logLevelInfo },
-                        { value: 'debug', label: t.settings.logLevelDebug },
-                      ]}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => bridge.sendCommand('openLogDirectory')}
-                      className="gap-1">
-                      <FolderOpen className="h-3 w-3" />
-                      <span>{t.settings.openLogDirectory}</span>
-                    </Button>
-                  </div>
-                }
-              />
               <SettingsRow
                 label={t.settings.webviewRuntime}
                 control={<Badge variant="success">{t.settings.stateOk}</Badge>}

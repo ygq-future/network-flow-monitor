@@ -2,7 +2,7 @@ import { TranslationSchema } from './locales'
 
 export const enUS: TranslationSchema = {
   common: {
-    appName: 'Network Flow Monitor',
+    appName: 'Flow Monitor',
     loading: 'Loading...',
     ready: 'Ready',
     disconnected: 'Disconnected',
@@ -116,8 +116,6 @@ export const enUS: TranslationSchema = {
     opacityDesc: 'Retained schema setting',
     blurStrength: 'Backdrop Blur Strength',
     blurStrengthDesc: 'Retained schema setting',
-    showCapsuleBorder: 'Show Capsule Border',
-    showCapsuleBorderDesc: 'Display or hide the thin outline border around the dock capsule',
     ignoreHoverFullscreen: 'Lock & Click-Through on Full Screen',
     ignoreHoverFullscreenDesc:
       'Enable mouse click-through and prevent hover/click from opening monitor panel during fullscreen apps or games',

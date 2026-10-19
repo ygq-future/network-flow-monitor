@@ -19,19 +19,18 @@ function renderCapsule(bridge: MockBridge) {
 }
 
 describe('DockCapsule', () => {
-  it('renders only the configured capsule visual inside the native hit surface', () => {
+  it('renders the configured capsule visual inside the native hit surface', () => {
     renderCapsule(new MockBridge(false))
     const visual = screen.getByTestId('capsule-visual')
     expect(visual).toHaveStyle({ width: '10px', height: '64px', borderRadius: '5px' })
-    expect(screen.getByTestId('capsule-border')).toBeInTheDocument()
+    expect(visual).toHaveClass('p-0')
     expect(screen.queryByText('Download')).not.toBeInTheDocument()
   })
-
   it('requests the native coordinator to reveal the monitor', () => {
     const bridge = new MockBridge(false)
     const send = vi.spyOn(bridge, 'sendCommand')
     renderCapsule(bridge)
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Network Flow Monitor' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Flow Monitor' }), { key: 'Enter' })
     expect(send).toHaveBeenCalledWith('showMonitor')
   })
 
@@ -39,7 +38,7 @@ describe('DockCapsule', () => {
     const bridge = new MockBridge(false)
     const send = vi.spyOn(bridge, 'sendCommand')
     renderCapsule(bridge)
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Network Flow Monitor' }), {
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Flow Monitor' }), {
       screenX: 200,
       screenY: 300,
     })

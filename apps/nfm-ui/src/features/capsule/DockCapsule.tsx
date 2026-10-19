@@ -72,8 +72,6 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
   const widthDip = config.capsule.widthDip
   const heightDip = config.capsule.heightDip
   const roundingDip = Math.min(config.capsule.effectiveEndRoundingDip, widthDip / 2)
-  const showBorder = config.capsule.showCapsuleBorder ?? true
-  const innerRoundingDip = showBorder ? Math.max(0, roundingDip - 1) : roundingDip
   const downloadFill = useAnimatedFill(download, prefersReducedMotion, peakCeilingRef.current)
   const uploadFill = useAnimatedFill(upload, prefersReducedMotion, peakCeilingRef.current)
 
@@ -126,7 +124,7 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
       <span
         data-testid="capsule-visual"
         data-connected={connected}
-        className={`relative block overflow-hidden ${showBorder ? 'p-[1px]' : 'p-0'}`}
+        className="relative block overflow-hidden p-0"
         style={{
           width: `${widthDip}px`,
           height: `${heightDip}px`,
@@ -143,18 +141,18 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
         <span
           className="relative block h-full w-full overflow-hidden"
           style={{
-            borderRadius: `${innerRoundingDip}px`,
-            clipPath: `inset(0 round ${innerRoundingDip}px)`,
+            borderRadius: `${roundingDip}px`,
+            clipPath: `inset(0 round ${roundingDip}px)`,
           }}>
           <span
             data-testid="download-fill"
             className="absolute inset-x-0 top-0 block"
             style={{
               height: `${downloadFill.percent}%`,
-              borderTopLeftRadius: `${innerRoundingDip}px`,
-              borderTopRightRadius: `${innerRoundingDip}px`,
-              borderBottomLeftRadius: `${innerRoundingDip}px`,
-              borderBottomRightRadius: `${innerRoundingDip}px`,
+              borderTopLeftRadius: `${roundingDip}px`,
+              borderTopRightRadius: `${roundingDip}px`,
+              borderBottomLeftRadius: `${roundingDip}px`,
+              borderBottomRightRadius: `${roundingDip}px`,
               background: downGradient,
               transition: `height ${downloadFill.transition.durationMs}ms ${downloadFill.transition.easing}`,
             }}
@@ -164,24 +162,15 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
             className="absolute inset-x-0 bottom-0 block"
             style={{
               height: `${uploadFill.percent}%`,
-              borderTopLeftRadius: `${innerRoundingDip}px`,
-              borderTopRightRadius: `${innerRoundingDip}px`,
-              borderBottomLeftRadius: `${innerRoundingDip}px`,
-              borderBottomRightRadius: `${innerRoundingDip}px`,
+              borderTopLeftRadius: `${roundingDip}px`,
+              borderTopRightRadius: `${roundingDip}px`,
+              borderBottomLeftRadius: `${roundingDip}px`,
+              borderBottomRightRadius: `${roundingDip}px`,
               background: upGradient,
               transition: `height ${uploadFill.transition.durationMs}ms ${uploadFill.transition.easing}`,
             }}
           />
         </span>
-        {showBorder && (
-          <span
-            data-testid="capsule-border"
-            aria-hidden="true"
-            className={`pointer-events-none absolute inset-0 rounded-[inherit] border ${
-              connected ? (isDark ? 'border-zinc-700' : 'border-zinc-300') : 'border-amber-500'
-            }`}
-          />
-        )}
       </span>
     </button>
   )

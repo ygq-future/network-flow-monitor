@@ -2,7 +2,7 @@ import { TranslationSchema } from './locales'
 
 export const zhCN: TranslationSchema = {
   common: {
-    appName: '网络流量监视器',
+    appName: '流量监视器',
     loading: '加载中...',
     ready: '就绪',
     disconnected: '已断开连接',
@@ -116,8 +116,6 @@ export const zhCN: TranslationSchema = {
     opacityDesc: '保留配置项',
     blurStrength: '背景模糊强度',
     blurStrengthDesc: '保留配置项',
-    showCapsuleBorder: '显示胶囊边框',
-    showCapsuleBorderDesc: '显示或隐藏贴边胶囊外圈的细线边框',
     ignoreHoverFullscreen: '全屏时锁定并鼠标穿透',
     ignoreHoverFullscreenDesc: '全屏应用或游戏在前台时开启鼠标穿透，禁止悬停或点击打开监控面板，防止误触',
     hideCapsuleFullscreen: '全屏时隐藏胶囊',

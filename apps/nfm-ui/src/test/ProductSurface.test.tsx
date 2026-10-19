@@ -22,7 +22,7 @@ describe('ProductSurface', () => {
   it('renders the surface selected by the native host', () => {
     const bridge = new MockBridge(false)
     renderSurface(bridge)
-    expect(screen.getByRole('button', { name: 'Network Flow Monitor' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Flow Monitor' })).toBeInTheDocument()
 
     act(() => bridge.emit('surfaceChanged', { surface: 'panel', pinned: false, dockSide: 'right' }))
     expect(screen.getByRole('region', { name: 'Monitor Panel' })).toBeInTheDocument()
@@ -44,6 +44,6 @@ describe('ProductSurface', () => {
     const collapsedPanel = screen.getByRole('region', { name: 'Monitor Panel', hidden: true })
     expect(collapsedPanel.style.transform).not.toBe('scale(1.0000, 1.0000)')
     expect(collapsedPanel.style.opacity).toBe('0')
-    expect(screen.getByRole('button', { name: 'Network Flow Monitor' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Flow Monitor' })).toBeInTheDocument()
   })
 })

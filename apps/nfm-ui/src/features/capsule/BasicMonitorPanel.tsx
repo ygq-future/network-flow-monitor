@@ -7,6 +7,7 @@ import { useTheme } from '../../shared/theme/ThemeContext'
 import { formatRate } from '../../shared/utils/formatRate'
 import { IconButton } from '../../shared/components/IconButton'
 import { AppLogo } from '../../shared/components/AppLogo'
+import { calculateRateFillPercent, MAX_REFERENCE_RATE_BYTES_PER_SEC } from './rateMapping'
 
 export type MonitorPanelTransitionState = 'entering' | 'entered' | 'exiting'
 
@@ -61,16 +62,25 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   const speedUnit = config.general.speedUnit
   const downloadColorHex = config.capsule.downloadColorHex || '#38bdf8'
   const uploadColorHex = config.capsule.uploadColorHex || '#2dd4bf'
+  const hasReadyRanking = ranking !== undefined && ranking.status === 'Ready'
+  const totalDownloadBytesPerSec = hasReadyRanking ? ranking.totalDownloadBytesPerSec : tick.downloadBytesPerSec
+  const totalUploadBytesPerSec = hasReadyRanking ? ranking.totalUploadBytesPerSec : tick.uploadBytesPerSec
   const rawApps = ranking?.applications ?? []
   const apps = rawApps.slice(0, Math.max(1, config.ranking.topN))
-  const maxTotalAppRate = apps.reduce(
+  const peakCeilingRef = useRef<number>(10 * 1024 * 1024)
+  const currentPeak = apps.reduce(
     (max, app) => Math.max(max, app.downloadBytesPerSec + app.uploadBytesPerSec),
-    1024,
+    Math.max(totalDownloadBytesPerSec, totalUploadBytesPerSec),
   )
+  if (currentPeak > peakCeilingRef.current) {
+    peakCeilingRef.current = Math.min(MAX_REFERENCE_RATE_BYTES_PER_SEC, currentPeak * 1.5)
+  } else {
+    peakCeilingRef.current = Math.max(10 * 1024 * 1024, peakCeilingRef.current * 0.98)
+  }
 
   // Measure & report dynamic height to native host window
   const panelRef = useRef<HTMLDivElement>(null)
-  const desiredHeightDip = Math.min(520, Math.max(92, 36 + 30 + (apps.length === 0 ? 44 : apps.length * 32) + 16))
+  const desiredHeightDip = Math.min(520, Math.max(80, 32 + (apps.length === 0 ? 44 : apps.length * 32) + 8))
   useLayoutEffect(() => {
     if (activeTransitionState !== 'exiting') {
       bridge.sendCommand('resizePanel', { heightDip: desiredHeightDip })
@@ -107,7 +117,7 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   const panelBg = isDark ? '#09090b' : '#ffffff'
   const transformOrigin = surface.dockSide === 'left' ? 'left top' : 'right top'
   const capsuleScaleX = Math.max(0.03, Math.min(0.18, config.capsule.widthDip / 340))
-  const capsuleScaleY = Math.max(0.16, Math.min(0.75, config.capsule.heightDip / Math.max(92, desiredHeightDip)))
+  const capsuleScaleY = Math.max(0.16, Math.min(0.75, config.capsule.heightDip / Math.max(80, desiredHeightDip)))
   const isCollapsedToCapsule = activeTransitionState !== 'entered' && !prefersReducedMotion
   const scaleX = isCollapsedToCapsule ? capsuleScaleX : 1
   const scaleY = isCollapsedToCapsule ? capsuleScaleY : 1
@@ -132,23 +142,39 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
         borderRadius: `${panelBorderRadiusPx}px`,
         transition: morphTransition,
       }}
-      className={`flex w-[340px] flex-col overflow-hidden border border-zinc-200 px-3 py-2 text-zinc-900 select-none dark:border-zinc-800 dark:text-zinc-100 ${className}`}>
-      {/* Compact Single-Line Draggable Header */}
+      className={`flex w-[340px] flex-col overflow-hidden border border-zinc-200 px-3 pt-1.5 pb-1 text-zinc-900 select-none dark:border-zinc-800 dark:text-zinc-100 ${className}`}>
+      {/* Compact Single-Line Draggable Header: Title + Total Speeds + Actions */}
       <div
+        data-testid="total-traffic-row"
         onMouseDown={event => {
           if (event.button === 0 && !(event.target as HTMLElement).closest('button')) {
             onStartDrag?.()
           }
         }}
-        className="flex h-7 shrink-0 cursor-move items-center justify-between border-b border-zinc-200 pb-1.5 dark:border-zinc-800">
-        <div className="flex items-center gap-2">
-          <AppLogo className="h-4 w-4" />
-          <span className="text-xs font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+        className="flex h-7 shrink-0 cursor-move items-center justify-between gap-1.5 border-b border-zinc-200 pb-1.5 dark:border-zinc-800">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <AppLogo className="h-4 w-4 shrink-0" />
+          <span className="text-xs font-semibold tracking-tight whitespace-nowrap text-zinc-900 dark:text-zinc-100">
             {t.common.appName}
           </span>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-0.5 whitespace-nowrap" style={{ color: downloadColorHex }}>
+            <span className="font-mono text-[11px] font-semibold">↓</span>
+            <span data-testid="total-download-rate" className="font-mono text-[11px] font-semibold tabular-nums">
+              {formatCompactRate(totalDownloadBytesPerSec, speedUnit)}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 whitespace-nowrap" style={{ color: uploadColorHex }}>
+            <span className="font-mono text-[11px] font-semibold">↑</span>
+            <span data-testid="total-upload-rate" className="font-mono text-[11px] font-semibold tabular-nums">
+              {formatCompactRate(totalUploadBytesPerSec, speedUnit)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-0.5">
           <IconButton
             aria-label={isPinned ? t.common.unpin : t.common.pin}
             variant={isPinned ? 'primary' : 'ghost'}
@@ -170,96 +196,90 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
         </div>
       </div>
 
-      {/* Unified 3-Column Table: Header with Total Speeds + Dynamic Top N Apps */}
-      <div className="mt-1 flex flex-col">
-        {/* Column Headers + Total Throughput Stats */}
-        <div
-          data-testid="total-traffic-row"
-          className="grid h-7 shrink-0 grid-cols-[1fr_88px_88px] items-center gap-1 rounded-md bg-zinc-100 px-1.5 dark:bg-zinc-900">
-          <span className="truncate text-[10px] font-semibold tracking-wider text-zinc-500 uppercase dark:text-zinc-400">
-            {isZh ? '应用程序' : 'Application'}
-          </span>
-          <div className="flex items-center justify-end gap-1 whitespace-nowrap" style={{ color: downloadColorHex }}>
-            <span className="font-mono text-[11px] font-semibold">↓</span>
-            <span data-testid="total-download-rate" className="font-mono text-[11px] font-semibold tabular-nums">
-              {formatCompactRate(tick.downloadBytesPerSec, speedUnit)}
+      {/* Dynamic Top N Application Rows */}
+      <div className="mt-0.5 flex flex-col overflow-hidden transition-[height] duration-250 ease-out">
+        {!isCollectorRunning ? (
+          <div className="flex h-11 items-center justify-center gap-1.5 px-3 text-center">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{t.common.disconnected}</span>
+          </div>
+        ) : apps.length === 0 ? (
+          <div className="flex h-11 items-center justify-center gap-1.5 px-3 text-center">
+            <AppWindow className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />
+            <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              {ranking?.status === 'WarmingUp'
+                ? isZh
+                  ? '正在预热采集...'
+                  : 'Warming up...'
+                : isZh
+                  ? '当前无活跃应用流量'
+                  : 'No active application traffic'}
             </span>
           </div>
-          <div className="flex items-center justify-end gap-1 whitespace-nowrap" style={{ color: uploadColorHex }}>
-            <span className="font-mono text-[11px] font-semibold">↑</span>
-            <span data-testid="total-upload-rate" className="font-mono text-[11px] font-semibold tabular-nums">
-              {formatCompactRate(tick.uploadBytesPerSec, speedUnit)}
-            </span>
-          </div>
-        </div>
-        {/* Dynamic Top N Application Rows */}
-        <div className="mt-0.5 flex flex-col divide-y divide-zinc-100 overflow-hidden transition-[height] duration-250 ease-out dark:divide-zinc-900">
-          {!isCollectorRunning ? (
-            <div className="flex h-11 items-center justify-center gap-1.5 px-3 text-center">
-              <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">{t.common.disconnected}</span>
-            </div>
-          ) : apps.length === 0 ? (
-            <div className="flex h-11 items-center justify-center gap-1.5 px-3 text-center">
-              <AppWindow className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />
-              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                {ranking?.status === 'WarmingUp'
-                  ? isZh
-                    ? '正在预热采集...'
-                    : 'Warming up...'
-                  : isZh
-                    ? '当前无活跃应用流量'
-                    : 'No active application traffic'}
-              </span>
-            </div>
-          ) : (
-            apps.map((app, index) => {
-              const rowKey = app.id || `${app.displayName}-${index}`
-              const totalAppBytes = app.downloadBytesPerSec + app.uploadBytesPerSec
-              const barPercent = Math.min(100, Math.max(2, (totalAppBytes / maxTotalAppRate) * 100))
-              const initial = (app.displayName || '?').trim().charAt(0).toUpperCase()
-              const hasDataIcon = Boolean(app.iconKey && app.iconKey.startsWith('data:image/'))
+        ) : (
+          apps.map((app, index) => {
+            const rowKey = app.id || `${app.displayName}-${index}`
+            const totalAppBytes = app.downloadBytesPerSec + app.uploadBytesPerSec
+            const barPercent = calculateRateFillPercent(totalAppBytes, peakCeilingRef.current)
+            const downloadSharePercent = totalAppBytes > 0 ? (app.downloadBytesPerSec / totalAppBytes) * 100 : 0
+            const uploadSharePercent = totalAppBytes > 0 ? (app.uploadBytesPerSec / totalAppBytes) * 100 : 0
+            const initial = (app.displayName || '?').trim().charAt(0).toUpperCase()
+            const hasDataIcon = Boolean(app.iconKey && app.iconKey.startsWith('data:image/'))
 
-              return (
+            return (
+              <div
+                key={rowKey}
+                ref={el => {
+                  if (el) {
+                    rowRefs.current.set(rowKey, el)
+                  } else {
+                    rowRefs.current.delete(rowKey)
+                  }
+                }}
+                className="relative grid h-8 shrink-0 grid-cols-[1fr_88px_88px] items-center gap-1 rounded-md px-1.5 text-xs transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900">
                 <div
-                  key={rowKey}
-                  ref={el => {
-                    if (el) {
-                      rowRefs.current.set(rowKey, el)
-                    } else {
-                      rowRefs.current.delete(rowKey)
-                    }
-                  }}
-                  className="relative grid h-8 shrink-0 grid-cols-[1fr_88px_88px] items-center gap-1 px-1.5 text-xs transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900">
-                  <div
-                    className="pointer-events-none absolute bottom-0 left-1.5 h-[1.5px] rounded-full opacity-45 transition-all duration-300"
-                    style={{ width: `calc(${barPercent}% - 12px)`, backgroundColor: downloadColorHex }}
-                  />
-                  <div className="flex min-w-0 items-center gap-2 pr-1">
-                    {hasDataIcon ? (
-                      <img src={app.iconKey} alt="" className="h-4 w-4 shrink-0 rounded-xs object-contain" />
-                    ) : (
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border border-black/[0.08] bg-zinc-100 text-[9px] font-bold text-zinc-700 dark:border-white/[0.1] dark:bg-zinc-800 dark:text-zinc-200">
-                        {initial}
-                      </span>
-                    )}
+                  data-testid="app-rate-bar"
+                  className="pointer-events-none absolute bottom-0 left-1.5 flex h-[1.5px] overflow-hidden rounded-full opacity-55 transition-all duration-300"
+                  style={{ width: `calc(${barPercent.toFixed(2)}% - 12px)` }}>
+                  {downloadSharePercent > 0 && (
                     <span
-                      className="truncate text-[11px] font-medium text-zinc-800 dark:text-zinc-200"
-                      title={app.executablePath || app.displayName}>
-                      {app.displayName}
+                      data-testid="app-download-bar"
+                      className="block h-full transition-all duration-300"
+                      style={{ width: `${downloadSharePercent.toFixed(2)}%`, backgroundColor: downloadColorHex }}
+                    />
+                  )}
+                  {uploadSharePercent > 0 && (
+                    <span
+                      data-testid="app-upload-bar"
+                      className="block h-full transition-all duration-300"
+                      style={{ width: `${uploadSharePercent.toFixed(2)}%`, backgroundColor: uploadColorHex }}
+                    />
+                  )}
+                </div>
+                <div className="flex min-w-0 items-center gap-2 pr-1">
+                  {hasDataIcon ? (
+                    <img src={app.iconKey} alt="" className="h-4 w-4 shrink-0 rounded-xs object-contain" />
+                  ) : (
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border border-black/[0.08] bg-zinc-100 text-[9px] font-bold text-zinc-700 dark:border-white/[0.1] dark:bg-zinc-800 dark:text-zinc-200">
+                      {initial}
                     </span>
-                  </div>
-                  <span className="text-right font-mono text-[11px] font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                    {formatCompactRate(app.downloadBytesPerSec, speedUnit)}
-                  </span>
-                  <span className="text-right font-mono text-[11px] text-zinc-500 tabular-nums dark:text-zinc-400">
-                    {formatCompactRate(app.uploadBytesPerSec, speedUnit)}
+                  )}
+                  <span
+                    className="truncate text-[11px] font-medium text-zinc-800 dark:text-zinc-200"
+                    title={app.executablePath || app.displayName}>
+                    {app.displayName}
                   </span>
                 </div>
-              )
-            })
-          )}
-        </div>
+                <span className="text-right font-mono text-[11px] font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
+                  {formatCompactRate(app.downloadBytesPerSec, speedUnit)}
+                </span>
+                <span className="text-right font-mono text-[11px] text-zinc-500 tabular-nums dark:text-zinc-400">
+                  {formatCompactRate(app.uploadBytesPerSec, speedUnit)}
+                </span>
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )

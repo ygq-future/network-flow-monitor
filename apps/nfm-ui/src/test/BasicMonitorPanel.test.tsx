@@ -49,8 +49,8 @@ describe('BasicMonitorPanel', () => {
       seq: 2,
       monotonicMs: 1000,
       status: 'Ready',
-      totalDownloadBytesPerSec: 5 * 1024 * 1024,
-      totalUploadBytesPerSec: 1.5 * 1024 * 1024,
+      totalDownloadBytesPerSec: 3 * 1024 * 1024,
+      totalUploadBytesPerSec: 1 * 1024 * 1024,
       applications: [
         {
           id: 'edge',
@@ -71,8 +71,12 @@ describe('BasicMonitorPanel', () => {
         onTogglePin={vi.fn()}
       />,
     )
+    expect(screen.getByTestId('total-download-rate')).toHaveTextContent('3.0 MB/s')
+    expect(screen.getByTestId('total-upload-rate')).toHaveTextContent('1.0 MB/s')
     expect(screen.getByText('Microsoft Edge')).toBeInTheDocument()
     expect(screen.getByText('2.0 MB/s')).toBeInTheDocument()
+    expect(screen.getByTestId('app-download-bar')).toHaveStyle({ width: '80.00%' })
+    expect(screen.getByTestId('app-upload-bar')).toHaveStyle({ width: '20.00%' })
   })
 
   it('handles Pin toggle button click', () => {

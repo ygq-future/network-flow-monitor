@@ -117,8 +117,6 @@ export interface TranslationSchema {
     opacityDesc: string
     blurStrength: string
     blurStrengthDesc: string
-    showCapsuleBorder: string
-    showCapsuleBorderDesc: string
     ignoreHoverFullscreen: string
     ignoreHoverFullscreenDesc: string
     hideCapsuleFullscreen: string

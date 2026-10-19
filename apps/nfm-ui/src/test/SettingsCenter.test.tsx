@@ -48,7 +48,6 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('End Rounding')).toBeInTheDocument()
     expect(screen.getByText('Hover Expand Delay')).toBeInTheDocument()
     expect(screen.getByText('Dismiss Delay')).toBeInTheDocument()
-    expect(screen.getByText('Show Capsule Border')).toBeInTheDocument()
     expect(screen.getByText('Capsule Rate Colors')).toBeInTheDocument()
     expect(screen.getByText('Lock & Click-Through on Full Screen')).toBeInTheDocument()
     expect(screen.getByText('Hide Capsule on Full Screen')).toBeInTheDocument()
@@ -83,14 +82,6 @@ describe('SettingsCenter', () => {
     expect(spySend).toHaveBeenCalledWith('updateSetting', {
       key: 'floating.capsule_width_dip',
       value: 14,
-    })
-
-    // Toggle show capsule border
-    const showBorderToggle = screen.getByRole('switch', { name: /Show Capsule Border/i })
-    fireEvent.click(showBorderToggle)
-    expect(spySend).toHaveBeenCalledWith('updateSetting', {
-      key: 'floating.show_capsule_border',
-      value: false,
     })
 
     // Toggle fullscreen hide capsule

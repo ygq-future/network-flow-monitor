@@ -121,7 +121,7 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       autoHideDelayMs: 500,
       downloadColorHex: '#38bdf8',
       uploadColorHex: '#2dd4bf',
-      showCapsuleBorder: true,
+      showCapsuleBorder: false,
       ignoreHoverWhenFullscreen: true,
       hideCapsuleWhenFullscreen: false,
     },

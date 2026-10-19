@@ -145,3 +145,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 实现 `ProductHost::write_diagnostic_log()`，按 `diagnostics.log_level`（`off` / `error` / `info` / `debug`）将宿主启动、设置变更、Collector 状态/重试与错误信息实时追加写入 `logs/nfm-host.log`。
   - 在 `Win32Window::perform_system_move()` 中释放当前线程鼠标捕获并激活窗口，为 `SettingsWindowListener` 接入系统拖拽阈值移动链路。
   - 设置窗口自适应高度上限设为 `680 DIP`，确保各标签页完整展示。
+
+## 第七轮增量构建头文件依赖修复与全量测试无弹窗保护 — complete
+
+- **修复 MSVC 中文环境 `/showIncludes` 依赖追踪失效 (`CMakePresets.json`, `tools/quality.ps1`)**：
+  - 统一注入 `VSLANG=1033`，使 `cl.exe /showIncludes` 稳定输出英文 `Note: including file:`，消除因 GBK/UTF-8 编码错配导致的 Ninja `#deps 0` 及增量构建跳过重编译引发的 ABI 栈损坏问题。
+- **全局抑制测试进程 CRT / Windows 模态错误弹窗 (`tests/test_headless_runtime.cpp`, `tests/CMakeLists.txt`)**：
+  - 所有 C++ 测试目标自动链接 `test_headless_runtime.cpp`，在 `main()` 前配置 `SetErrorMode`、`_set_abort_behavior`、`_CrtSetReportHook2` 与 `_CrtSetReportMode(..., _CRTDBG_MODE_FILE)` + `_CRTDBG_FILE_STDERR`，严格保障 Headless 测试契约。

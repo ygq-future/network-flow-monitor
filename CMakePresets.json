@@ -11,6 +11,9 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "VSLANG": "1033"
+      },
       "cacheVariables": {
         "BUILD_TESTING": "ON",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"

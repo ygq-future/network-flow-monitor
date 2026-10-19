@@ -86,35 +86,43 @@ bool IsAuthorizationExitCode(DWORD exit_code) noexcept {
     return exit_code == ERROR_ACCESS_DENIED || exit_code == ERROR_PRIVILEGE_NOT_HELD;
 }
 
-bool LaunchElevatedCollectorProcess(const std::filesystem::path& collector_path,
-                                    const std::wstring& parameters, void*& out_process_handle,
-                                    std::uint32_t& out_process_id,
-                                    DWORD& out_win32_error) noexcept {
-    out_process_handle = nullptr;
-    out_process_id = 0U;
-    out_win32_error = ERROR_SUCCESS;
+struct ElevatedLaunchResult {
+    bool succeeded{false};
+    void* process_handle{nullptr};
+    std::uint32_t process_id{0U};
+    DWORD win32_error{ERROR_SUCCESS};
+};
 
-    const std::wstring exe_path = collector_path.wstring();
-    const std::wstring work_dir = collector_path.parent_path().wstring();
+ElevatedLaunchResult LaunchElevatedCollectorProcess(const std::filesystem::path& collector_path,
+                                                    const std::wstring& parameters) noexcept {
+    ElevatedLaunchResult result;
+    try {
+        const std::wstring exe_path = collector_path.wstring();
+        const std::wstring work_dir = collector_path.parent_path().wstring();
 
-    SHELLEXECUTEINFOW sei{};
-    sei.cbSize = sizeof(sei);
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
-    sei.lpVerb = L"runas";
-    sei.lpFile = exe_path.c_str();
-    sei.lpParameters = parameters.c_str();
-    sei.lpDirectory = work_dir.empty() ? nullptr : work_dir.c_str();
-    sei.nShow = SW_HIDE;
+        SHELLEXECUTEINFOW sei{};
+        sei.cbSize = sizeof(sei);
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+        sei.lpVerb = L"runas";
+        sei.lpFile = exe_path.c_str();
+        sei.lpParameters = parameters.c_str();
+        sei.lpDirectory = work_dir.empty() ? nullptr : work_dir.c_str();
+        sei.nShow = SW_HIDE;
 
-    if (ShellExecuteExW(&sei) == FALSE) {
-        out_win32_error = GetLastError();
-        return false;
+        if (ShellExecuteExW(&sei) == FALSE) {
+            result.win32_error = GetLastError();
+            return result;
+        }
+        if (sei.hProcess != nullptr) {
+            result.process_handle = static_cast<void*>(sei.hProcess);
+            result.process_id = static_cast<std::uint32_t>(GetProcessId(sei.hProcess));
+        }
+        result.succeeded = true;
+        return result;
+    } catch (...) {
+        result.win32_error = ERROR_NOT_ENOUGH_MEMORY;
+        return result;
     }
-    if (sei.hProcess != nullptr) {
-        out_process_handle = static_cast<void*>(sei.hProcess);
-        out_process_id = static_cast<std::uint32_t>(GetProcessId(sei.hProcess));
-    }
-    return true;
 }
 
 std::string Base64Encode(const std::vector<std::uint8_t>& data) {
@@ -412,25 +420,22 @@ bool CollectorCompanion::start() {
             }
 
             if (needs_elevation_retry) {
-                void* elevated_proc = nullptr;
-                std::uint32_t elevated_pid = 0U;
-                DWORD uac_err = ERROR_SUCCESS;
-                if (LaunchElevatedCollectorProcess(collector_path_, params, elevated_proc,
-                                                   elevated_pid, uac_err)) {
-                    collector_process_handle_ = elevated_proc;
-                    info_.process_id = elevated_pid;
+                const auto elevated = LaunchElevatedCollectorProcess(collector_path_, params);
+                if (elevated.succeeded) {
+                    collector_process_handle_ = elevated.process_handle;
+                    info_.process_id = elevated.process_id;
                     diag_msg = "Collector companion launched via UAC elevation (pid=" +
-                               std::to_string(elevated_pid) + ", stop_event=" + stop_event_name_ +
-                               ")";
+                               std::to_string(elevated.process_id) +
+                               ", stop_event=" + stop_event_name_ + ")";
                 } else {
                     info_.state = CollectorState::Failed;
-                    if (uac_err == ERROR_CANCELLED) {
+                    if (elevated.win32_error == ERROR_CANCELLED) {
                         info_.error_message =
                             "Administrator UAC prompt was declined (win32_error=1223)";
                     } else {
                         info_.error_message =
                             "Failed to launch elevated collector via UAC (win32_error=" +
-                            std::to_string(uac_err) + ")";
+                            std::to_string(elevated.win32_error) + ")";
                     }
                     diag_error = true;
                     diag_msg = info_.error_message;

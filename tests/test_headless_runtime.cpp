@@ -43,37 +43,16 @@ const HeadlessTestRuntimeInitializer kHeadlessTestRuntimeInitializer{};
 } // namespace
 
 // NOLINTBEGIN(readability-identifier-naming)
-int nfm_suite_bootstrap_tests();
-int nfm_suite_runtime_mode_tests();
-int nfm_suite_runtime_collector_integration_tests();
-int nfm_suite_config_model_tests();
-int nfm_suite_config_codec_tests();
-int nfm_suite_config_store_tests();
-int nfm_suite_application_accumulator_tests();
-int nfm_suite_ranking_engine_tests();
-int nfm_suite_identity_resolver_tests();
-int nfm_suite_process_tracker_tests();
-int nfm_suite_windows_process_probe_tests(int argc, char** argv);
-int nfm_suite_network_event_decoder_tests();
-int nfm_suite_collector_core_tests();
-int nfm_suite_collector_host_tests();
-int nfm_suite_ipc_frame_codec_tests();
-int nfm_suite_ipc_snapshot_codec_tests();
-int nfm_suite_ipc_application_catalog_tests();
-int nfm_suite_ipc_security_policy_tests();
-int nfm_suite_ipc_named_pipe_transport_tests();
-int nfm_suite_ipc_server_tests();
-int nfm_suite_ipc_server_integration_tests();
-int nfm_suite_ipc_snapshot_publisher_tests();
-int nfm_suite_ipc_client_tests();
+int nfm_suite_app_runtime_tests();
+int nfm_suite_config_tests();
+int nfm_suite_process_tests(int argc, char** argv);
+int nfm_suite_ranking_tests();
+int nfm_suite_collector_tests();
+int nfm_suite_etw_integration_tests(int argc, char** argv);
+int nfm_suite_ipc_protocol_tests();
+int nfm_suite_ipc_session_tests();
 int nfm_suite_ipc_integration_tests();
-int nfm_suite_windows_etw_record_decoder_tests();
-int nfm_suite_windows_etw_session_tests();
-int nfm_suite_etw_collector_integration_tests(int argc, char** argv);
-int nfm_suite_host_bridge_tests();
-int nfm_suite_host_webview_policy_tests();
-int nfm_suite_host_lifecycle_tests();
-int nfm_suite_dock_capsule_coordinator_tests();
+int nfm_suite_host_tests();
 // NOLINTEND(readability-identifier-naming)
 
 namespace {
@@ -85,96 +64,27 @@ struct SuiteEntry {
     bool requires_admin{false};
 };
 
-constexpr std::array<SuiteEntry, 31> kSuites = {{
-    {.name = "bootstrap.toolchain",
-     .run_no_args = &nfm_suite_bootstrap_tests,
+constexpr std::array<SuiteEntry, 10> kSuites = {{
+    {.name = "app.runtime", .run_no_args = &nfm_suite_app_runtime_tests, .run_with_args = nullptr},
+    {.name = "config.suite", .run_no_args = &nfm_suite_config_tests, .run_with_args = nullptr},
+    {.name = "process.suite", .run_no_args = nullptr, .run_with_args = &nfm_suite_process_tests},
+    {.name = "ranking.suite", .run_no_args = &nfm_suite_ranking_tests, .run_with_args = nullptr},
+    {.name = "collector.suite",
+     .run_no_args = &nfm_suite_collector_tests,
      .run_with_args = nullptr},
-    {.name = "app.runtime_mode",
-     .run_no_args = &nfm_suite_runtime_mode_tests,
-     .run_with_args = nullptr},
-    {.name = "app.runtime_collector_integration",
-     .run_no_args = &nfm_suite_runtime_collector_integration_tests,
-     .run_with_args = nullptr},
-    {.name = "config.model",
-     .run_no_args = &nfm_suite_config_model_tests,
-     .run_with_args = nullptr},
-    {.name = "config.codec",
-     .run_no_args = &nfm_suite_config_codec_tests,
-     .run_with_args = nullptr},
-    {.name = "config.store",
-     .run_no_args = &nfm_suite_config_store_tests,
-     .run_with_args = nullptr},
-    {.name = "ranking.accumulator",
-     .run_no_args = &nfm_suite_application_accumulator_tests,
-     .run_with_args = nullptr},
-    {.name = "ranking.engine",
-     .run_no_args = &nfm_suite_ranking_engine_tests,
-     .run_with_args = nullptr},
-    {.name = "identity.resolver",
-     .run_no_args = &nfm_suite_identity_resolver_tests,
-     .run_with_args = nullptr},
-    {.name = "process.tracker",
-     .run_no_args = &nfm_suite_process_tracker_tests,
-     .run_with_args = nullptr},
-    {.name = "process.windows_probe",
+    {.name = "collector.etw_integration",
      .run_no_args = nullptr,
-     .run_with_args = &nfm_suite_windows_process_probe_tests},
-    {.name = "collector.network_decoder",
-     .run_no_args = &nfm_suite_network_event_decoder_tests,
+     .run_with_args = &nfm_suite_etw_integration_tests,
+     .requires_admin = true},
+    {.name = "ipc.protocol",
+     .run_no_args = &nfm_suite_ipc_protocol_tests,
      .run_with_args = nullptr},
-    {.name = "collector.core",
-     .run_no_args = &nfm_suite_collector_core_tests,
-     .run_with_args = nullptr},
-    {.name = "collector.host",
-     .run_no_args = &nfm_suite_collector_host_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.frame_codec",
-     .run_no_args = &nfm_suite_ipc_frame_codec_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.snapshot_codec",
-     .run_no_args = &nfm_suite_ipc_snapshot_codec_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.application_catalog",
-     .run_no_args = &nfm_suite_ipc_application_catalog_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.security_policy",
-     .run_no_args = &nfm_suite_ipc_security_policy_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.named_pipe_transport",
-     .run_no_args = &nfm_suite_ipc_named_pipe_transport_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.server", .run_no_args = &nfm_suite_ipc_server_tests, .run_with_args = nullptr},
-    {.name = "ipc.server_integration",
-     .run_no_args = &nfm_suite_ipc_server_integration_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.snapshot_publisher",
-     .run_no_args = &nfm_suite_ipc_snapshot_publisher_tests,
-     .run_with_args = nullptr},
-    {.name = "ipc.client", .run_no_args = &nfm_suite_ipc_client_tests, .run_with_args = nullptr},
+    {.name = "ipc.session", .run_no_args = &nfm_suite_ipc_session_tests, .run_with_args = nullptr},
     {.name = "ipc.integration",
      .run_no_args = &nfm_suite_ipc_integration_tests,
      .run_with_args = nullptr,
      .requires_admin = true},
-    {.name = "collector.windows_record_decoder",
-     .run_no_args = &nfm_suite_windows_etw_record_decoder_tests,
-     .run_with_args = nullptr},
-    {.name = "collector.windows_session",
-     .run_no_args = &nfm_suite_windows_etw_session_tests,
-     .run_with_args = nullptr},
-    {.name = "collector.etw_integration",
-     .run_no_args = nullptr,
-     .run_with_args = &nfm_suite_etw_collector_integration_tests,
-     .requires_admin = true},
-    {.name = "host.bridge", .run_no_args = &nfm_suite_host_bridge_tests, .run_with_args = nullptr},
-    {.name = "host.webview_policy",
-     .run_no_args = &nfm_suite_host_webview_policy_tests,
-     .run_with_args = nullptr},
-    {.name = "host.lifecycle",
-     .run_no_args = &nfm_suite_host_lifecycle_tests,
-     .run_with_args = nullptr},
-    {.name = "host.coordinator",
-     .run_no_args = &nfm_suite_dock_capsule_coordinator_tests,
-     .run_with_args = nullptr},
+    {.name = "host.suite", .run_no_args = &nfm_suite_host_tests, .run_with_args = nullptr},
 }};
 
 } // namespace
@@ -183,10 +93,10 @@ int main(int argc, char** argv) {
     if (argc == 2) {
         const std::string_view arg{argv[1]};
         if (arg == "--probe-child") {
-            return nfm_suite_windows_process_probe_tests(argc, argv);
+            return nfm_suite_process_tests(argc, argv);
         }
         if (arg == "--child" || arg == "--expect-access-denied") {
-            return nfm_suite_etw_collector_integration_tests(argc, argv);
+            return nfm_suite_etw_integration_tests(argc, argv);
         }
         for (const auto& suite : kSuites) {
             if (suite.name == arg) {

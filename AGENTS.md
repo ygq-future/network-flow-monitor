@@ -2,13 +2,9 @@
 
 本文件约束 Network Flow Monitor 的开发代理和维护者。开始设计或修改前，必须阅读：
 
-- `docs/planning/task_plan.md`
-- `docs/planning/findings.md`
-- `docs/planning/progress.md`
-- `.scratch/cpp-webview2-react-ui/spec.md`
-- 相关 ADR
-
-规划文件固定放在 `docs/planning/`。
+- `docs/architecture.md`（系统架构、核心设计决策、Protocol V1、Bridge 与配置契约）
+- `docs/development.md`（构建、质量门、打包与验收规范）
+- `docs/progress.md`（阶段演进与交付记录）
 
 ## 行动确认
 
@@ -17,24 +13,24 @@
 ## 产品架构
 
 - 目标系统：Windows 11 24H2 x64。
-- Collector：C++20、CMake、ETW、进程身份、聚合、排行、Protocol V1。
-- Product Host：C++20、Win32、Microsoft WebView2。
-- Frontend：React、TypeScript、Vite、Tailwind CSS。
+- Collector (`nfm-collector.exe`)：C++20、CMake、ETW、进程身份、聚合、排行、Protocol V1。
+- Product Host (`NetworkFlowMonitor.exe`)：C++20、Win32、Microsoft WebView2。
+- Frontend (`apps/nfm-ui`)：React 19、TypeScript、Vite、Tailwind CSS。
 - Frontend 工具：Bun、ESLint、Prettier、`prettier-plugin-tailwindcss`。
-- 生产运行只加载打包静态资产，不运行 Node、Bun、Vite server 或 TypeScript compiler。
-- 交付形态是普通权限 Host + portable Collector companion；Collector 通过父进程句柄和停止信号结束。
+- 生产运行只加载打包静态资产 (`ui/`)，不运行 Node、Bun、Vite server 或 TypeScript compiler。
+- 交付形态是普通权限 Host + portable Collector companion；Collector 通过父进程句柄和停止信号结束，并支持按需动态原生 UAC 提权与一次性 ETW 持久授权。
 - 不实现任务栏嵌入、Explorer 注入、内核驱动或通用 Native RPC。
 
 ## 模块职责
 
-- `app`: 可执行入口与运行时组装。
-- `collector`: ETW 会话、事件解码和累计计数。
+- `app`: Collector 可执行入口与运行时参数组装。
+- `collector`: ETW 会话、事件解码、特权激活/一次性授权和累计计数。
 - `process`: 进程生命周期、PID 防复用和应用身份。
 - `ranking`: 滑动窗口、速率、应用合并和 Top N。
 - `ipc`: Protocol V1、命名管道、ACL 和客户端/服务端传输。
 - `config`: 带版本的 `AppConfig`、默认值、校验、迁移和持久化。
-- `host`（Ticket 01 起）：HWND、WebView2、托盘、窗口行为和 Native/Web bridge。
-- `apps/nfm-ui`（Ticket 01 起）：React 视觉呈现。
+- `host`: HWND、WebView2、托盘、贴边胶囊协调器 (`DockCapsuleCoordinator`)、独立设置窗口、滚动日志、开机启动和 Native/Web bridge。
+- `apps/nfm-ui`: React 视觉呈现（贴边胶囊、340 DIP 监控面板、3 大分类设置中心）。
 
 Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系统、shell 或授权接口。Host 解析并验证 Collector 数据后才形成 Web DTO。
 
@@ -71,20 +67,19 @@ Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系�
 
 - TypeScript strict mode，并提供 `tsc --noEmit` typecheck。
 - ESLint 只负责 correctness/code quality；Prettier 负责 formatting。
-- Prettier 配置必须与 frozen spec 完全一致。
 - Bun lockfile 是唯一 package lockfile。
 - 稳定状态不得运行永久 JavaScript animation loop。
-- Ticket 01 建立 theme token 与 i18n 基础；所有用户可见文本使用 locale key，所有主题相关颜色使用语义 token。
+- 所有用户可见文本使用 locale key，所有主题相关颜色使用语义 token。
 - 严格执行《Deprecation & API Freshness Contract》：禁止使用已弃用的配置（如 tsconfig 的 `baseUrl`、`ignoreDeprecations`）或 API，禁止 blanket warning suppression，禁止复制旧博客/StackOverflow 过时模板。
 
 ## 质量门
 
-统一入口是 `tools/quality.ps1`。当前 Collector baseline 验证格式、Debug build、核心/Collector/Protocol tests、clang-tidy/Clang Static Analyzer；Full 追加 `/analyze`、Release build/tests 和 collector staging。
-
-Ticket 01 建立 frontend 后，Fast 包含 Deprecation policy check、C++ 格式与测试、Bun deterministic install、Prettier、type-aware ESLint (`no-deprecated`)、TypeScript typecheck、已有 frontend tests 和 Vite production build。Full 包含完整的 clang-tidy (0 diagnostics)、MSVC /analyze (0 warnings)、Release 测试与 CPack 打包。
+统一入口是 `tools/quality.ps1`：
+- **Fast**：Deprecation policy check、C++ 格式校验、Debug 构建与模块测试套件、Bun 确定性依赖、Prettier、type-aware ESLint (`no-deprecated`)、TypeScript typecheck、Vitest 测试套件与 Vite 生产构建。
+- **Full**：包含 Fast 全部检查，外加完整 clang-tidy (0 diagnostics)、MSVC `/analyze` (0 warnings)、Release 构建与测试，以及 CPack 便携 ZIP 打包验证。
 
 Fast/Full 必须 headless：不显示 HWND/WebView、无 UAC、无人工交互、无 Vite server。
 
 ## 完成与提交
 
-功能或修复完成后按 `docs/code-quality.md` 运行适用质量门并更新 `docs/planning/progress.md`。不得自主 Git commit。必须先汇报修改、质量结果、目标机验收步骤和待验收项，只有用户明确指令后才能提交。
+功能或修复完成后按 `docs/development.md` 运行适用质量门并更新 `docs/progress.md`。不得自主 Git commit。必须先汇报修改、质量结果、目标机验收步骤和待验收项，只有用户明确指令后才能提交。

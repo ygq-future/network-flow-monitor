@@ -208,3 +208,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **采集器伴侣进程按需动态原生 UAC (`ShellExecuteExW` `"runas"`) 提权启动 (`collector_companion.cpp`)**：
   - `NetworkFlowMonitor.exe` 保持普通权限秒开 UI，不影响 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 开机自启；
   - `CollectorCompanion::start()` 优先以普通权限 `CreateProcessW` 启动 `nfm-collector.exe`；若进程因权限不足立即退出（`ERROR_ACCESS_DENIED (5)` 或 `ERROR_PRIVILEGE_NOT_HELD (1314)`），自动回退调用 `ShellExecuteExW(..., L"runas", ...)` 弹出 Windows 原生 UAC 授权窗拉起采集器；若用户拒绝 UAC（`ERROR_CANCELLED (1223)`），立即更新状态为 `Failed` 并写入诊断日志，用户随时可通过右键菜单或设置页点击「重试 / 重启」再次触发 UAC 授权。
+
+## 第十二轮全仓规范统一、测试套件模块化收敛与中英双语文档完善 — complete
+
+- **清理历史规范残留与碎片化文档 (`docs/architecture.md`, `docs/development.md`, `docs/progress.md`, `AGENTS.md`)**：
+  - 移除 `.scratch/`、`docs/agents/`、`docs/decisions/`（14 个碎片 ADR 文件）、`docs/planning/`、`CONTEXT.md` 以及原 `docs/` 下拆分的 5 个微型文档（`code-quality.md`、`configuration.md`、`delivery.md`、`development-setup.md`、`target-host-acceptance.md`）；
+  - 统一收敛为 `docs/` 根目录下的 3 个扁平权威文档：`docs/architecture.md`、`docs/development.md` 与 `docs/progress.md`。
+- **移除死代码与模块化收敛 C++ 测试套件 (`src/CMakeLists.txt`, `tests/CMakeLists.txt`, `tests/test_headless_runtime.cpp`)**：
+  - 删除未接入生产运行时的废弃 IPC 二进制协议遗留代码（`snapshot_codec.h/.cpp`、`application_catalog.h/.cpp` 及对应测试）与前端 Ticket 01 脚手架组件（`features/tracer/` 及 `LiveTracer.test.tsx`）；
+  - 将剩余 29 个碎片化 C++ 测试源文件按架构模块无损合并为 10 个高内聚测试文件（`app_runtime_tests.cpp`、`config_tests.cpp`、`process_tests.cpp`、`ranking_tests.cpp`、`collector_tests.cpp`、`etw_integration_tests.cpp`、`ipc_protocol_tests.cpp`、`ipc_session_tests.cpp`、`ipc_integration_tests.cpp`、`host_tests.cpp`），保留全部断言与 CTest 并发锁策略。
+- **完善中英双语 `README.md` 并通过 Full Quality Gate**：
+  - 重写中英双语 `README.md`，完整涵盖核心特性、双进程架构图、构建与质量门命令、便携打包与仓库目录结构；
+  - `tools/quality.ps1 -Mode Full` 19 项检查（含 100 个 C++ 文件格式检查、Debug/Release 构建与测试、前端 10 个测试套件、clang-tidy 0 诊断、MSVC `/analyze` 0 警告及 CPack ZIP 打包）全部通过。

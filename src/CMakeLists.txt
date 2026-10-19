@@ -57,14 +57,12 @@ nfm_enable_static_analysis(nfm_collector ENABLE_EXCEPTIONS)
 add_library(
     nfm_ipc
     STATIC
-        ipc/application_catalog.cpp
         ipc/frame_codec.cpp
         ipc/ipc_client.cpp
         ipc/ipc_server.cpp
         ipc/named_pipe_transport.cpp
         ipc/reconnect_policy.cpp
         ipc/security_policy.cpp
-        ipc/snapshot_codec.cpp
         ipc/snapshot_publisher.cpp
         ipc/windows_pipe_security.cpp
 )

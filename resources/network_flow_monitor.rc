@@ -1,8 +1,8 @@
 101 ICON "app_icon.ico"
 
 1 VERSIONINFO
-FILEVERSION 0,1,2,0
-PRODUCTVERSION 0,1,2,0
+FILEVERSION 0,2,0,0
+PRODUCTVERSION 0,2,0,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS 0x40004L
@@ -15,12 +15,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Network Flow Monitor"
             VALUE "FileDescription", "Network Flow Monitor"
-            VALUE "FileVersion", "0.1.2.0"
+            VALUE "FileVersion", "0.2.0.0"
             VALUE "InternalName", "NetworkFlowMonitor"
             VALUE "LegalCopyright", "Licensed under the Apache License, Version 2.0"
             VALUE "OriginalFilename", "NetworkFlowMonitor.exe"
             VALUE "ProductName", "Network Flow Monitor"
-            VALUE "ProductVersion", "0.1.2"
+            VALUE "ProductVersion", "0.2.0"
         END
     END
     BLOCK "VarFileInfo"

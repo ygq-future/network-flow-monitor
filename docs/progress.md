@@ -304,3 +304,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 支持「按时间统计 ⇄ 按应用总榜」双根维度切换，以及 **日 (`YYYY/MM/DD`) / 周 / 月 (`YYYY/MM`) / 季 (`YYYY Q1~Q4`) / 年 (`YYYY`)** 五级时间周期粒度聚合；
   - 支持多级递进下钻与面包屑导航（如：时间周期行 → 该周期内各应用流量排行 → 指定应用在各时间周期的历史明细；或：应用总榜 → 指定应用在各时间周期的历史明细）；
   - 支持按日期/应用名/进程名/路径模糊搜索筛选、按周期/应用名/下载/上传/总流量列头升序与降序排序、底部当前筛选合计汇总行，以及右侧双色水平比例条的 **对数比例（Logarithmic）** 与 **线性比例（Linear）** 切换。
+
+## 第二十轮 v0.2.0 小版本发布与质量门禁验收 — complete
+
+- **全仓版本号同步升级至 `0.2.0` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 将项目版本号从 `0.1.2` 升级至小版本 `0.2.0`，同步更新 CMake 工程版本、前端包清单、Windows 资源文件 `FILEVERSION`/`PRODUCTVERSION`（`0,2,0,0` / `"0.2.0"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.2.0.md`)**：
+  - 完整汇总多级递进历史流量统计（持久化二维账本、按时间/应用双根维度、日/周/月/季/年五级粒度、面包屑多级下钻、搜索排序、汇总底栏与对数/线性比例条切换）与排除程序流量显示及统计过滤（实时总速率/排行/历史账本全链路过滤、原生文件浏览与已连接应用模糊搜索添加）。

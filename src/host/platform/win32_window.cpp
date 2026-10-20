@@ -540,6 +540,12 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
         return false;
     }
 
+    DWORD foreground_pid = 0;
+    GetWindowThreadProcessId(foreground, &foreground_pid);
+    if (foreground_pid == GetCurrentProcessId()) {
+        return false;
+    }
+
     DWORD cloaked = 0;
     if (SUCCEEDED(DwmGetWindowAttribute(foreground, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) &&
         cloaked != 0) {
@@ -551,7 +557,9 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
         const std::wstring_view cls{class_name.data()};
         if (cls == L"Progman" || cls == L"WorkerW" || cls == L"Shell_TrayWnd" ||
             cls == L"Shell_SecondaryTrayWnd" || cls == L"XamlExplorerHostIslandWindow" ||
-            cls == L"NetworkFlowMonitor_SettingsWindow") {
+            cls == L"Windows.UI.Core.CoreWindow" || cls == L"TopLevelWindowForOverflowXamlIsland" ||
+            cls == L"NetworkFlowMonitor_SettingsWindow" ||
+            cls == L"NetworkFlowMonitor_HostWindow") {
             return false;
         }
     }
@@ -924,8 +932,11 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
     case kMsgTrayIcon: {
         switch (LOWORD(lparam)) {
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK: {
+        case WM_LBUTTONDOWN: {
+            self->outside_button_was_down_ = true;
+            break;
+        }
+        case WM_LBUTTONUP: {
             self->outside_button_was_down_ = true;
             if (self->listener_ != nullptr) {
                 self->listener_->on_tray_show_monitor();

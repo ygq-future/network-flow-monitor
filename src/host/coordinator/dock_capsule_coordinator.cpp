@@ -447,6 +447,9 @@ void DockCapsuleCoordinator::show_monitor() {
     state_.is_auto_hide_timer_active = false;
     auto_hide_timer_elapsed_ = std::chrono::milliseconds{0};
     state_.is_auto_hidden = false;
+    state_.is_fullscreen_hidden = false;
+    state_.is_click_through = false;
+    state_.is_topmost = true;
     state_.presentation_state = PresentationState::PanelVisible;
     recalculate_geometry();
 }
@@ -549,7 +552,7 @@ void DockCapsuleCoordinator::set_fullscreen_active_on_same_monitor(bool active) 
         state_.is_dragging = false;
         state_.is_dismiss_timer_active = false;
         dismiss_timer_elapsed_ = std::chrono::milliseconds{0};
-        if (state_.presentation_state == PresentationState::PanelVisible) {
+        if (entered_fullscreen && state_.presentation_state == PresentationState::PanelVisible) {
             state_.presentation_state = PresentationState::CapsuleVisible;
             if (!state_.is_fullscreen_hidden && config_.floating.auto_hide_enabled &&
                 !state_.is_auto_hidden) {

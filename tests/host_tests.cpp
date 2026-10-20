@@ -1273,6 +1273,15 @@ void TestFullscreenTopmostYield(TestContext& ctx) {
     ctx.Check(coord.state().presentation_state == PresentationState::CapsuleVisible,
               "Click ignored during fullscreen click-through");
 
+    // Explicit tray show_monitor must open panel and survive steady-state fullscreen clock ticks
+    coord.show_monitor();
+    ctx.Check(coord.state().presentation_state == PresentationState::PanelVisible,
+              "Tray show_monitor opens panel even if fullscreen was active");
+    coord.set_fullscreen_active_on_same_monitor(true);
+    ctx.Check(coord.state().presentation_state == PresentationState::PanelVisible,
+              "Steady-state fullscreen tick does not immediately collapse tray-opened panel");
+    coord.show_capsule();
+
     // Enable hide_capsule_when_fullscreen
     cfg.floating.nfm_pinned = false;
     cfg.floating.hide_capsule_when_fullscreen = true;

@@ -891,6 +891,16 @@ void ProductHost::close_settings_window() {
     if (settings_window_) {
         settings_window_->hide();
     }
+    if (coordinator_) {
+        collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+        panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
+        apply_coordinator_state();
+        publish_surface_state();
+    }
+    if (webview_) {
+        webview_->set_visible(true);
+        static_cast<void>(webview_->ensure_alive());
+    }
 }
 
 void ProductHost::apply_coordinator_state() {
@@ -1014,9 +1024,15 @@ void ProductHost::publish_surface_state() {
 
 void ProductHost::on_show_monitor() {
     if (coordinator_) {
+        collapse_bounds_remaining_ = std::chrono::milliseconds{0};
+        panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
         coordinator_->show_monitor();
         apply_coordinator_state();
+        if (window_ && window_->hwnd() != nullptr) {
+            SetForegroundWindow(window_->hwnd());
+        }
         if (webview_) {
+            webview_->set_visible(true);
             static_cast<void>(webview_->ensure_alive());
         }
         publish_surface_state();

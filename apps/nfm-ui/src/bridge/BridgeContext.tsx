@@ -73,6 +73,11 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
 
     const unsubStatus = bridge.on<CollectorStatusDto>('collectorStatus', data => {
       setCollectorStatus(data)
+      const isConnected = data.etwSessionActive && data.state !== 'Stopped' && data.state !== 'Failed'
+      if (!isConnected) {
+        setTrafficTick(defaultTick)
+        setRankingSnapshot(defaultRanking)
+      }
     })
 
     const unsubReset = bridge.on<SessionResetDto>('sessionReset', data => {

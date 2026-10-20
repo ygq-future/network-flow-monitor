@@ -58,15 +58,19 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
   const config = useAppConfig()
   const peakCeilingRef = useRef<number>(10 * 1024 * 1024)
 
-  const connected = status.state === 'Running' || status.etwSessionActive
+  const connected = status.etwSessionActive && status.state !== 'Stopped' && status.state !== 'Failed'
   const download = connected ? tick.downloadBytesPerSec : 0
   const upload = connected ? tick.uploadBytesPerSec : 0
 
-  const currentPeak = Math.max(download, upload)
-  if (currentPeak > peakCeilingRef.current) {
-    peakCeilingRef.current = Math.min(MAX_REFERENCE_RATE_BYTES_PER_SEC, currentPeak * 1.5)
+  if (!connected) {
+    peakCeilingRef.current = 10 * 1024 * 1024
   } else {
-    peakCeilingRef.current = Math.max(10 * 1024 * 1024, peakCeilingRef.current * 0.98)
+    const currentPeak = Math.max(download, upload)
+    if (currentPeak > peakCeilingRef.current) {
+      peakCeilingRef.current = Math.min(MAX_REFERENCE_RATE_BYTES_PER_SEC, currentPeak * 1.5)
+    } else {
+      peakCeilingRef.current = Math.max(10 * 1024 * 1024, peakCeilingRef.current * 0.98)
+    }
   }
 
   const widthDip = config.capsule.widthDip

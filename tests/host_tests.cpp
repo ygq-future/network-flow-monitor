@@ -849,10 +849,10 @@ void CheckCollectorCompanionInjections(TestContext& context) {
 
     // 3b. Check RankingSnapshot injection
     bool ranking_called = false;
+    nfm::host::bridge::RankingSnapshotDto latest_ranking{};
     companion.set_ranking_snapshot_callback([&](const nfm::host::bridge::RankingSnapshotDto& snap) {
         ranking_called = true;
-        context.Check(snap.applications.size() == 1, "ranking apps size is 1");
-        context.Check(snap.applications[0].display_name == "Edge", "ranking app name matches");
+        latest_ranking = snap;
     });
     nfm::ipc::RankingSnapshotMessage snap_msg{
         .seq = 1,
@@ -870,6 +870,9 @@ void CheckCollectorCompanionInjections(TestContext& context) {
     };
     companion.inject_ranking_snapshot(snap_msg);
     context.Check(ranking_called, "ranking_snapshot injection calls callback");
+    context.Check(latest_ranking.applications.size() == 1 &&
+                      latest_ranking.applications[0].display_name == "Edge",
+                  "ranking app name matches");
     // 3c. Check inactive ETW session diagnostic logging and error message propagation
     std::vector<std::pair<bool, std::string>> diagnostics;
     companion.set_diagnostic_callback([&](bool is_error, std::string_view message) {
@@ -889,18 +892,25 @@ void CheckCollectorCompanionInjections(TestContext& context) {
     context.Check(!diagnostics.empty() && diagnostics.back().first,
                   "inactive ETW status emits error diagnostic");
 
-    // 3d. Check Backoff state transition emits diagnostic
+    // 3d. Check Backoff state transition emits diagnostic and zeroes rates
     diagnostics.clear();
+    dl_received = 99999;
     companion.StateChanged(nfm::ipc::IpcClientState::Backoff);
     context.Check(!diagnostics.empty() && diagnostics.back().first,
                   "IPC Backoff from Running emits error diagnostic");
+    context.Check(dl_received == 0 && latest_ranking.applications.empty() &&
+                      !latest_dto.etw_session_active,
+                  "IPC Backoff zeroes traffic tick, clears ranking, and marks ETW inactive");
 
-    // 4. Test stop and restart state
+    // 4. Test stop zeroes rates and updates status
+    dl_received = 88888;
     companion.stop();
     context.Check(!companion.is_running(), "companion not running after stop");
     context.Check(companion.get_info().state == CollectorState::Stopped, "state is Stopped");
+    context.Check(dl_received == 0 && latest_dto.state == "Stopped" &&
+                      !latest_dto.etw_session_active,
+                  "stop zeroes traffic tick and broadcasts Stopped status");
 }
-
 } // namespace
 
 int Run() {

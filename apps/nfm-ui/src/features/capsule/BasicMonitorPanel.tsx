@@ -58,13 +58,21 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
     return () => cancelAnimationFrame(id)
   }, [])
   const activeTransitionState: MonitorPanelTransitionState = transitionState ?? (selfEntered ? 'entered' : 'entering')
-  const isCollectorRunning = status.state === 'Running' || status.etwSessionActive
+  const isCollectorRunning = status.etwSessionActive && status.state !== 'Stopped' && status.state !== 'Failed'
   const speedUnit = config.general.speedUnit
   const downloadColorHex = config.capsule.downloadColorHex || '#38bdf8'
   const uploadColorHex = config.capsule.uploadColorHex || '#2dd4bf'
-  const hasReadyRanking = ranking !== undefined && ranking.status === 'Ready'
-  const totalDownloadBytesPerSec = hasReadyRanking ? ranking.totalDownloadBytesPerSec : tick.downloadBytesPerSec
-  const totalUploadBytesPerSec = hasReadyRanking ? ranking.totalUploadBytesPerSec : tick.uploadBytesPerSec
+  const hasReadyRanking = isCollectorRunning && ranking !== undefined && ranking.status === 'Ready'
+  const totalDownloadBytesPerSec = !isCollectorRunning
+    ? 0
+    : hasReadyRanking
+      ? ranking.totalDownloadBytesPerSec
+      : tick.downloadBytesPerSec
+  const totalUploadBytesPerSec = !isCollectorRunning
+    ? 0
+    : hasReadyRanking
+      ? ranking.totalUploadBytesPerSec
+      : tick.uploadBytesPerSec
   const rawApps = ranking?.applications ?? []
   const apps = rawApps.slice(0, Math.max(1, config.ranking.topN))
   const peakCeilingRef = useRef<number>(10 * 1024 * 1024)

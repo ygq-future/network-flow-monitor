@@ -484,6 +484,10 @@ void CollectorCompanion::stop() {
 
     void* proc_h = nullptr;
     void* stop_h = nullptr;
+    TrafficTickCallback tick_cb;
+    RankingSnapshotCallback ranking_cb;
+    CollectorStatusCallback status_cb;
+    CollectorInfo status_snapshot;
     {
         const std::scoped_lock lock(mutex_);
         proc_h = collector_process_handle_;
@@ -491,6 +495,10 @@ void CollectorCompanion::stop() {
         stop_h = stop_event_handle_;
         stop_event_handle_ = nullptr;
         info_.state = CollectorState::Stopped;
+        tick_cb = traffic_tick_cb_;
+        ranking_cb = ranking_snapshot_cb_;
+        status_cb = collector_status_cb_;
+        status_snapshot = info_;
     }
 
     if (stop_h != nullptr) {
@@ -504,6 +512,39 @@ void CollectorCompanion::stop() {
 
     if (stop_h != nullptr) {
         CloseHandle(static_cast<HANDLE>(stop_h));
+    }
+
+    const auto now_ms = static_cast<std::uint64_t>(GetTickCount64());
+    if (tick_cb) {
+        tick_cb(bridge::TrafficTickDto{
+            .seq = 0U,
+            .monotonic_ms = now_ms,
+            .download_bytes_per_sec = 0U,
+            .upload_bytes_per_sec = 0U,
+        });
+    }
+    if (ranking_cb) {
+        ranking_cb(bridge::RankingSnapshotDto{
+            .seq = 0U,
+            .monotonic_ms = now_ms,
+            .status = "Ready",
+            .total_download_bytes_per_sec = 0U,
+            .total_upload_bytes_per_sec = 0U,
+            .applications = {},
+        });
+    }
+    if (status_cb) {
+        status_cb(bridge::CollectorStatusDto{
+            .monotonic_ms = now_ms,
+            .etw_session_active = false,
+            .dropped_packets = 0U,
+            .active_pids = 0U,
+            .state = "Stopped",
+            .process_id = status_snapshot.process_id,
+            .instance_id = status_snapshot.instance_id,
+            .is_elevated = false,
+            .last_error = status_snapshot.error_message,
+        });
     }
 }
 
@@ -526,6 +567,11 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
     try {
         std::string diag_msg;
         bool diag_error = false;
+        bool notify_inactive = false;
+        TrafficTickCallback tick_cb;
+        RankingSnapshotCallback ranking_cb;
+        CollectorStatusCallback status_cb;
+        CollectorInfo status_snapshot;
         {
             const std::scoped_lock lock(mutex_);
             std::string exit_code_suffix;
@@ -542,6 +588,7 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
             } else if (state == ipc::IpcClientState::Backoff) {
                 if (info_.state == CollectorState::Running) {
                     diag_error = true;
+                    notify_inactive = true;
                     if (exit_code != STILL_ACTIVE) {
                         info_.state = CollectorState::Failed;
                         info_.error_message =
@@ -558,6 +605,7 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
                     info_.error_message =
                         "Collector process exited (exit_code=" + std::to_string(exit_code) + ")";
                     diag_error = true;
+                    notify_inactive = true;
                     diag_msg = "Collector companion process exited before IPC handshake (pid=" +
                                std::to_string(info_.process_id) + exit_code_suffix + ")";
                 }
@@ -565,6 +613,7 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
                        state == ipc::IpcClientState::Unauthorized) {
                 info_.state = CollectorState::Failed;
                 diag_error = true;
+                notify_inactive = true;
                 if (state == ipc::IpcClientState::Unauthorized) {
                     info_.error_message = "IPC pipe authorization rejected";
                     diag_msg = "Collector IPC state=Unauthorized (pid=" +
@@ -578,9 +627,55 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
                         exit_code_suffix + ")";
                 }
             }
+            if (notify_inactive) {
+                tick_cb = traffic_tick_cb_;
+                ranking_cb = ranking_snapshot_cb_;
+                status_cb = collector_status_cb_;
+                status_snapshot = info_;
+            }
         }
         if (!diag_msg.empty()) {
             emit_diagnostic(diag_error, diag_msg);
+        }
+        if (notify_inactive) {
+            const auto now_ms = static_cast<std::uint64_t>(GetTickCount64());
+            if (tick_cb) {
+                tick_cb(bridge::TrafficTickDto{
+                    .seq = 0U,
+                    .monotonic_ms = now_ms,
+                    .download_bytes_per_sec = 0U,
+                    .upload_bytes_per_sec = 0U,
+                });
+            }
+            if (ranking_cb) {
+                ranking_cb(bridge::RankingSnapshotDto{
+                    .seq = 0U,
+                    .monotonic_ms = now_ms,
+                    .status = "Ready",
+                    .total_download_bytes_per_sec = 0U,
+                    .total_upload_bytes_per_sec = 0U,
+                    .applications = {},
+                });
+            }
+            if (status_cb) {
+                std::string state_str = "Failed";
+                if (status_snapshot.state == CollectorState::Starting) {
+                    state_str = "Starting";
+                } else if (status_snapshot.state == CollectorState::Stopped) {
+                    state_str = "Stopped";
+                }
+                status_cb(bridge::CollectorStatusDto{
+                    .monotonic_ms = now_ms,
+                    .etw_session_active = false,
+                    .dropped_packets = 0U,
+                    .active_pids = 0U,
+                    .state = std::move(state_str),
+                    .process_id = status_snapshot.process_id,
+                    .instance_id = status_snapshot.instance_id,
+                    .is_elevated = false,
+                    .last_error = status_snapshot.error_message,
+                });
+            }
         }
     } catch (...) {
     }

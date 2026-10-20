@@ -571,20 +571,16 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => bridge.sendCommand('retryCollector')}
-                    className="gap-1">
-                    <RefreshCw className="h-3 w-3" />
-                    <span>{t.settings.retryCollector}</span>
-                  </Button>
-                  <Button
                     variant="primary"
                     size="sm"
                     onClick={() => bridge.sendCommand('restartCollector')}
                     className="gap-1">
                     <RotateCw className="h-3 w-3" />
-                    <span>{t.settings.restartCollector}</span>
+                    <span>
+                      {collectorStatus.state === 'Running' && collectorStatus.etwSessionActive
+                        ? t.settings.restartCollector
+                        : t.settings.retryCollector}
+                    </span>
                   </Button>
                 </div>
               </div>

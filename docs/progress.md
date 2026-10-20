@@ -235,3 +235,18 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 生成带 UTF-8 BOM 的脱离式 PowerShell 更新脚本，触发 Host 与 Collector 优雅退出后原地覆盖当前便携目录的可执行文件与 `ui/` 静态资源（保留 `data/config.json` 与 `logs/`），随后自动重新拉起新版 `NetworkFlowMonitor.exe`；
   - 扩展 Native/Web Bridge（`checkForUpdate`、`downloadAndApplyUpdate`、`updateStatus`），在设置中心「通用」标签页底部提供版本徽标、检查更新、下载进度与一键更新重启控件；
   - `tools/quality.ps1 -Mode Full` 20 项检查全部通过。
+
+## 第十四轮采集器二次启动防护、断连胶囊颜色清除、托盘/窗口稳定性与设置按钮收敛 — complete
+
+- **防止二次启动采集程序破坏现有 ETW 会话并补齐异常诊断日志 (`collector_host.cpp`, `snapshot_publisher.cpp`, `collector_companion.cpp`, `collector_tests.cpp`, `host_tests.cpp`)**：
+  - `CollectorHost::Start()` 调整为先启动 `server_->Start()`（通过 `FILE_FLAG_FIRST_PIPE_INSTANCE` 独占获取命名管道端点所有权），成功后再启动 `session_->Start()`；手动二次启动 `nfm-collector.exe` 时在管道独占检查阶段立即返回 `ERROR_ACCESS_DENIED (5)` 退出，不再抢停正在运行的 `NetworkFlowMonitor.SystemTrace` ETW 会话。
+  - `SnapshotPublisher::RunDue()` 在 `provider_->Capture()` 失败时主动推送零速率 `TrafficTick`、空 `RankingSnapshot` 与 `etw_session_active = false` 的 `CollectorStatus`。
+  - `CollectorCompanion` 补齐 `Backoff` 断线重连、子进程异常退出及 `etw_session_active = false` 的错误状态与 `logs/nfm-host.log` 落盘记录。
+- **采集器断开或停止时同步清除贴边胶囊与监控面板流量颜色 (`collector_companion.cpp`, `BridgeContext.tsx`, `DockCapsule.tsx`, `BasicMonitorPanel.tsx`, `DockCapsule.test.tsx`)**：
+  - `CollectorCompanion::stop()` 及 `StateChanged()` 进入非 `Streaming` 状态时，立即向前端推送零值 `TrafficTickDto`、空 `RankingSnapshotDto` 和非活跃 `CollectorStatusDto`。
+  - 前端统一要求 `status.etwSessionActive && status.state !== 'Stopped' && status.state !== 'Failed'` 才视为活跃连接，断连或 ETW 失活时立即将速率与胶囊上下行颜色条高度清零。
+- **修复关闭设置窗口后胶囊偶发消失及左键点击托盘图标无响应 (`dock_capsule_coordinator.cpp`, `product_host.cpp`, `win32_window.cpp`, `host_tests.cpp`)**：
+  - `ProductHost::close_settings_window()` 隐藏设置窗口后立即重置收拢计时器并调用 `apply_coordinator_state()`、`publish_surface_state()` 与 `webview_->set_visible(true)` + `ensure_alive()`。
+  - `DockCapsuleCoordinator::set_fullscreen_active_on_same_monitor()` 仅在刚进入全屏的边沿（`entered_fullscreen`）自动收拢面板，且 `show_monitor()` 主动清除 `is_click_through` 并激活前台焦点，`Win32Window` 过滤当前进程窗口与任务栏/外壳扩展组件的全屏误判。
+- **合并设置中心重复的「重试连接」与「重启采集服务」按钮 (`SettingsCenter.tsx`, `SettingsCenter.test.tsx`)**：
+  - 将「采集与诊断」标签页中后端行为完全相同的两个并排按钮合并为单一主操作按钮：运行正常时显示「重启采集服务」，断开或异常时自动显示「重试连接」。

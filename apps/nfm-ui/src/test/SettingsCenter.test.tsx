@@ -59,7 +59,7 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('Process ID (PID)')).toBeInTheDocument()
     expect(screen.getByText('ETW Session Health')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Restart Collector/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Retry Connection/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retry Connection/i })).not.toBeInTheDocument()
     expect(screen.getByText('Diagnostics Log Level')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Open Log Folder/i })).toBeInTheDocument()
     expect(screen.getByText('WebView2 Evergreen Runtime')).toBeInTheDocument()
@@ -95,7 +95,7 @@ describe('SettingsCenter', () => {
     })
   })
 
-  it('triggers collector restart, retry, and openLogDirectory commands', () => {
+  it('triggers collector restart/retry and openLogDirectory commands', () => {
     const bridge = new MockBridge(false)
     const spySend = vi.spyOn(bridge, 'sendCommand')
     renderWithProviders(<SettingsCenter initialTab="collector" />, bridge)
@@ -103,8 +103,18 @@ describe('SettingsCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: /Restart Collector/i }))
     expect(spySend).toHaveBeenCalledWith('restartCollector')
 
+    act(() => {
+      bridge.emit('collectorStatus', {
+        monotonicMs: 2000,
+        etwSessionActive: false,
+        droppedPackets: 0,
+        activePids: 0,
+        state: 'Failed',
+      })
+    })
+
     fireEvent.click(screen.getByRole('button', { name: /Retry Connection/i }))
-    expect(spySend).toHaveBeenCalledWith('retryCollector')
+    expect(spySend).toHaveBeenCalledWith('restartCollector')
 
     fireEvent.click(screen.getByRole('button', { name: /Open Log Folder/i }))
     expect(spySend).toHaveBeenCalledWith('openLogDirectory')

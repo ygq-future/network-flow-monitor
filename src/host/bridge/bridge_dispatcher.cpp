@@ -396,6 +396,9 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::BrowseExcludedProgram:
         handler_->on_browse_excluded_program();
         break;
+    case WebCommandType::RequestTrafficHistory:
+        handler_->on_request_traffic_history();
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);
@@ -700,6 +703,9 @@ std::string BridgeDispatcher::serialize_surface_changed(const SurfaceChangedDto&
     yyjson_mut_obj_add_str(doc.get(), payload, "dockSide",
                            surface.dock_side == config::DockSide::Left ? "left" : "right");
     yyjson_mut_obj_add_bool(doc.get(), payload, "autoHidden", surface.auto_hidden);
+    if (!surface.route.empty()) {
+        yyjson_mut_obj_add_str(doc.get(), payload, "route", surface.route.c_str());
+    }
     return write_mut_doc(doc.get());
 }
 
@@ -767,6 +773,48 @@ std::string BridgeDispatcher::serialize_connected_applications(
         yyjson_mut_obj_add_uint(doc.get(), item, "totalDownloadBytes", app.total_download_bytes);
         yyjson_mut_obj_add_uint(doc.get(), item, "totalUploadBytes", app.total_upload_bytes);
         yyjson_mut_arr_append(arr, item);
+    }
+
+    return write_mut_doc(doc.get());
+}
+
+std::string BridgeDispatcher::serialize_traffic_history(const TrafficHistoryDto& history) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "trafficHistoryUpdated");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+
+    yyjson_mut_obj_add_uint(doc.get(), payload, "schemaVersion", history.schema_version);
+
+    yyjson_mut_val* days_arr = yyjson_mut_arr(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), payload, "days", days_arr);
+    for (const auto& day : history.days) {
+        yyjson_mut_val* day_obj = yyjson_mut_obj(doc.get());
+        yyjson_mut_obj_add_str(doc.get(), day_obj, "date", day.date.c_str());
+        yyjson_mut_obj_add_uint(doc.get(), day_obj, "totalDownloadBytes", day.total_download_bytes);
+        yyjson_mut_obj_add_uint(doc.get(), day_obj, "totalUploadBytes", day.total_upload_bytes);
+
+        yyjson_mut_val* apps_arr = yyjson_mut_arr(doc.get());
+        yyjson_mut_obj_add_val(doc.get(), day_obj, "applications", apps_arr);
+        for (const auto& app : day.applications) {
+            yyjson_mut_val* app_obj = yyjson_mut_obj(doc.get());
+            yyjson_mut_obj_add_str(doc.get(), app_obj, "appId", app.app_id.c_str());
+            yyjson_mut_obj_add_str(doc.get(), app_obj, "executablePath",
+                                   app.executable_path.c_str());
+            yyjson_mut_obj_add_str(doc.get(), app_obj, "executableName",
+                                   app.executable_name.c_str());
+            yyjson_mut_obj_add_str(doc.get(), app_obj, "displayName", app.display_name.c_str());
+            yyjson_mut_obj_add_str(doc.get(), app_obj, "iconKey", app.icon_key.c_str());
+            yyjson_mut_obj_add_uint(doc.get(), app_obj, "downloadBytes", app.download_bytes);
+            yyjson_mut_obj_add_uint(doc.get(), app_obj, "uploadBytes", app.upload_bytes);
+            yyjson_mut_arr_append(apps_arr, app_obj);
+        }
+        yyjson_mut_arr_append(days_arr, day_obj);
     }
 
     return write_mut_doc(doc.get());

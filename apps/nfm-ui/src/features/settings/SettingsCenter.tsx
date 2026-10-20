@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   AppWindow,
+  BarChart3,
 } from 'lucide-react'
 import { useBridge } from '../../bridge/BridgeContext'
 import {
@@ -26,6 +27,8 @@ import {
   BridgeErrorDto,
   ConnectedAppDto,
   ConnectedApplicationsDto,
+  TrafficHistoryDto,
+  SurfaceChangedDto,
 } from '../../bridge/bridgeTypes'
 import { defaultMockConfigChanged } from '../../bridge/nativeBridge'
 import { useTranslation } from '../../shared/i18n/I18nContext'
@@ -40,8 +43,9 @@ import { Badge } from '../../shared/components/Badge'
 import { Card } from '../../shared/components/Card'
 import { SettingsRow } from '../../shared/components/SettingsRow'
 import { AppLogo } from '../../shared/components/AppLogo'
+import { TrafficHistoryPanel } from './TrafficHistoryPanel'
 
-export type SettingsTab = 'general' | 'capsule' | 'collector'
+export type SettingsTab = 'general' | 'capsule' | 'history' | 'collector'
 export type LegacySettingsTab = SettingsTab | 'appearance' | 'monitor' | 'ranking' | 'diagnostics'
 
 export interface SettingsCenterProps {
@@ -52,6 +56,7 @@ export interface SettingsCenterProps {
 
 function normalizeSettingsTab(tab: LegacySettingsTab): SettingsTab {
   if (tab === 'capsule' || tab === 'monitor') return 'capsule'
+  if (tab === 'history') return 'history'
   if (tab === 'collector' || tab === 'diagnostics') return 'collector'
   return 'general'
 }
@@ -134,10 +139,18 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [connectedApps, setConnectedApps] = useState<ConnectedAppDto[]>([])
+  const [trafficHistory, setTrafficHistory] = useState<TrafficHistoryDto>({
+    schemaVersion: 1,
+    days: [],
+  })
+  const [historyLayoutSeq, setHistoryLayoutSeq] = useState(0)
   const [showExclusionPanel, setShowExclusionPanel] = useState(false)
   const [excludeFilterInput, setExcludeFilterInput] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
-  // Listen to bridge events
+
+  useEffect(() => {
+    setActiveTab(normalizeSettingsTab(initialTab))
+  }, [initialTab])
   useEffect(() => {
     const unsubConfig = bridge.on<ConfigChangedDto>('configChanged', data => {
       if (data && data.config) {
@@ -165,6 +178,16 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
         setConnectedApps(data.applications)
       }
     })
+    const unsubTrafficHistory = bridge.on<TrafficHistoryDto>('trafficHistoryUpdated', data => {
+      if (data && Array.isArray(data.days)) {
+        setTrafficHistory(data)
+      }
+    })
+    const unsubSurface = bridge.on<SurfaceChangedDto>('surfaceChanged', data => {
+      if (data && data.surface === 'settings' && data.route) {
+        setActiveTab(normalizeSettingsTab(data.route as LegacySettingsTab))
+      }
+    })
     const unsubError = bridge.on<BridgeErrorDto>('error', err => {
       if (err) {
         setErrorMessage(`${err.code}: ${err.message}`)
@@ -179,6 +202,8 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       unsubUpdate()
       unsubError()
       unsubConnectedApps()
+      unsubTrafficHistory()
+      unsubSurface()
     }
   }, [bridge])
 
@@ -206,8 +231,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     showExclusionPanel,
     connectedApps.length,
     excludeFilterInput,
+    trafficHistory.days.length,
+    historyLayoutSeq,
   ])
-
   const handleUpdate = (key: string, value: unknown) => {
     bridge.sendCommand('updateSetting', { key, value })
   }
@@ -247,6 +273,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   const tabs: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'general', label: t.settings.general, icon: Sliders },
     { id: 'capsule', label: t.settings.capsule, icon: Layers },
+    { id: 'history', label: t.settings.history, icon: BarChart3 },
     { id: 'collector', label: t.settings.collector, icon: Activity },
   ]
   return (
@@ -426,7 +453,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">
                         {t.settings.excludedPrograms}
                       </span>
-                      <Badge variant={excludedPrograms.length > 0 ? 'info' : 'default'} className="font-mono">
+                      <Badge
+                        variant={excludedPrograms.length > 0 ? 'info' : 'default'}
+                        className="!rounded-[4px] !px-1.5 !py-0 font-mono !text-[10px] leading-4">
                         {excludedPrograms.length}
                       </Badge>
                     </div>
@@ -454,30 +483,29 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   </Button>
                 </div>
 
-                {/* Excluded tags summary */}
-                {excludedPrograms.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {excludedPrograms.map(prog => (
-                      <span
-                        key={prog}
-                        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-100 px-2 py-0.5 font-mono text-[11px] text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
-                        <span className="max-w-[200px] truncate" title={prog}>
-                          {prog}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={`${t.common.close} ${prog}`}
-                          onClick={() => handleRemoveExcludedProgram(prog)}
-                          className="ml-0.5 cursor-pointer rounded-xs p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
                 {showExclusionPanel && (
                   <div className="mt-2 flex flex-col gap-1.5 rounded-md border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                    {/* Excluded tags summary (only shown when expanded) */}
+                    {excludedPrograms.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pb-0.5">
+                        {excludedPrograms.map(prog => (
+                          <span
+                            key={prog}
+                            className="inline-flex items-center gap-1 rounded-[4px] border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+                            <span className="max-w-[180px] truncate" title={prog}>
+                              {prog}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={`${t.common.close} ${prog}`}
+                              onClick={() => handleRemoveExcludedProgram(prog)}
+                              className="cursor-pointer rounded-xs p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {/* Unified Search + Manual Add Input + Add / Browse / Refresh Buttons */}
                     <div className="flex items-center gap-1">
                       <div className="relative flex min-w-0 flex-1 items-center">
@@ -808,6 +836,17 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
             </Card>
+          )}
+
+          {/* 3. Traffic History Tab */}
+          {activeTab === 'history' && (
+            <TrafficHistoryPanel
+              history={trafficHistory}
+              downloadColorHex={downloadColor}
+              uploadColorHex={uploadColor}
+              onRefresh={() => bridge.sendCommand('requestTrafficHistory')}
+              onLayoutChange={() => setHistoryLayoutSeq(s => s + 1)}
+            />
           )}
           {/* 3. Collector & Diagnostics Tab */}
           {activeTab === 'collector' && (

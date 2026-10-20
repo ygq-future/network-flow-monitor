@@ -6,6 +6,7 @@
 #include "network_flow_monitor/host/bridge/bridge_dispatcher.h"
 #include "network_flow_monitor/host/bridge/native_bridge.h"
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
+#include "network_flow_monitor/host/history/traffic_history_store.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
@@ -23,6 +24,7 @@ struct ProductHostOptions {
     std::filesystem::path static_assets_dir;
     std::filesystem::path collector_executable_path;
     std::filesystem::path config_file_path;
+    std::filesystem::path traffic_history_file_path;
     std::filesystem::path log_directory_path;
     platform::StartupRegistrationOptions startup_options;
     bool enable_dev_tools{false};
@@ -63,6 +65,7 @@ class ProductHost : public platform::IWindowEventListener,
     void on_context_menu_show_monitor() override;
     void on_context_menu_toggle_pin() override;
     void on_context_menu_settings() override;
+    void on_context_menu_traffic_history() override;
     void on_context_menu_retry_collector() override;
     void on_context_menu_exit() override;
     void on_context_menu_opened() override;
@@ -99,6 +102,7 @@ class ProductHost : public platform::IWindowEventListener,
     void on_download_and_apply_update() override;
     void on_request_connected_applications() override;
     void on_browse_excluded_program() override;
+    void on_request_traffic_history() override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }
@@ -107,6 +111,9 @@ class ProductHost : public platform::IWindowEventListener,
     }
     [[nodiscard]] coordinator::DockCapsuleCoordinator* coordinator() const noexcept {
         return coordinator_.get();
+    }
+    [[nodiscard]] history::TrafficHistoryStore* history_store() const noexcept {
+        return traffic_history_store_.get();
     }
 
   private:
@@ -133,12 +140,14 @@ class ProductHost : public platform::IWindowEventListener,
     std::shared_ptr<bridge::BridgeDispatcher> bridge_dispatcher_;
     std::shared_ptr<lifecycle::CollectorCompanion> collector_companion_;
     std::unique_ptr<platform::AppUpdater> app_updater_;
+    std::unique_ptr<history::TrafficHistoryStore> traffic_history_store_;
     config::AppConfig current_config_;
     std::optional<bridge::RankingSnapshotDto> latest_ranking_snapshot_;
     std::optional<bridge::CollectorStatusDto> latest_collector_status_;
     bool is_initialized_{false};
     bool is_shutting_down_{false};
     bool settings_surface_visible_{false};
+    std::string settings_active_route_{"general"};
     int settings_height_dip_{260};
     bridge::SurfaceKind last_published_surface_{bridge::SurfaceKind::Capsule};
     coordinator::PresentationState last_applied_presentation_state_{
@@ -146,6 +155,7 @@ class ProductHost : public platform::IWindowEventListener,
     std::chrono::milliseconds collapse_bounds_remaining_{0};
     std::chrono::milliseconds panel_shrink_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
+    std::chrono::milliseconds history_persist_elapsed_{0};
     mutable platform::RotatingFileLogger logger_;
     std::string last_logged_collector_error_;
     std::uint64_t last_logged_dropped_packets_{0};

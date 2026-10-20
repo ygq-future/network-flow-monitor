@@ -65,13 +65,22 @@ export function formatBytes(totalBytes: number | bigint): string {
     return '0 B'
   }
 
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let val = bytes
-  while (val >= 1024 && i < units.length - 1) {
-    val /= 1024
-    i++
-  }
+  const KB = 1024
+  const MB = 1024 * KB
+  const GB = 1024 * MB
+  const TB = 1024 * GB
 
-  return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+  if (bytes >= 999.5 * GB) {
+    return `${formatMagnitude(bytes / TB)} TB`
+  }
+  if (bytes >= 999.5 * MB) {
+    return `${formatMagnitude(bytes / GB)} GB`
+  }
+  if (bytes >= 999.5 * KB) {
+    return `${formatMagnitude(bytes / MB)} MB`
+  }
+  if (bytes >= 999.5) {
+    return `${Math.max(1, Math.round(bytes / KB))} KB`
+  }
+  return `${Math.round(bytes)} B`
 }

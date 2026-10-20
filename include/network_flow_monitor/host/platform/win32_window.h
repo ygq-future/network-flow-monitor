@@ -77,6 +77,7 @@ class IWindowEventListener {
     virtual void on_context_menu_show_monitor() {}
     virtual void on_context_menu_toggle_pin() {}
     virtual void on_context_menu_settings() {}
+    virtual void on_context_menu_traffic_history() {}
     virtual void on_context_menu_retry_collector() {}
     virtual void on_context_menu_exit() {}
     virtual void on_context_menu_opened() {}

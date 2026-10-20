@@ -317,6 +317,11 @@ std::string extract_executable_filename(std::string_view path_or_name) {
     return std::string{path_or_name};
 }
 
+std::string extract_executable_icon_data_uri(std::string_view utf8_path) {
+    return ExtractExecutableIconDataUri(std::string{utf8_path});
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool is_application_excluded(std::string_view app_id, std::string_view executable_path,
                              std::string_view display_name,
                              const std::vector<std::string>& excluded_programs) {
@@ -389,6 +394,10 @@ void CollectorCompanion::set_traffic_tick_callback(TrafficTickCallback callback)
 void CollectorCompanion::set_ranking_snapshot_callback(RankingSnapshotCallback callback) {
     const std::scoped_lock lock(mutex_);
     ranking_snapshot_cb_ = std::move(callback);
+}
+void CollectorCompanion::set_raw_ranking_snapshot_callback(RawRankingSnapshotCallback callback) {
+    const std::scoped_lock lock(mutex_);
+    raw_ranking_snapshot_cb_ = std::move(callback);
 }
 
 void CollectorCompanion::set_collector_status_callback(CollectorStatusCallback callback) {
@@ -835,13 +844,17 @@ void CollectorCompanion::inject_traffic_tick(const ipc::TrafficTickMessage& tick
 
 void CollectorCompanion::inject_ranking_snapshot(const ipc::RankingSnapshotMessage& snapshot) {
     RankingSnapshotCallback cb;
+    RawRankingSnapshotCallback raw_cb;
     std::vector<std::string> excluded;
     {
         const std::scoped_lock lock(mutex_);
         cb = ranking_snapshot_cb_;
+        raw_cb = raw_ranking_snapshot_cb_;
         excluded = excluded_programs_;
     }
-
+    if (raw_cb) {
+        raw_cb(snapshot);
+    }
     std::uint64_t excluded_dl_rate = 0U;
     std::uint64_t excluded_ul_rate = 0U;
     std::uint64_t included_dl_rate_sum = 0U;

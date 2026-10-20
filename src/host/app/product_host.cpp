@@ -17,6 +17,7 @@ namespace {
 constexpr int kSettingsSurfaceWidthDip = 520;
 constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
 constexpr std::chrono::milliseconds kPanelShrinkBoundsDelay{240};
+constexpr std::chrono::milliseconds kTrafficHistoryAutoSaveInterval{30'000};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -68,6 +69,17 @@ ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(option
                                           MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH));
         }
     }
+    if (options_.traffic_history_file_path.empty()) {
+        if (!options_.config_file_path.empty() &&
+            !options_.config_file_path.parent_path().empty()) {
+            options_.traffic_history_file_path =
+                options_.config_file_path.parent_path() / L"traffic_history.json";
+        } else {
+            options_.traffic_history_file_path = config::PortableTrafficHistoryPath(exe_path);
+        }
+    }
+    traffic_history_store_ =
+        std::make_unique<history::TrafficHistoryStore>(options_.traffic_history_file_path);
     if (options_.log_directory_path.empty()) {
         const std::filesystem::path cfg_parent = options_.config_file_path.parent_path();
         if (cfg_parent.filename() == L"data" && !cfg_parent.parent_path().empty()) {
@@ -112,6 +124,9 @@ bool ProductHost::initialize() {
         }
         write_diagnostic_log(config::LogLevel::Error,
                              "Configuration load degraded to defaults: " + detail);
+    }
+    if (traffic_history_store_) {
+        static_cast<void>(traffic_history_store_->load());
     }
 
     // Synchronize startup registry entry with authoritative config on launch
@@ -249,6 +264,27 @@ bool ProductHost::initialize() {
                 });
             }
         });
+    collector_companion_->set_raw_ranking_snapshot_callback(
+        [this](const ipc::RankingSnapshotMessage& raw_snapshot) {
+            bool changed = false;
+            if (traffic_history_store_) {
+                changed = traffic_history_store_->record_snapshot(
+                    raw_snapshot, current_config_.ranking.excluded_programs);
+            }
+            if (changed && window_ != nullptr) {
+                window_->post_ui_task([this]() noexcept {
+                    try {
+                        if (!is_shutting_down_ && settings_surface_visible_ && settings_bridge_ &&
+                            traffic_history_store_) {
+                            settings_bridge_->post_traffic_history(
+                                traffic_history_store_->export_dto(
+                                    current_config_.ranking.excluded_programs));
+                        }
+                    } catch (...) {
+                    }
+                });
+            }
+        });
 
     collector_companion_->set_diagnostic_callback([this](bool is_error, std::string_view message) {
         write_diagnostic_log(is_error ? config::LogLevel::Error : config::LogLevel::Info, message);
@@ -290,6 +326,9 @@ bool ProductHost::initialize() {
             }
         });
     collector_companion_->set_session_reset_callback([this](const bridge::SessionResetDto& reset) {
+        if (traffic_history_store_) {
+            traffic_history_store_->on_session_reset(reset.collector_instance_id);
+        }
         if (window_ != nullptr) {
             auto reset_ptr = std::make_shared<bridge::SessionResetDto>(reset);
             window_->post_ui_task([this, reset_ptr]() noexcept {
@@ -417,6 +456,9 @@ void ProductHost::shutdown() {
     if (collector_companion_) {
         collector_companion_->stop();
     }
+    if (traffic_history_store_) {
+        static_cast<void>(traffic_history_store_->save_if_dirty());
+    }
     settings_bridge_.reset();
     settings_webview_.reset();
     if (settings_window_) {
@@ -501,6 +543,9 @@ void ProductHost::on_context_menu_toggle_pin() {
 
 void ProductHost::on_context_menu_settings() {
     on_open_settings("");
+}
+void ProductHost::on_context_menu_traffic_history() {
+    on_open_settings("history");
 }
 
 void ProductHost::on_context_menu_retry_collector() {
@@ -657,6 +702,13 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
             !coordinator_->state().is_fullscreen_hidden &&
             coordinator_->state().presentation_state != coordinator::PresentationState::TrayOnly) {
             window_->set_topmost(true);
+        }
+    }
+    history_persist_elapsed_ += elapsed;
+    if (history_persist_elapsed_ >= kTrafficHistoryAutoSaveInterval) {
+        history_persist_elapsed_ = std::chrono::milliseconds{0};
+        if (traffic_history_store_) {
+            static_cast<void>(traffic_history_store_->save_if_dirty());
         }
     }
 }
@@ -833,6 +885,7 @@ void ProductHost::ensure_settings_window() {
                                 .dock_side = coordinator_ ? coordinator_->state().anchor_side
                                                           : config::DockSide::Right,
                                 .auto_hidden = false,
+                                .route = settings_active_route_,
                             });
                             settings_bridge_->post_config_changed(current_config_);
                             if (latest_collector_status_.has_value()) {
@@ -844,6 +897,11 @@ void ProductHost::ensure_settings_window() {
                             if (collector_companion_) {
                                 settings_bridge_->post_connected_applications(
                                     collector_companion_->connected_applications());
+                            }
+                            if (traffic_history_store_) {
+                                settings_bridge_->post_traffic_history(
+                                    traffic_history_store_->export_dto(
+                                        current_config_.ranking.excluded_programs));
                             }
                             if (settings_surface_visible_) {
                                 settings_window_->show(SW_SHOW);
@@ -884,6 +942,7 @@ void ProductHost::ensure_settings_window() {
                 .dock_side =
                     coordinator_ ? coordinator_->state().anchor_side : config::DockSide::Right,
                 .auto_hidden = false,
+                .route = settings_active_route_,
             });
             settings_bridge_->post_config_changed(current_config_);
             if (latest_collector_status_.has_value()) {
@@ -895,6 +954,10 @@ void ProductHost::ensure_settings_window() {
             if (collector_companion_) {
                 settings_bridge_->post_connected_applications(
                     collector_companion_->connected_applications());
+            }
+            if (traffic_history_store_) {
+                settings_bridge_->post_traffic_history(
+                    traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
             }
         }
         if (!settings_webview_ || settings_webview_->is_ready()) {
@@ -1182,7 +1245,12 @@ void ProductHost::on_resize_settings_window(int height_dip) {
         }
     }
 }
-void ProductHost::on_open_settings(std::string_view /*route*/) {
+void ProductHost::on_open_settings(std::string_view route) {
+    if (!route.empty()) {
+        settings_active_route_ = std::string{route};
+    } else if (settings_active_route_.empty()) {
+        settings_active_route_ = "general";
+    }
     settings_surface_visible_ = true;
     if (window_ && window_->hwnd() != nullptr) {
         ensure_settings_window();
@@ -1192,6 +1260,7 @@ void ProductHost::on_open_settings(std::string_view /*route*/) {
             .pinned = coordinator_->state().is_pinned,
             .dock_side = coordinator_->state().anchor_side,
             .auto_hidden = coordinator_->state().is_auto_hidden,
+            .route = settings_active_route_,
         });
     }
 }
@@ -1204,6 +1273,7 @@ void ProductHost::on_request_config() {
             .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
             .dock_side = coordinator_ ? coordinator_->state().anchor_side : config::DockSide::Right,
             .auto_hidden = false,
+            .route = settings_active_route_,
         });
         if (!settings_surface_visible_) {
             settings_bridge_->post_config_changed(current_config_);
@@ -1217,6 +1287,10 @@ void ProductHost::on_request_config() {
                 settings_bridge_->post_connected_applications(
                     collector_companion_->connected_applications());
             }
+            if (traffic_history_store_) {
+                settings_bridge_->post_traffic_history(
+                    traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
+            }
         }
     }
     broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
@@ -1229,6 +1303,10 @@ void ProductHost::on_request_config() {
         }
         if (collector_companion_) {
             b.post_connected_applications(collector_companion_->connected_applications());
+        }
+        if (traffic_history_store_) {
+            b.post_traffic_history(
+                traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
         }
     });
     if (native_bridge_ && latest_ranking_snapshot_.has_value()) {
@@ -1648,6 +1726,13 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
                         }
                     }
                     updated = true;
+                    if (traffic_history_store_) {
+                        const auto hist_dto = traffic_history_store_->export_dto(
+                            current_config_.ranking.excluded_programs);
+                        broadcast_to_all_bridges([&hist_dto](bridge::INativeBridge& b) {
+                            b.post_traffic_history(hist_dto);
+                        });
+                    }
                 }
             }
         } else {
@@ -1849,6 +1934,13 @@ void ProductHost::on_request_connected_applications() {
     broadcast_to_all_bridges(
         [&dto](bridge::INativeBridge& b) { b.post_connected_applications(dto); });
 }
+void ProductHost::on_request_traffic_history() {
+    if (!traffic_history_store_) {
+        return;
+    }
+    const auto dto = traffic_history_store_->export_dto(current_config_.ranking.excluded_programs);
+    broadcast_to_all_bridges([&dto](bridge::INativeBridge& b) { b.post_traffic_history(dto); });
+}
 
 void ProductHost::on_browse_excluded_program() {
     IFileOpenDialog* dialog = nullptr;
@@ -1910,6 +2002,13 @@ void ProductHost::on_browse_excluded_program() {
                         broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
                             b.post_config_changed(current_config_);
                         });
+                        if (traffic_history_store_) {
+                            const auto hist_dto = traffic_history_store_->export_dto(
+                                current_config_.ranking.excluded_programs);
+                            broadcast_to_all_bridges([&hist_dto](bridge::INativeBridge& b) {
+                                b.post_traffic_history(hist_dto);
+                            });
+                        }
                     }
                 }
             }

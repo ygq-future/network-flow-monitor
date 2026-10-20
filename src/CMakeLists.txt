@@ -102,6 +102,7 @@ add_library(
         host/bridge/bridge_dispatcher.cpp
         host/bridge/native_bridge.cpp
         host/coordinator/dock_capsule_coordinator.cpp
+        host/history/traffic_history_store.cpp
         host/lifecycle/collector_companion.cpp
         host/platform/app_updater.cpp
         host/platform/rotating_file_logger.cpp

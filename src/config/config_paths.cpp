@@ -19,6 +19,10 @@ std::filesystem::path PortableConfigPath(const std::filesystem::path& executable
     return PortableDataDirectory(executable_path) / L"config.json";
 }
 
+std::filesystem::path PortableTrafficHistoryPath(const std::filesystem::path& executable_path) {
+    return PortableDataDirectory(executable_path) / L"traffic_history.json";
+}
+
 std::filesystem::path LegacyRootConfigPath(const std::filesystem::path& executable_path) {
     return executable_path.parent_path() / L"config.json";
 }

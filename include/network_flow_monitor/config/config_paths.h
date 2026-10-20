@@ -13,6 +13,8 @@ namespace nfm::config {
     const std::filesystem::path& executable_path);
 [[nodiscard]] std::filesystem::path PortableConfigPath(
     const std::filesystem::path& executable_path);
+[[nodiscard]] std::filesystem::path PortableTrafficHistoryPath(
+    const std::filesystem::path& executable_path);
 [[nodiscard]] std::filesystem::path LegacyRootConfigPath(
     const std::filesystem::path& executable_path);
 } // namespace nfm::config

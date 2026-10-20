@@ -55,6 +55,7 @@ export interface TranslationSchema {
     monitor: string
     ranking: string
     collector: string
+    history: string
     diagnostics: string
     generalDesc: string
     appearanceDesc: string
@@ -185,5 +186,30 @@ export interface TranslationSchema {
     assetsState: string
     bridgeProtocol: string
     stateOk: string
+    // Traffic History
+    historyByTime: string
+    historyByApp: string
+    historyPeriodDay: string
+    historyPeriodWeek: string
+    historyPeriodMonth: string
+    historyPeriodQuarter: string
+    historyPeriodYear: string
+    historyScaleLog: string
+    historyScaleLinear: string
+    historySearchPlaceholder: string
+    historyColDate: string
+    historyColApp: string
+    historyColDownload: string
+    historyColUpload: string
+    historyColTotal: string
+    historyColChart: string
+    historyTotalSummary: string
+    historyBackToRoot: string
+    historyEmpty: string
+    historyNoMatch: string
+    historyDrillHintPeriod: string
+    historyDrillHintApp: string
+    historyAppsCount: string
+    historyPeriodsCount: string
   }
 }

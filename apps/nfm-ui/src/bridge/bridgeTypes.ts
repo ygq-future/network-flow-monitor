@@ -24,6 +24,8 @@ export type WebCommandType =
   | 'downloadAndApplyUpdate'
   | 'requestConnectedApplications'
   | 'browseExcludedProgram'
+  | 'requestTrafficHistory'
+
 export type NativeEventType =
   | 'trafficTick'
   | 'rankingSnapshot'
@@ -36,6 +38,7 @@ export type NativeEventType =
   | 'commandResponse'
   | 'updateStatus'
   | 'connectedApplications'
+  | 'trafficHistoryUpdated'
   | 'error'
 export interface TrafficTickDto {
   seq: number
@@ -179,8 +182,8 @@ export interface SurfaceChangedDto {
   pinned: boolean
   dockSide: 'left' | 'right'
   autoHidden?: boolean
+  route?: string
 }
-
 export interface UpdateSettingPayload {
   key: string
   value: unknown
@@ -214,6 +217,28 @@ export interface ConnectedAppDto {
 
 export interface ConnectedApplicationsDto {
   applications: ConnectedAppDto[]
+}
+
+export interface TrafficHistoryAppEntryDto {
+  appId: string
+  executablePath: string
+  executableName: string
+  displayName: string
+  iconKey: string
+  downloadBytes: number
+  uploadBytes: number
+}
+
+export interface TrafficHistoryDayDto {
+  date: string
+  totalDownloadBytes: number
+  totalUploadBytes: number
+  applications: TrafficHistoryAppEntryDto[]
+}
+
+export interface TrafficHistoryDto {
+  schemaVersion: number
+  days: TrafficHistoryDayDto[]
 }
 export interface BridgeErrorDto {
   code: string

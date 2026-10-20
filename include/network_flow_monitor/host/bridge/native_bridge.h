@@ -31,6 +31,9 @@ class INativeBridge {
     virtual void post_connected_applications(const ConnectedApplicationsDto& apps) {
         static_cast<void>(apps);
     }
+    virtual void post_traffic_history(const TrafficHistoryDto& history) {
+        static_cast<void>(history);
+    }
     virtual void post_error(const BridgeErrorDto& error) = 0;
     virtual void post_raw_event(std::string_view event_json) = 0;
 };
@@ -66,6 +69,7 @@ class IBridgeCommandHandler {
     virtual void on_download_and_apply_update() {}
     virtual void on_request_connected_applications() {}
     virtual void on_browse_excluded_program() {}
+    virtual void on_request_traffic_history() {}
 };
 
 using WebMessageSender = std::function<void(std::string_view json)>;
@@ -92,6 +96,7 @@ class NativeBridge : public INativeBridge {
     void post_command_response(const CommandResponseDto& response) override;
     void post_update_status(const UpdateStatusDto& status) override;
     void post_connected_applications(const ConnectedApplicationsDto& apps) override;
+    void post_traffic_history(const TrafficHistoryDto& history) override;
     void post_error(const BridgeErrorDto& error) override;
     void post_raw_event(std::string_view event_json) override;
 

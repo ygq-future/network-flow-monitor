@@ -48,6 +48,8 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "requestConnectedApplications";
     case WebCommandType::BrowseExcludedProgram:
         return "browseExcludedProgram";
+    case WebCommandType::RequestTrafficHistory:
+        return "requestTrafficHistory";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -121,6 +123,9 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     if (name == "browseExcludedProgram") {
         return WebCommandType::BrowseExcludedProgram;
     }
+    if (name == "requestTrafficHistory") {
+        return WebCommandType::RequestTrafficHistory;
+    }
     return WebCommandType::Unknown;
 }
 
@@ -148,6 +153,8 @@ std::string_view to_string(NativeEventType type) noexcept {
         return "updateStatus";
     case NativeEventType::ConnectedApplications:
         return "connectedApplications";
+    case NativeEventType::TrafficHistoryUpdated:
+        return "trafficHistoryUpdated";
     case NativeEventType::Error:
         return "error";
     case NativeEventType::Unknown:
@@ -189,6 +196,9 @@ NativeEventType parse_native_event_type(std::string_view name) noexcept {
     }
     if (name == "connectedApplications") {
         return NativeEventType::ConnectedApplications;
+    }
+    if (name == "trafficHistoryUpdated") {
+        return NativeEventType::TrafficHistoryUpdated;
     }
     if (name == "error") {
         return NativeEventType::Error;

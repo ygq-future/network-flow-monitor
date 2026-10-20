@@ -42,6 +42,7 @@ constexpr int kCmdTraySettings = 1002;
 constexpr int kCmdTrayRetryCollector = 1003;
 constexpr int kCmdTrayExit = 1004;
 constexpr int kCmdTrayPinMonitor = 1005;
+constexpr int kCmdTrayTrafficHistory = 1006;
 constexpr UINT_PTR kSurfaceClockTimerId = 1;
 constexpr UINT kSurfaceClockPeriodMs = 8;
 constexpr int kAutoHideTaskbarReservationDip = 4;
@@ -395,6 +396,7 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
     }
 
     const std::wstring settings_label = options.is_chinese ? L"设置" : L"Settings";
+    const std::wstring history_label = options.is_chinese ? L"流量统计" : L"Traffic History";
     std::wstring collector_label;
     if (options.can_retry_collector) {
         collector_label = options.is_chinese ? L"重试采集器" : L"Retry Collector";
@@ -408,6 +410,8 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
                 show_monitor_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayPinMonitor), pin_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTraySettings), settings_label.c_str());
+    AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayTrafficHistory),
+                history_label.c_str());
     AppendMenuW(menu, options.can_retry_collector ? MF_STRING : MF_STRING | MF_GRAYED,
                 static_cast<UINT_PTR>(kCmdTrayRetryCollector), collector_label.c_str());
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -438,6 +442,8 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
             listener_->on_context_menu_toggle_pin();
         } else if (cmd == kCmdTraySettings) {
             listener_->on_context_menu_settings();
+        } else if (cmd == kCmdTrayTrafficHistory) {
+            listener_->on_context_menu_traffic_history();
         } else if (cmd == kCmdTrayRetryCollector) {
             listener_->on_context_menu_retry_collector();
         } else if (cmd == kCmdTrayExit) {

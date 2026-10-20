@@ -3,6 +3,7 @@
 #include "network_flow_monitor/host/bridge/bridge_types.h"
 #include "network_flow_monitor/host/bridge/native_bridge.h"
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
+#include "network_flow_monitor/host/history/traffic_history_store.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
@@ -68,6 +69,7 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     bool open_log_directory_called{false};
     bool check_for_update_called{false};
     bool download_and_apply_update_called{false};
+    bool request_traffic_history_called{false};
     void on_show_monitor() override {
         show_monitor_called = true;
     }
@@ -130,6 +132,9 @@ class MockBridgeCommandHandler : public nfm::host::bridge::IBridgeCommandHandler
     void on_download_and_apply_update() override {
         download_and_apply_update_called = true;
     }
+    void on_request_traffic_history() override {
+        request_traffic_history_called = true;
+    }
 };
 
 void CheckEnumMappings(TestContext& context) {
@@ -155,6 +160,9 @@ void CheckEnumMappings(TestContext& context) {
     context.Check(parse_web_command_type("downloadAndApplyUpdate") ==
                       WebCommandType::DownloadAndApplyUpdate,
                   "Parse downloadAndApplyUpdate");
+    context.Check(parse_web_command_type("requestTrafficHistory") ==
+                      WebCommandType::RequestTrafficHistory,
+                  "Parse requestTrafficHistory");
     context.Check(parse_web_command_type("invalidCommand") == WebCommandType::Unknown,
                   "Parse invalid command");
 
@@ -166,6 +174,11 @@ void CheckEnumMappings(TestContext& context) {
                   "Parse trafficTick");
     context.Check(parse_native_event_type("updateStatus") == NativeEventType::UpdateStatus,
                   "Parse updateStatus");
+    context.Check(to_string(NativeEventType::TrafficHistoryUpdated) == "trafficHistoryUpdated",
+                  "TrafficHistoryUpdated to string");
+    context.Check(parse_native_event_type("trafficHistoryUpdated") ==
+                      NativeEventType::TrafficHistoryUpdated,
+                  "Parse trafficHistoryUpdated");
     context.Check(parse_native_event_type("unknownEvent") == NativeEventType::Unknown,
                   "Parse unknown event");
 }
@@ -1618,7 +1631,6 @@ void TestDetachedUpdateScriptExecution(TestContext& ctx) {
     ctx.Check(marker_created, "detached batch script actually executed and wrote marker file");
     std::filesystem::remove_all(temp_dir, ec);
 }
-
 } // namespace
 
 int Run() {
@@ -1630,6 +1642,178 @@ int Run() {
 }
 } // namespace app_updater_suite
 
+namespace traffic_history_suite {
+namespace {
+
+class TestContext {
+  public:
+    void Check(bool condition, std::string_view name) {
+        if (!condition) {
+            std::cerr << "Case failed: " << name << '\n';
+            ++failures_;
+        }
+    }
+    [[nodiscard]] int failures() const noexcept {
+        return failures_;
+    }
+
+  private:
+    int failures_{};
+};
+
+void Test2DPersistenceDeltaAndExclusionFiltering(TestContext& ctx) {
+    using nfm::host::history::TrafficHistoryStore;
+    using nfm::ipc::RankingApplication;
+    using nfm::ipc::RankingSnapshotMessage;
+
+    const auto temp_dir = std::filesystem::temp_directory_path() /
+                          ("nfm_history_test_" + std::to_string(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+    const auto history_file = temp_dir / L"data" / L"traffic_history.json";
+
+    std::string current_date = "2026-10-19";
+    TrafficHistoryStore store(history_file, [&]() { return current_date; });
+    store.on_session_reset("session_1");
+
+    std::vector<std::string> excluded{"mihomo-multi.exe"};
+
+    // Snapshot 1 on 2026-10-19: Edge (1000 DL, 500 UL) and excluded Mihomo (99999 DL, 99999 UL)
+    RankingSnapshotMessage snap1{
+        .seq = 1U,
+        .monotonic_ms = 1000U,
+        .status = "Ready",
+        .applications =
+            {
+                RankingApplication{
+                    .id = "executable:C:\\Program Files\\Edge\\msedge.exe",
+                    .executable_path = "C:\\Program Files\\Edge\\msedge.exe",
+                    .display_name = "Microsoft Edge",
+                    .total_download_bytes = 1000U,
+                    .total_upload_bytes = 500U,
+                },
+                RankingApplication{
+                    .id = "executable:C:\\Proxy\\mihomo-multi.exe",
+                    .executable_path = "C:\\Proxy\\mihomo-multi.exe",
+                    .display_name = "mihomo-multi.exe",
+                    .total_download_bytes = 99999U,
+                    .total_upload_bytes = 99999U,
+                },
+            },
+    };
+    ctx.Check(store.record_snapshot(snap1, excluded), "record_snapshot #1 records Edge");
+
+    // Snapshot 2 on 2026-10-19: Edge cumulative increases to (2500 DL, 800 UL) -> delta (+1500 DL,
+    // +300 UL)
+    RankingSnapshotMessage snap2{
+        .seq = 2U,
+        .monotonic_ms = 2000U,
+        .status = "Ready",
+        .applications =
+            {
+                RankingApplication{
+                    .id = "executable:C:\\Program Files\\Edge\\msedge.exe",
+                    .executable_path = "C:\\Program Files\\Edge\\msedge.exe",
+                    .display_name = "Microsoft Edge",
+                    .total_download_bytes = 2500U,
+                    .total_upload_bytes = 800U,
+                },
+            },
+    };
+    ctx.Check(store.record_snapshot(snap2, excluded), "record_snapshot #2 records delta");
+
+    // Next calendar day 2026-10-20 in the same Collector session: Edge cumulative is (4000 DL, 1200
+    // UL) Delta (+1500 DL, +400 UL) goes to 2026-10-20 bucket
+    current_date = "2026-10-20";
+    RankingSnapshotMessage snap3{
+        .seq = 3U,
+        .monotonic_ms = 3000U,
+        .status = "Ready",
+        .applications =
+            {
+                RankingApplication{
+                    .id = "executable:C:\\Program Files\\Edge\\msedge.exe",
+                    .executable_path = "C:\\Program Files\\Edge\\msedge.exe",
+                    .display_name = "Microsoft Edge",
+                    .total_download_bytes = 4000U,
+                    .total_upload_bytes = 1200U,
+                },
+                RankingApplication{
+                    .id = "executable:C:\\Code\\Code.exe",
+                    .executable_path = "C:\\Code\\Code.exe",
+                    .display_name = "Visual Studio Code",
+                    .total_download_bytes = 600U,
+                    .total_upload_bytes = 200U,
+                },
+            },
+    };
+    ctx.Check(store.record_snapshot(snap3, excluded), "record_snapshot #3 records new day");
+
+    // Simulate Collector restart (new session_2) where cumulative counters start from 0 again
+    store.on_session_reset("session_2");
+    RankingSnapshotMessage snap4{
+        .seq = 1U,
+        .monotonic_ms = 1000U,
+        .status = "Ready",
+        .applications =
+            {
+                RankingApplication{
+                    .id = "executable:C:\\Program Files\\Edge\\msedge.exe",
+                    .executable_path = "C:\\Program Files\\Edge\\msedge.exe",
+                    .display_name = "Microsoft Edge",
+                    .total_download_bytes = 500U,
+                    .total_upload_bytes = 100U,
+                },
+            },
+    };
+    ctx.Check(store.record_snapshot(snap4, excluded),
+              "record_snapshot #4 after session reset accumulates without losing prior bytes");
+
+    // Save to disk and reload into a fresh TrafficHistoryStore
+    ctx.Check(store.save_if_dirty(),
+              "atomic save to <app_root>/data/traffic_history.json succeeds");
+    ctx.Check(std::filesystem::exists(history_file, ec),
+              "traffic_history.json file exists on disk");
+
+    TrafficHistoryStore reloaded(history_file);
+    ctx.Check(reloaded.load(), "reload traffic_history.json succeeds");
+    const auto dto = reloaded.export_dto(excluded, false);
+    ctx.Check(dto.days.size() == 2U, "2 calendar days persisted");
+    if (dto.days.size() == 2U) {
+        ctx.Check(dto.days[0].date == "2026-10-20", "newest day first (2026-10-20)");
+        ctx.Check(dto.days[0].total_download_bytes == 2600U &&
+                      dto.days[0].total_upload_bytes == 700U,
+                  "2026-10-20 totals match Edge (1500+500 DL, 400+100 UL) + Code (600 DL, 200 UL)");
+        ctx.Check(dto.days[0].applications.size() == 2U, "2 non-excluded apps on 2026-10-20");
+
+        ctx.Check(dto.days[1].date == "2026-10-19", "older day second (2026-10-19)");
+        ctx.Check(dto.days[1].total_download_bytes == 2500U &&
+                      dto.days[1].total_upload_bytes == 800U,
+                  "2026-10-19 totals match Edge (2500 DL, 800 UL) and exclude mihomo");
+    }
+
+    // Dynamic exclusion on export: if Code.exe is added to excluded_programs later, export filters
+    // it out
+    const auto filtered_dto = reloaded.export_dto({"mihomo-multi.exe", "Code.exe"}, false);
+    if (!filtered_dto.days.empty()) {
+        ctx.Check(filtered_dto.days[0].applications.size() == 1U &&
+                      filtered_dto.days[0].total_download_bytes == 2000U,
+                  "export_dto dynamically excludes newly added excluded_programs");
+    }
+
+    std::filesystem::remove_all(temp_dir, ec);
+}
+
+} // namespace
+
+int Run() {
+    TestContext ctx;
+    Test2DPersistenceDeltaAndExclusionFiltering(ctx);
+    return ctx.failures();
+}
+} // namespace traffic_history_suite
+
 int main() {
     int failures = 0;
     failures += (host_bridge_suite::Run() != 0 ? 1 : 0);
@@ -1637,5 +1821,6 @@ int main() {
     failures += (host_lifecycle_suite::Run() != 0 ? 1 : 0);
     failures += (dock_capsule_coordinator_suite::Run() != 0 ? 1 : 0);
     failures += (app_updater_suite::Run() != 0 ? 1 : 0);
+    failures += (traffic_history_suite::Run() != 0 ? 1 : 0);
     return failures;
 }

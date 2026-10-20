@@ -26,7 +26,7 @@ MonitorArea make_default_monitor() {
 
 DockCapsuleCoordinator::DockCapsuleCoordinator(config::AppConfig config,
                                                std::vector<MonitorArea> monitors)
-    : config_(config), monitors_(std::move(monitors)) {
+    : config_(std::move(config)), monitors_(std::move(monitors)) {
     if (monitors_.empty()) {
         monitors_.push_back(make_default_monitor());
     }

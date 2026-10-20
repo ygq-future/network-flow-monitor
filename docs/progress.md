@@ -291,19 +291,16 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 新增 `requestConnectedApplications`、`browseExcludedProgram`（调用 Win32 `IFileOpenDialog` 原生文件选择框选择 `.exe`）与 `connectedApplications` 桥接事件；
   - 在设置中心「通用」页新增「排除程序统计」折叠管理面板：支持展示已排除程序标签并一键移除、手动输入进程名添加、原生浏览 `.exe` 添加，以及对当前已连接程序列表进行模糊搜索筛选与一键排除。
 
-## 第十九轮多级递进历史流量统计（Phase 2） — pending (待下一会话实现)
+## 第十九轮多级递进历史流量统计（Phase 2） — complete
 
-- **待实现目标（已与用户确认方案，完成编码与测试后不自动 commit，待用户实机验证）**：
-  1. **持久化历史流量存储 (`TrafficHistoryStore`, `<app_root>/data/traffic_history.json`)**：
-     - 从软件启动运行开始持续统计（自动剔除 `ranking.excluded_programs` 中被排除的程序）；
-     - 以 **本地自然日 (`YYYY-MM-DD`) + 应用身份 (`app_id` / `executable_path` / `executable_name` / `display_name`)** 为存储粒度，基于 `RankingSnapshot` 携带的各应用累计 `total_download_bytes` / `total_upload_bytes` 差分累加（处理 Collector 会话重置/重启续接），定时及退出时原子写盘。
-  2. **Bridge 历史数据查询与推送协议**：
-     - 新增历史流量数据查询与实时更新事件（如 `requestTrafficHistory`、`trafficHistoryUpdated`），并在右键菜单支持快捷进入流量统计视图。
-  3. **增强版多级递进历史流量统计 UI（不实现日历视图，专注增强列表视图）**：
-     - 在设置/管理窗口新增独立「流量统计 / History」标签页；
-     - **多级递进下钻表格（Drill-down）**：
-       - **时间维度 ⇄ 应用维度双向递进**：最外层支持按时间（日视图 `YYYY/MM/DD`、周视图、月视图 `YYYY/MM`、季视图、年视图 `YYYY`）聚合展示上传、下载、总流量与右侧水平比例条；点击某一行时间周期可下钻进入该周期内的「历史应用流量排行」；点击某一应用可继续查看该应用按日/周/月/季/年的历史明细（同时支持顶层直接按「历史应用总榜 -> 点击应用查看年月日明细」）；
-     - **排序、筛选与比例切换**：
-       - 支持按应用名/进程名/日期模糊搜索筛选；
-       - 支持按日期/应用名、上传、下载、总流量列头升序/降序排序；
-       - 图表列支持 **对数比例（Logarithmic）** 与 **线性比例（Linear）** 切换。
+- **持久化二维历史流量存储 (`traffic_history_store.h/.cpp`, `config_paths.h/.cpp`, `product_host.h/.cpp`, `host_tests.cpp`)**：
+  - 实现 `TrafficHistoryStore`，以「本地自然日 (`YYYY-MM-DD`) + 归一化应用身份 (`executable:<path>` / `package-app:` / `app:`)」为二维存储粒度，基于 `RankingSnapshotMessage` 中各应用的累计 `total_download_bytes` 与 `total_upload_bytes` 实时差分累加；
+  - 支持跨午夜自然日自动切分、Collector 会话重置（`on_session_reset`）无损续接、实时与导出双阶段自动剔除 `ranking.excluded_programs` 被排除程序，以及每 30 秒定时与宿主退出时向 `<app_root>/data/traffic_history.json` 原子写盘（`CreateFileW` 临时文件 + `FlushFileBuffers` + `ReplaceFileW` / `MoveFileExW`）。
+- **Bridge 历史数据协议与原生右键菜单直达 (`bridge_types.h/.cpp`, `bridge_dispatcher.h/.cpp`, `native_bridge.h/.cpp`, `win32_window.h/.cpp`, `product_host.h/.cpp`)**：
+  - 新增 `requestTrafficHistory` 命令與 `trafficHistoryUpdated` 事件，`SurfaceChangedDto` 新增 `route` 字段；
+  - 原生右键菜单（托盘与浮动表面）新增「流量统计 / Traffic History」快捷入口，点击直接唤醒设置窗口并切换至「流量统计」标签页。
+- **多级递进历史流量统计标签页 (`TrafficHistoryPanel.tsx`, `SettingsCenter.tsx`, `SettingsCenter.test.tsx`)**：
+  - 在设置中心顶栏新增「流量统计 / Traffic History」标签页；
+  - 支持「按时间统计 ⇄ 按应用总榜」双根维度切换，以及 **日 (`YYYY/MM/DD`) / 周 / 月 (`YYYY/MM`) / 季 (`YYYY Q1~Q4`) / 年 (`YYYY`)** 五级时间周期粒度聚合；
+  - 支持多级递进下钻与面包屑导航（如：时间周期行 → 该周期内各应用流量排行 → 指定应用在各时间周期的历史明细；或：应用总榜 → 指定应用在各时间周期的历史明细）；
+  - 支持按日期/应用名/进程名/路径模糊搜索筛选、按周期/应用名/下载/上传/总流量列头升序与降序排序、底部当前筛选合计汇总行，以及右侧双色水平比例条的 **对数比例（Logarithmic）** 与 **线性比例（Linear）** 切换。

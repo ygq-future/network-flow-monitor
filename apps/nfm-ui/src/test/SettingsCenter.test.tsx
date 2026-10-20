@@ -18,16 +18,15 @@ function renderWithProviders(ui: React.ReactElement, bridge: MockBridge) {
 }
 
 describe('SettingsCenter', () => {
-  it('renders 3 tabs and default general section', () => {
+  it('renders 4 tabs including Traffic History and default general section', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /General/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Dock Capsule/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Traffic History/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Collector & Logs/i })).toBeInTheDocument()
-
-    // General tab content
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
     expect(screen.getByText('Speed Unit')).toBeInTheDocument()
     expect(screen.getByText('Application Theme')).toBeInTheDocument()
@@ -200,6 +199,104 @@ describe('SettingsCenter', () => {
     expect(spy).toHaveBeenCalledWith('requestConnectedApplications')
   })
 
+  it('supports multi-level progressive traffic history drill-down, period granularity, search, sorting and scale toggle', () => {
+    const bridge = new MockBridge(false)
+    renderWithProviders(<SettingsCenter initialTab="history" />, bridge)
+
+    act(() => {
+      bridge.emit('trafficHistoryUpdated', {
+        schemaVersion: 1,
+        days: [
+          {
+            date: '2026-10-20',
+            totalDownloadBytes: 2097152,
+            totalUploadBytes: 1048576,
+            applications: [
+              {
+                appId: 'executable:c:\\edge\\msedge.exe',
+                executablePath: 'C:\\Edge\\msedge.exe',
+                executableName: 'msedge.exe',
+                displayName: 'Microsoft Edge',
+                iconKey: '',
+                downloadBytes: 1572864,
+                uploadBytes: 524288,
+              },
+              {
+                appId: 'executable:c:\\code\\code.exe',
+                executablePath: 'C:\\Code\\Code.exe',
+                executableName: 'Code.exe',
+                displayName: 'Visual Studio Code',
+                iconKey: '',
+                downloadBytes: 524288,
+                uploadBytes: 524288,
+              },
+            ],
+          },
+          {
+            date: '2026-09-15',
+            totalDownloadBytes: 1048576,
+            totalUploadBytes: 524288,
+            applications: [
+              {
+                appId: 'executable:c:\\edge\\msedge.exe',
+                executablePath: 'C:\\Edge\\msedge.exe',
+                executableName: 'msedge.exe',
+                displayName: 'Microsoft Edge',
+                iconKey: '',
+                downloadBytes: 1048576,
+                uploadBytes: 524288,
+              },
+            ],
+          },
+        ],
+      })
+    })
+
+    // Default is By Time + Day granularity: shows 26/10/20 and 26/09/15
+    expect(screen.getByText('26/10/20')).toBeInTheDocument()
+    expect(screen.getByText('26/09/15')).toBeInTheDocument()
+
+    // Switch granularity to Month -> shows 26/10 and 26/09
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+    expect(screen.getByText('26/10')).toBeInTheDocument()
+    expect(screen.getByText('26/09')).toBeInTheDocument()
+
+    // Switch granularity to Quarter -> shows 26 Q4 and 26 Q3
+    fireEvent.click(screen.getByRole('button', { name: 'Quarter' }))
+    expect(screen.getByText('26 Q4')).toBeInTheDocument()
+    expect(screen.getByText('26 Q3')).toBeInTheDocument()
+
+    // Switch granularity to Year -> shows 26
+    fireEvent.click(screen.getByRole('button', { name: 'Year' }))
+    expect(screen.getByText('26')).toBeInTheDocument()
+
+    // Switch back to Day and drill down into 26/10/20 -> shows Microsoft Edge and Visual Studio Code
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }))
+    fireEvent.click(screen.getByText('26/10/20'))
+    expect(screen.getByText('Microsoft Edge')).toBeInTheDocument()
+    expect(screen.getByText('Visual Studio Code')).toBeInTheDocument()
+
+    // Drill down further into Microsoft Edge -> shows its period breakdown across days
+    fireEvent.click(screen.getByText('Microsoft Edge'))
+    expect(screen.getAllByText('26/10/20').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('26/09/15')).toBeInTheDocument()
+    // Switch root dimension to By Application
+    fireEvent.click(screen.getByRole('button', { name: /By Application/i }))
+    expect(screen.getByText('Microsoft Edge')).toBeInTheDocument()
+    expect(screen.getByText('Visual Studio Code')).toBeInTheDocument()
+
+    // Fuzzy search filter
+    const filterInput = screen.getByPlaceholderText(/Filter by date, app, or executable/i)
+    fireEvent.change(filterInput, { target: { value: 'studio' } })
+    expect(screen.getByText('Visual Studio Code')).toBeInTheDocument()
+    expect(screen.queryByText('Microsoft Edge')).not.toBeInTheDocument()
+
+    // Clear search and test scale toggle (Log <-> Linear) and column sorting
+    fireEvent.change(filterInput, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Linear' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Log' }))
+    fireEvent.click(screen.getByRole('button', { name: /↓ Download/i }))
+  })
   it('handles close button navigation', () => {
     const bridge = new MockBridge(false)
     const handleBack = vi.fn()

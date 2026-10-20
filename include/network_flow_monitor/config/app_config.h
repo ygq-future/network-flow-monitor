@@ -72,7 +72,7 @@ enum class LogLevel : std::uint8_t {
 struct RankingConfig {
     std::uint8_t top_n;
     std::chrono::milliseconds window;
-    std::vector<std::string> excluded_programs{};
+    std::vector<std::string> excluded_programs;
 
     bool operator==(const RankingConfig&) const = default;
 };

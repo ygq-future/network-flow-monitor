@@ -57,6 +57,7 @@ class BridgeDispatcher {
     // Static helper to serialize UpdateStatusDto
     static std::string serialize_update_status(const UpdateStatusDto& status);
     static std::string serialize_connected_applications(const ConnectedApplicationsDto& apps);
+    static std::string serialize_traffic_history(const TrafficHistoryDto& history);
     // Static helper to serialize BridgeErrorDto
     static std::string serialize_error(const BridgeErrorDto& error);
 

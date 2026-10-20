@@ -87,6 +87,12 @@ void NativeBridge::post_connected_applications(const ConnectedApplicationsDto& a
     }
     sender_(BridgeDispatcher::serialize_connected_applications(apps));
 }
+void NativeBridge::post_traffic_history(const TrafficHistoryDto& history) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_traffic_history(history));
+}
 void NativeBridge::post_error(const BridgeErrorDto& error) {
     if (!sender_) {
         return;

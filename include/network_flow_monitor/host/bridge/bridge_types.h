@@ -56,6 +56,7 @@ enum class WebCommandType : std::uint8_t {
     DownloadAndApplyUpdate,
     RequestConnectedApplications,
     BrowseExcludedProgram,
+    RequestTrafficHistory,
     Unknown,
 };
 
@@ -72,6 +73,7 @@ enum class NativeEventType : std::uint8_t {
     CommandResponse,
     UpdateStatus,
     ConnectedApplications,
+    TrafficHistoryUpdated,
     Error,
     Unknown,
 };
@@ -88,6 +90,7 @@ struct SurfaceChangedDto {
     bool pinned{false};
     config::DockSide dock_side{config::DockSide::Right};
     bool auto_hidden{false};
+    std::string route;
     bool operator==(const SurfaceChangedDto&) const = default;
 };
 
@@ -193,6 +196,34 @@ struct ConnectedApplicationsDto {
     std::vector<ConnectedAppDto> applications;
 
     bool operator==(const ConnectedApplicationsDto&) const = default;
+};
+
+struct TrafficHistoryAppEntryDto {
+    std::string app_id;
+    std::string executable_path;
+    std::string executable_name;
+    std::string display_name;
+    std::string icon_key;
+    std::uint64_t download_bytes{};
+    std::uint64_t upload_bytes{};
+
+    bool operator==(const TrafficHistoryAppEntryDto&) const = default;
+};
+
+struct TrafficHistoryDayDto {
+    std::string date; // Local calendar day: "YYYY-MM-DD"
+    std::uint64_t total_download_bytes{};
+    std::uint64_t total_upload_bytes{};
+    std::vector<TrafficHistoryAppEntryDto> applications;
+
+    bool operator==(const TrafficHistoryDayDto&) const = default;
+};
+
+struct TrafficHistoryDto {
+    std::uint32_t schema_version{1U};
+    std::vector<TrafficHistoryDayDto> days;
+
+    bool operator==(const TrafficHistoryDto&) const = default;
 };
 
 struct BridgeErrorDto {

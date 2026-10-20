@@ -30,9 +30,13 @@ describe('formatRate', () => {
 })
 
 describe('formatBytes', () => {
-  it('formats byte totals accurately', () => {
+  it('formats byte totals with compact integer < 1MB and >= 1000 promotion', () => {
     expect(formatBytes(0)).toBe('0 B')
-    expect(formatBytes(1024)).toBe('1.0 KB')
+    expect(formatBytes(512)).toBe('512 B')
+    expect(formatBytes(1024)).toBe('1 KB')
+    expect(formatBytes(99.4 * 1024)).toBe('99 KB')
+    expect(formatBytes(1022.3 * 1024)).toBe('1.0 MB')
     expect(formatBytes(1048576)).toBe('1.0 MB')
+    expect(formatBytes(128.6 * 1048576)).toBe('129 MB')
   })
 })

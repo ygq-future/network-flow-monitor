@@ -17,9 +17,14 @@ import { SettingsCenter } from '../features/settings/SettingsCenter'
 
 const SettingsSurface: React.FC = () => {
   const bridge = useBridge()
+  const surface = useSurface()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'Dark'
   const bgStyle = isDark ? '#09090b' : '#ffffff'
+  const initialTab =
+    surface.route === 'history' || surface.route === 'capsule' || surface.route === 'collector'
+      ? surface.route
+      : 'general'
 
   return (
     <div
@@ -29,6 +34,7 @@ const SettingsSurface: React.FC = () => {
       className="flex h-full w-full flex-col overflow-hidden bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <main className="min-h-0 flex-1 overflow-hidden">
         <SettingsCenter
+          initialTab={initialTab}
           onBack={() => bridge.sendCommand('hideMonitor')}
           onStartDrag={() => bridge.sendCommand('startWindowDrag')}
         />

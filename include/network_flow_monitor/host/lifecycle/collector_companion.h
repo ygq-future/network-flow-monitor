@@ -32,15 +32,18 @@ struct CollectorInfo {
 
 using TrafficTickCallback = std::function<void(const bridge::TrafficTickDto&)>;
 using RankingSnapshotCallback = std::function<void(const bridge::RankingSnapshotDto&)>;
+using RawRankingSnapshotCallback = std::function<void(const ipc::RankingSnapshotMessage&)>;
 using CollectorStatusCallback = std::function<void(const bridge::CollectorStatusDto&)>;
 using SessionResetCallback = std::function<void(const bridge::SessionResetDto&)>;
 using DiagnosticCallback = std::function<void(bool is_error, std::string_view message)>;
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 [[nodiscard]] bool is_application_excluded(std::string_view app_id,
                                            std::string_view executable_path,
                                            std::string_view display_name,
                                            const std::vector<std::string>& excluded_programs);
 [[nodiscard]] std::string extract_executable_filename(std::string_view path_or_name);
+[[nodiscard]] std::string extract_executable_icon_data_uri(std::string_view utf8_path);
 class CollectorCompanion : public ipc::IpcClientObserver {
   public:
     explicit CollectorCompanion(std::filesystem::path collector_executable_path = {});
@@ -53,6 +56,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
 
     void set_traffic_tick_callback(TrafficTickCallback callback);
     void set_ranking_snapshot_callback(RankingSnapshotCallback callback);
+    void set_raw_ranking_snapshot_callback(RawRankingSnapshotCallback callback);
     void set_collector_status_callback(CollectorStatusCallback callback);
     void set_session_reset_callback(SessionResetCallback callback);
     void set_diagnostic_callback(DiagnosticCallback callback);
@@ -88,6 +92,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     TrafficTickCallback traffic_tick_cb_;
     RankingSnapshotCallback ranking_snapshot_cb_;
     CollectorStatusCallback collector_status_cb_;
+    RawRankingSnapshotCallback raw_ranking_snapshot_cb_;
     SessionResetCallback session_reset_cb_;
     DiagnosticCallback diagnostic_cb_;
 

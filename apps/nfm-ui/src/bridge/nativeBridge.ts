@@ -12,6 +12,7 @@ import {
   SurfaceChangedDto,
   UpdateStatusDto,
   ConnectedApplicationsDto,
+  TrafficHistoryDto,
 } from './bridgeTypes'
 
 declare global {
@@ -215,6 +216,70 @@ export class MockBridge extends NativeBridge {
       },
     ],
   }
+  private currentTrafficHistory: TrafficHistoryDto = {
+    schemaVersion: 1,
+    days: [
+      {
+        date: '2026-10-20',
+        totalDownloadBytes: 2277515264,
+        totalUploadBytes: 62914560,
+        applications: [
+          {
+            appId: 'executable:c:\\program files (x86)\\steam\\steam.exe',
+            executablePath: 'C:\\Program Files (x86)\\Steam\\steam.exe',
+            executableName: 'steam.exe',
+            displayName: 'Steam Client Bootstrapper',
+            iconKey: 'steam',
+            downloadBytes: 2147483648,
+            uploadBytes: 41943040,
+          },
+          {
+            appId: 'executable:c:\\program files (x86)\\microsoft\\edge\\application\\msedge.exe',
+            executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+            executableName: 'msedge.exe',
+            displayName: 'Microsoft Edge',
+            iconKey: 'msedge',
+            downloadBytes: 104857600,
+            uploadBytes: 12582912,
+          },
+          {
+            appId: 'executable:c:\\users\\user\\appdata\\local\\programs\\microsoft vs code\\code.exe',
+            executablePath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+            executableName: 'Code.exe',
+            displayName: 'Visual Studio Code',
+            iconKey: 'code',
+            downloadBytes: 25174016,
+            uploadBytes: 8388608,
+          },
+        ],
+      },
+      {
+        date: '2026-10-19',
+        totalDownloadBytes: 536870912,
+        totalUploadBytes: 33554432,
+        applications: [
+          {
+            appId: 'executable:c:\\program files (x86)\\microsoft\\edge\\application\\msedge.exe',
+            executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+            executableName: 'msedge.exe',
+            displayName: 'Microsoft Edge',
+            iconKey: 'msedge',
+            downloadBytes: 402653184,
+            uploadBytes: 25165824,
+          },
+          {
+            appId: 'executable:c:\\users\\user\\appdata\\local\\programs\\microsoft vs code\\code.exe',
+            executablePath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+            executableName: 'Code.exe',
+            displayName: 'Visual Studio Code',
+            iconKey: 'code',
+            downloadBytes: 134217728,
+            uploadBytes: 8388608,
+          },
+        ],
+      },
+    ],
+  }
   constructor(autoTick = false) {
     super()
     if (autoTick && typeof window !== 'undefined') {
@@ -229,6 +294,7 @@ export class MockBridge extends NativeBridge {
         this.emit('configChanged', this.currentMockConfig)
         this.emit('updateStatus', this.currentUpdateStatus)
         this.emit('connectedApplications', this.currentConnectedApps)
+        this.emit('trafficHistoryUpdated', this.currentTrafficHistory)
       }, 0)
     } else if (type === 'showMonitor') {
       this.currentSurface = { ...this.currentSurface, surface: 'panel' }
@@ -237,10 +303,18 @@ export class MockBridge extends NativeBridge {
       this.currentSurface = { ...this.currentSurface, surface: 'tray' }
       setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
     } else if (type === 'openSettings') {
-      this.currentSurface = { ...this.currentSurface, surface: 'settings' }
+      const route =
+        payload && typeof payload === 'object' && 'route' in payload && typeof payload.route === 'string'
+          ? payload.route
+          : undefined
+      this.currentSurface = {
+        ...this.currentSurface,
+        surface: 'settings',
+        route: route || this.currentSurface.route || 'general',
+      }
       setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
-    } else if (type === 'setPin' && payload) {
-      const pinned = Boolean((payload as unknown as { pinned: boolean }).pinned)
+    } else if (type === 'setPin' && payload && typeof payload === 'object' && 'pinned' in payload) {
+      const pinned = Boolean(payload.pinned)
       this.currentSurface = { ...this.currentSurface, surface: 'panel', pinned }
       setTimeout(() => this.emit('surfaceChanged', this.currentSurface), 0)
     } else if (type === 'updateSetting' && payload) {
@@ -249,13 +323,13 @@ export class MockBridge extends NativeBridge {
       setTimeout(() => {
         this.emit('configChanged', this.currentMockConfig)
       }, 0)
-    } else if (type === 'setTheme' && payload) {
-      const t = (payload as unknown as { theme: 'System' | 'Light' | 'Dark' }).theme
+    } else if (type === 'setTheme' && payload && typeof payload === 'object' && 'theme' in payload) {
+      const t = String(payload.theme) as 'System' | 'Light' | 'Dark'
       setTimeout(() => {
         this.emit('themeChanged', { theme: t })
       }, 0)
-    } else if (type === 'setLocale' && payload) {
-      const l = (payload as unknown as { locale: 'System' | 'English' | 'SimplifiedChinese' }).locale
+    } else if (type === 'setLocale' && payload && typeof payload === 'object' && 'locale' in payload) {
+      const l = String(payload.locale) as 'System' | 'English' | 'SimplifiedChinese'
       setTimeout(() => {
         this.emit('localeChanged', { locale: l })
       }, 0)
@@ -302,6 +376,10 @@ export class MockBridge extends NativeBridge {
     } else if (type === 'requestConnectedApplications') {
       setTimeout(() => {
         this.emit('connectedApplications', this.currentConnectedApps)
+      }, 0)
+    } else if (type === 'requestTrafficHistory') {
+      setTimeout(() => {
+        this.emit('trafficHistoryUpdated', this.currentTrafficHistory)
       }, 0)
     }
   }

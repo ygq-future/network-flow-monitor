@@ -269,3 +269,12 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 同步升级 CMake 工程版本、前端包清单、Windows 资源文件 `FILEVERSION`/`PRODUCTVERSION`（`0,1,1,0` / `"0.1.1"`）以及前端默认回退版本号。
 - **撰写中英双语发布说明 (`.github/release-note/v0.1.1.md`)**：
   - 汇总 WebView2 原生内存目标水位与隐藏态 `TrySuspend` 自动休眠、4Hz 流量节拍 Context 隔离与非活跃面板 DOM 卸载、采集器二次启动管道独占保护、断连胶囊颜色清零、关闭设置/托盘左键唤醒修复与设置按钮精简。
+
+## 第十七轮 v0.1.2 在线自更新零 PowerShell 依赖修复与版本发布 — complete
+
+- **修复在线自更新下载完成后未替换文件与未自动重启问题 (`app_updater.h`, `app_updater.cpp`, `host_tests.cpp`)**：
+  - 移除导致无控制台子进程立即退出的 `DETACHED_PROCESS` 标志，消除对 `powershell.exe` 及其模块的运行期依赖；
+  - 解压阶段改用 Windows 11 原生内置 `tar.exe -xf`，替换与重启阶段改用 `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` 启动 UTF-8 `apply-update.cmd`（`tasklist` 等待主进程退出、`xcopy` 重试覆盖文件、`start` 重新拉起新版主程序并清理 `data/update`）；
+  - 新增 `TestDetachedUpdateScriptExecution` 端到端测试验证无窗口后台脚本真实执行落盘。
+- **同步升级版本号至 `0.1.2` 并撰写 `.github/release-note/v0.1.2.md`**：
+  - 通过真机实测 `0.1.0 -> 0.1.1` 在线更新、文件替换与自动重启全链路验证，发布 `v0.1.2`。

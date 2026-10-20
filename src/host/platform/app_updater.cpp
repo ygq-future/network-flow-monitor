@@ -84,19 +84,6 @@ std::wstring Utf8ToWide(std::string_view utf8) {
     return out;
 }
 
-std::wstring EscapePowerShellSingleQuoted(std::wstring_view input) {
-    std::wstring escaped;
-    escaped.reserve(input.size() + 8U);
-    for (wchar_t ch : input) {
-        if (ch == L'\'') {
-            escaped.append(L"''");
-        } else {
-            escaped.push_back(ch);
-        }
-    }
-    return escaped;
-}
-
 struct ParsedUrl {
     std::wstring host;
     std::wstring path_and_query;
@@ -418,15 +405,8 @@ bool ExtractZipArchiveToDirectory(const std::filesystem::path& zip_path,
     std::filesystem::remove_all(stage_dir, ec);
     std::filesystem::create_directories(stage_dir, ec);
 
-    const std::wstring zip_escaped = EscapePowerShellSingleQuoted(zip_path.wstring());
-    const std::wstring stage_escaped = EscapePowerShellSingleQuoted(stage_dir.wstring());
-
     std::wstring cmd =
-        L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \""
-        L"$ErrorActionPreference = 'Stop'; "
-        L"Expand-Archive -LiteralPath '" +
-        zip_escaped + L"' -DestinationPath '" + stage_escaped + L"' -Force\"";
-
+        L"tar.exe -xf \"" + zip_path.wstring() + L"\" -C \"" + stage_dir.wstring() + L"\"";
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
@@ -439,9 +419,8 @@ bool ExtractZipArchiveToDirectory(const std::filesystem::path& zip_path,
     if (CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
                        nullptr, nullptr, &si, &pi) == FALSE) {
         if (error_out != nullptr) {
-            *error_out =
-                "Failed to launch Expand-Archive process (win32=" + std::to_string(GetLastError()) +
-                ")";
+            *error_out = "Failed to launch tar.exe archive extractor (win32=" +
+                         std::to_string(GetLastError()) + ")";
         }
         return false;
     }
@@ -454,7 +433,8 @@ bool ExtractZipArchiveToDirectory(const std::filesystem::path& zip_path,
 
     if (exit_code != 0U) {
         if (error_out != nullptr) {
-            *error_out = "Expand-Archive failed with exit code " + std::to_string(exit_code);
+            *error_out =
+                "tar.exe archive extraction failed with exit code " + std::to_string(exit_code);
         }
         return false;
     }
@@ -470,37 +450,6 @@ bool ExtractZipArchiveToDirectory(const std::filesystem::path& zip_path,
         return false;
     }
 
-    return true;
-}
-
-bool LaunchDetachedUpdateScript(const std::filesystem::path& script_path, std::string* error_out) {
-    std::wstring cmd =
-        L"powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass "
-        L"-File \"" +
-        script_path.wstring() + L"\"";
-
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi{};
-
-    std::vector<wchar_t> mutable_cmd(cmd.begin(), cmd.end());
-    mutable_cmd.push_back(L'\0');
-
-    if (CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
-                       CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, nullptr,
-                       nullptr, &si, &pi) == FALSE) {
-        if (error_out != nullptr) {
-            *error_out =
-                "Failed to spawn update installer script (win32=" + std::to_string(GetLastError()) +
-                ")";
-        }
-        return false;
-    }
-
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
     return true;
 }
 
@@ -689,54 +638,99 @@ std::wstring AppUpdater::build_apply_update_script(std::uint32_t host_pid,
                                                    const std::filesystem::path& staged_dir,
                                                    const std::filesystem::path& app_root_dir,
                                                    const std::filesystem::path& host_exe_path) {
-    const std::wstring staged_escaped = EscapePowerShellSingleQuoted(staged_dir.wstring());
-    const std::wstring root_escaped = EscapePowerShellSingleQuoted(app_root_dir.wstring());
-    const std::wstring exe_escaped = EscapePowerShellSingleQuoted(host_exe_path.wstring());
-    const std::wstring update_root_escaped =
-        EscapePowerShellSingleQuoted(staged_dir.parent_path().wstring());
+    const std::wstring staged_str = staged_dir.wstring();
+    const std::wstring root_str = app_root_dir.wstring();
+    const std::wstring exe_str = host_exe_path.wstring();
+    const std::wstring update_root_str = staged_dir.parent_path().wstring();
 
     std::wstring script;
-    script += L"$ErrorActionPreference = 'SilentlyContinue'\r\n";
-    script += L"$hostPid = " + std::to_wstring(host_pid) + L"\r\n";
-    script += L"$stagedDir = '" + staged_escaped + L"'\r\n";
-    script += L"$appRoot = '" + root_escaped + L"'\r\n";
-    script += L"$hostExe = '" + exe_escaped + L"'\r\n";
-    script += L"$updateRoot = '" + update_root_escaped + L"'\r\n";
-    script += L"for ($i = 0; $i -lt 120; $i++) {\r\n";
-    script += L"    $p = Get-Process -Id $hostPid -ErrorAction SilentlyContinue\r\n";
-    script += L"    if ($null -eq $p) { break }\r\n";
-    script += L"    Start-Sleep -Milliseconds 150\r\n";
-    script += L"}\r\n";
-    script += L"Get-Process -Name 'nfm-collector' -ErrorAction SilentlyContinue | Where-Object { "
-              L"$_.Path -like \"$appRoot*\" } | Stop-Process -Force -ErrorAction "
-              L"SilentlyContinue\r\n";
-    script += L"Start-Sleep -Milliseconds 250\r\n";
-    script += L"$items = Get-ChildItem -LiteralPath $stagedDir -Force\r\n";
-    script += L"foreach ($item in $items) {\r\n";
-    script += L"    if ($item.Name -in @('data', 'logs')) { continue }\r\n";
-    script += L"    $dest = Join-Path $appRoot $item.Name\r\n";
-    script += L"    for ($retry = 0; $retry -lt 20; $retry++) {\r\n";
-    script += L"        try {\r\n";
-    script += L"            if ($item.PSIsContainer) {\r\n";
-    script += L"                if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath "
-              L"$dest -Recurse -Force -ErrorAction Stop }\r\n";
-    script += L"                Copy-Item -LiteralPath $item.FullName -Destination $dest "
-              L"-Recurse -Force -ErrorAction Stop\r\n";
-    script += L"            } else {\r\n";
-    script += L"                Copy-Item -LiteralPath $item.FullName -Destination $dest -Force "
-              L"-ErrorAction Stop\r\n";
-    script += L"            }\r\n";
-    script += L"            break\r\n";
-    script += L"        } catch {\r\n";
-    script += L"            Start-Sleep -Milliseconds 250\r\n";
-    script += L"        }\r\n";
-    script += L"    }\r\n";
-    script += L"}\r\n";
-    script += L"Start-Process -FilePath $hostExe -WorkingDirectory $appRoot\r\n";
-    script += L"Start-Sleep -Milliseconds 500\r\n";
-    script += L"Remove-Item -LiteralPath $updateRoot -Recurse -Force -ErrorAction "
-              L"SilentlyContinue\r\n";
+    script += L"@echo off\r\n";
+    script += L"chcp 65001 >nul 2>&1\r\n";
+    script += L"set \"HOST_PID=" + std::to_wstring(host_pid) + L"\"\r\n";
+    script += L"set \"STAGED_DIR=" + staged_str + L"\"\r\n";
+    script += L"set \"APP_ROOT=" + root_str + L"\"\r\n";
+    script += L"set \"HOST_EXE=" + exe_str + L"\"\r\n";
+    script += L"set \"UPDATE_ROOT=" + update_root_str + L"\"\r\n";
+    script += L"for /L %%I in (1,1,60) do (\r\n";
+    script += L"    tasklist /FI \"PID eq %HOST_PID%\" /NH 2>nul | findstr /I "
+              L"\"NetworkFlowMonitor\" >nul\r\n";
+    script += L"    if errorlevel 1 goto :host_exited\r\n";
+    script += L"    ping 127.0.0.1 -n 2 -w 200 >nul 2>&1\r\n";
+    script += L")\r\n";
+    script += L":host_exited\r\n";
+    script += L"for /L %%I in (1,1,20) do (\r\n";
+    script += L"    xcopy \"%STAGED_DIR%\\*\" \"%APP_ROOT%\\\" /E /I /Y /Q >nul 2>&1\r\n";
+    script += L"    if not errorlevel 1 goto :copy_done\r\n";
+    script += L"    ping 127.0.0.1 -n 2 -w 250 >nul 2>&1\r\n";
+    script += L")\r\n";
+    script += L":copy_done\r\n";
+    script += L"start \"\" /D \"%APP_ROOT%\" \"%HOST_EXE%\"\r\n";
+    script += L"ping 127.0.0.1 -n 2 -w 500 >nul 2>&1\r\n";
+    script += L"rmdir /S /Q \"%UPDATE_ROOT%\" >nul 2>&1\r\n";
     return script;
+}
+
+bool AppUpdater::write_utf8_script(const std::filesystem::path& script_path,
+                                   std::wstring_view script_content, std::string* error_out) {
+    std::ofstream script_out(script_path, std::ios::binary | std::ios::trunc);
+    if (!script_out.is_open()) {
+        if (error_out != nullptr) {
+            *error_out = "Failed to write update helper script";
+        }
+        return false;
+    }
+    if (!script_content.empty()) {
+        const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, script_content.data(),
+                                                 static_cast<int>(script_content.size()), nullptr,
+                                                 0, nullptr, nullptr);
+        if (utf8_len > 0) {
+            std::string utf8_script(static_cast<std::size_t>(utf8_len), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, script_content.data(),
+                                static_cast<int>(script_content.size()), utf8_script.data(),
+                                utf8_len, nullptr, nullptr);
+            script_out.write(utf8_script.data(), static_cast<std::streamsize>(utf8_script.size()));
+        }
+    }
+    script_out.flush();
+    if (!script_out.good()) {
+        if (error_out != nullptr) {
+            *error_out = "Failed to flush update helper script";
+        }
+        return false;
+    }
+    return true;
+}
+
+bool AppUpdater::launch_detached_update_script(const std::filesystem::path& script_path,
+                                               std::string* error_out) {
+    std::wstring cmd = L"cmd.exe /D /C \"\"" + script_path.wstring() + L"\"\"";
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+
+    std::vector<wchar_t> mutable_cmd(cmd.begin(), cmd.end());
+    mutable_cmd.push_back(L'\0');
+
+    const std::filesystem::path work_dir = script_path.parent_path();
+    const wchar_t* work_dir_ptr = work_dir.empty() ? nullptr : work_dir.c_str();
+
+    if (CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+                       CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, nullptr, work_dir_ptr, &si,
+                       &pi) == FALSE) {
+        if (error_out != nullptr) {
+            *error_out =
+                "Failed to spawn update installer script (win32=" + std::to_string(GetLastError()) +
+                ")";
+        }
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
 }
 
 void AppUpdater::update_state(const bridge::UpdateStatusDto& next_status) {
@@ -907,34 +901,19 @@ void AppUpdater::run_download_and_apply_worker(const ReleaseAssetInfo& release_i
         return;
     }
 
-    const std::filesystem::path script_path = update_dir / L"apply-update.ps1";
+    const std::filesystem::path script_path = update_dir / L"apply-update.cmd";
     const std::wstring script_content = build_apply_update_script(
         GetCurrentProcessId(), staged_dir, options_.app_root_dir, options_.host_executable_path);
 
-    {
-        std::ofstream script_out(script_path, std::ios::binary | std::ios::trunc);
-        if (!script_out.is_open()) {
-            dl_status.state = "Error";
-            dl_status.error_message = "Failed to write update helper script";
-            update_state(dl_status);
-            return;
-        }
-        // Write UTF-8 BOM so Windows PowerShell 5.1 reads Unicode paths accurately
-        const std::array<unsigned char, 3> bom = {0xEF, 0xBB, 0xBF};
-        script_out.write(reinterpret_cast<const char*>(bom.data()), bom.size());
-        const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, script_content.data(),
-                                                 static_cast<int>(script_content.size()), nullptr,
-                                                 0, nullptr, nullptr);
-        if (utf8_len > 0) {
-            std::string utf8_script(static_cast<std::size_t>(utf8_len), '\0');
-            WideCharToMultiByte(CP_UTF8, 0, script_content.data(),
-                                static_cast<int>(script_content.size()), utf8_script.data(),
-                                utf8_len, nullptr, nullptr);
-            script_out.write(utf8_script.data(), static_cast<std::streamsize>(utf8_script.size()));
-        }
+    if (!write_utf8_script(script_path, script_content, &error_msg)) {
+        log_diagnostic(true, "Update script write failed: " + error_msg);
+        dl_status.state = "Error";
+        dl_status.error_message = error_msg;
+        update_state(dl_status);
+        return;
     }
 
-    if (!LaunchDetachedUpdateScript(script_path, &error_msg)) {
+    if (!launch_detached_update_script(script_path, &error_msg)) {
         log_diagnostic(true, "Failed to launch update script: " + error_msg);
         dl_status.state = "Error";
         dl_status.error_message = error_msg;

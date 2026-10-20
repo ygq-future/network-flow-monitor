@@ -70,6 +70,11 @@ class AppUpdater {
     [[nodiscard]] static std::wstring build_apply_update_script(
         std::uint32_t host_pid, const std::filesystem::path& staged_dir,
         const std::filesystem::path& app_root_dir, const std::filesystem::path& host_exe_path);
+    [[nodiscard]] static bool write_utf8_script(const std::filesystem::path& script_path,
+                                                std::wstring_view script_content,
+                                                std::string* error_out = nullptr);
+    [[nodiscard]] static bool launch_detached_update_script(
+        const std::filesystem::path& script_path, std::string* error_out = nullptr);
 
   private:
     void update_state(const bridge::UpdateStatusDto& next_status);

@@ -1533,9 +1533,41 @@ void TestGitHubReleaseJsonParsing(TestContext& ctx) {
 
     const auto script = AppUpdater::build_apply_update_script(
         4242, LR"(C:\App\data\update\staged)", LR"(C:\App)", LR"(C:\App\NetworkFlowMonitor.exe)");
-    ctx.Check(script.find(L"$hostPid = 4242") != std::wstring::npos, "script embeds host PID");
-    ctx.Check(script.find(L"Start-Process -FilePath $hostExe") != std::wstring::npos,
+    ctx.Check(script.find(L"HOST_PID=4242") != std::wstring::npos, "script embeds host PID");
+    ctx.Check(script.find(L"start \"\" /D \"%APP_ROOT%\" \"%HOST_EXE%\"") != std::wstring::npos,
               "script restarts host executable");
+}
+
+void TestDetachedUpdateScriptExecution(TestContext& ctx) {
+    using nfm::host::platform::AppUpdater;
+
+    const auto temp_dir = std::filesystem::temp_directory_path() /
+                          ("nfm_updater_test_" + std::to_string(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+
+    const auto script_path = temp_dir / L"test-apply.cmd";
+    const auto marker_path = temp_dir / L"applied.marker";
+    const std::wstring script_body =
+        L"@echo off\r\necho applied> \"" + marker_path.wstring() + L"\"\r\n";
+
+    std::string err;
+    ctx.Check(AppUpdater::write_utf8_script(script_path, script_body, &err),
+              "write UTF-8 batch script");
+    ctx.Check(AppUpdater::launch_detached_update_script(script_path, &err),
+              "launch detached batch script without console loss");
+
+    bool marker_created = false;
+    for (int attempt = 0; attempt < 60; ++attempt) {
+        if (std::filesystem::exists(marker_path, ec)) {
+            marker_created = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ctx.Check(marker_created, "detached batch script actually executed and wrote marker file");
+    std::filesystem::remove_all(temp_dir, ec);
 }
 
 } // namespace
@@ -1544,6 +1576,7 @@ int Run() {
     TestContext ctx;
     TestSemVerParsingAndComparison(ctx);
     TestGitHubReleaseJsonParsing(ctx);
+    TestDetachedUpdateScriptExecution(ctx);
     return ctx.failures();
 }
 } // namespace app_updater_suite

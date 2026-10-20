@@ -74,7 +74,7 @@ nfm-collector.exe (Portable Companion)
 ### 5. Surface Topology, Morphing Stage & Window Coordination
 - **Dual-Window Architecture**:
   - **Floating Surface Window**: Constant 340 DIP width transparent DWM window (`DefaultBackgroundColor = 0x00000000`) hosting both `<DockCapsule />` and `<BasicMonitorPanel />` in a shared morphing stage. In capsule mode, `Win32Window` restricts mouse hit-testing (`logical_hit_rect_`) to the capsule bounds (minimum 16 DIP inward hit target) and applies `WS_EX_TRANSPARENT | WS_EX_LAYERED` OS click-through to the rest of the canvas.
-  - **Pre-Warmed Settings Window**: Independent `Win32Window` + `WebView2Controller` instance pre-warmed at startup and toggled via `put_IsVisible` for instant zero-flicker opening.
+  - **Pre-Warmed & Low-Memory Suspended Settings Window**: Independent `Win32Window` + `WebView2Controller` instance pre-warmed at startup, suspended via `ICoreWebView2_3::TrySuspend` with `COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW` while hidden, and resumed via `Resume` + `put_IsVisible` for instant zero-flicker opening.
 - **Deterministic `DockCapsuleCoordinator`**:
   - Coordinates `TrayOnly`, `CapsuleVisible`, and `PanelVisible` state transitions.
   - Crosses Windows drag thresholds (`SM_CXDRAG` / `SM_CYDRAG`) into a native `WM_SYSCOMMAND` (`SC_MOVE | HTCAPTION`) move loop, snapping on pointer release to the left or right edge of the target monitor's work area (`rcWork`) while reserving a 4 DIP margin for auto-hide taskbars.

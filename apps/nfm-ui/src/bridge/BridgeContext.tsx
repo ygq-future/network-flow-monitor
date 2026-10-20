@@ -49,7 +49,8 @@ const defaultSurface: SurfaceChangedDto = {
   dockSide: 'right',
 }
 export const BridgeContext = createContext<BridgeContextValue | null>(null)
-
+const TrafficTickContext = createContext<TrafficTickDto | null>(null)
+const RankingSnapshotContext = createContext<RankingSnapshotDto | null>(null)
 export interface BridgeProviderProps {
   children: React.ReactNode
   bridge?: INativeBridge
@@ -64,7 +65,11 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
   const [config, setConfig] = useState<AppConfigDto>(defaultMockConfigChanged.config)
   useEffect(() => {
     const unsubTick = bridge.on<TrafficTickDto>('trafficTick', data => {
-      setTrafficTick(data)
+      setTrafficTick(prev =>
+        prev.downloadBytesPerSec === data.downloadBytesPerSec && prev.uploadBytesPerSec === data.uploadBytesPerSec
+          ? prev
+          : data,
+      )
     })
 
     const unsubRanking = bridge.on<RankingSnapshotDto>('rankingSnapshot', data => {
@@ -105,16 +110,22 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
   const value = useMemo(
     () => ({
       bridge,
-      trafficTick,
-      rankingSnapshot,
+      trafficTick: defaultTick,
+      rankingSnapshot: defaultRanking,
       collectorStatus,
       sessionReset,
       surface,
       config,
     }),
-    [bridge, trafficTick, rankingSnapshot, collectorStatus, sessionReset, surface, config],
+    [bridge, collectorStatus, sessionReset, surface, config],
   )
-  return <BridgeContext.Provider value={value}>{children}</BridgeContext.Provider>
+  return (
+    <BridgeContext.Provider value={value}>
+      <TrafficTickContext.Provider value={trafficTick}>
+        <RankingSnapshotContext.Provider value={rankingSnapshot}>{children}</RankingSnapshotContext.Provider>
+      </TrafficTickContext.Provider>
+    </BridgeContext.Provider>
+  )
 }
 
 export function useBridge(): INativeBridge {
@@ -126,19 +137,19 @@ export function useBridge(): INativeBridge {
 }
 
 export function useTrafficTick(): TrafficTickDto {
-  const context = useContext(BridgeContext)
-  if (!context) {
+  const tick = useContext(TrafficTickContext)
+  if (!tick) {
     throw new Error('useTrafficTick must be used within a BridgeProvider')
   }
-  return context.trafficTick
+  return tick
 }
 
 export function useRankingSnapshot(): RankingSnapshotDto {
-  const context = useContext(BridgeContext)
-  if (!context) {
+  const ranking = useContext(RankingSnapshotContext)
+  if (!ranking) {
     throw new Error('useRankingSnapshot must be used within a BridgeProvider')
   }
-  return context.rankingSnapshot
+  return ranking
 }
 
 export function useCollectorStatus(): CollectorStatusDto {

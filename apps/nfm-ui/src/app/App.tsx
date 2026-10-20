@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   BridgeProvider,
   useBridge,
@@ -8,6 +8,7 @@ import {
   useSurface,
   useTrafficTick,
 } from '../bridge/BridgeContext'
+import type { INativeBridge } from '../bridge/nativeBridge'
 import { ThemeProvider, useTheme } from '../shared/theme/ThemeContext'
 import { I18nProvider } from '../shared/i18n/I18nContext'
 import { DockCapsule } from '../features/capsule/DockCapsule'
@@ -36,19 +37,58 @@ const SettingsSurface: React.FC = () => {
   )
 }
 
-export const ProductSurface: React.FC = () => {
-  const bridge = useBridge()
-  const surface = useSurface()
+const ConnectedMonitorPanel: React.FC<{
+  isPanelActive: boolean
+  isPinned: boolean
+  bridge: INativeBridge
+}> = ({ isPanelActive, isPinned, bridge }) => {
   const tick = useTrafficTick()
   const ranking = useRankingSnapshot()
   const status = useCollectorStatus()
+
+  return (
+    <BasicMonitorPanel
+      tick={tick}
+      ranking={ranking}
+      status={status}
+      isPinned={isPinned}
+      transitionState={isPanelActive ? 'entered' : 'exiting'}
+      onTogglePin={() => bridge.sendCommand('setPin', { pinned: !isPinned })}
+      onStartDrag={() => bridge.sendCommand('startWindowDrag')}
+      onOpenSettings={() => bridge.sendCommand('openSettings', { route: 'general' })}
+      onClose={() => bridge.sendCommand('hideMonitor')}
+      onContextMenu={event => {
+        event.preventDefault()
+        bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
+      }}
+      className="w-[340px]"
+    />
+  )
+}
+
+export const ProductSurface: React.FC = () => {
+  const bridge = useBridge()
+  const surface = useSurface()
   const sessionReset = useSessionReset()
+  const isPanelActive = surface.surface === 'panel'
+  const [keepPanelMounted, setKeepPanelMounted] = useState(isPanelActive)
+
+  useEffect(() => {
+    if (isPanelActive) {
+      setKeepPanelMounted(true)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setKeepPanelMounted(false)
+    }, 280)
+    return () => window.clearTimeout(timer)
+  }, [isPanelActive])
 
   if (surface.surface === 'tray') return null
   if (surface.surface === 'settings') return <SettingsSurface />
 
   const isRightDock = surface.dockSide === 'right'
-  const isPanelActive = surface.surface === 'panel'
+  const shouldRenderPanel = isPanelActive || keepPanelMounted
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-transparent">
@@ -62,28 +102,15 @@ export const ProductSurface: React.FC = () => {
           transitionPhase={isPanelActive ? 'expanding-to-panel' : 'capsule-idle'}
         />
       </div>
-      <div
-        aria-hidden={!isPanelActive}
-        className={`fixed top-0 z-20 ${isRightDock ? 'right-0' : 'left-0'} w-[340px] ${
-          isPanelActive ? 'pointer-events-auto' : 'pointer-events-none'
-        }`}>
-        <BasicMonitorPanel
-          tick={tick}
-          ranking={ranking}
-          status={status}
-          isPinned={surface.pinned}
-          transitionState={isPanelActive ? 'entered' : 'exiting'}
-          onTogglePin={() => bridge.sendCommand('setPin', { pinned: !surface.pinned })}
-          onStartDrag={() => bridge.sendCommand('startWindowDrag')}
-          onOpenSettings={() => bridge.sendCommand('openSettings', { route: 'general' })}
-          onClose={() => bridge.sendCommand('hideMonitor')}
-          onContextMenu={event => {
-            event.preventDefault()
-            bridge.sendCommand('openContextMenu', { x: event.screenX, y: event.screenY })
-          }}
-          className="w-[340px]"
-        />
-      </div>
+      {shouldRenderPanel && (
+        <div
+          aria-hidden={!isPanelActive}
+          className={`fixed top-0 z-20 ${isRightDock ? 'right-0' : 'left-0'} w-[340px] ${
+            isPanelActive ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}>
+          <ConnectedMonitorPanel isPanelActive={isPanelActive} isPinned={surface.pinned} bridge={bridge} />
+        </div>
+      )}
     </div>
   )
 }

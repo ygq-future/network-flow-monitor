@@ -544,9 +544,10 @@ void CheckFullscreenDesktopAndCloakedExclusion(TestContext& context) {
 
 void CheckWebView2ControllerEnsureAliveInterface(TestContext& context) {
     nfm::host::webview::WebView2Controller controller;
+    controller.set_memory_target_low(true);
     controller.set_visible(false);
+    controller.set_memory_target_low(false);
     controller.set_visible(true);
-    // Uninitialized controller is not ready and ensure_alive() safely returns false without crash
     context.Check(!controller.is_ready(), "uninitialized controller is not ready");
     context.Check(!controller.ensure_alive(),
                   "uninitialized controller ensure_alive returns false");

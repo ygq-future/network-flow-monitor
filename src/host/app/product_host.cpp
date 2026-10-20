@@ -214,7 +214,8 @@ bool ProductHost::initialize() {
                 try {
                     if (native_bridge_ && coordinator_ &&
                         coordinator_->state().presentation_state !=
-                            coordinator::PresentationState::TrayOnly) {
+                            coordinator::PresentationState::TrayOnly &&
+                        !coordinator_->state().is_fullscreen_hidden) {
                         native_bridge_->post_traffic_tick(tick);
                     }
                 } catch (...) {
@@ -778,6 +779,7 @@ void ProductHost::ensure_settings_window() {
         settings_window_->set_taskbar_visibility(true);
         apply_settings_window_chrome();
         settings_webview_ = std::make_shared<webview::WebView2Controller>();
+        settings_webview_->set_memory_target_low(!settings_surface_visible_);
         settings_webview_->set_visible(settings_surface_visible_);
         settings_webview_->set_diagnostic_callback(
             [this](std::string_view diag) { write_diagnostic_log(config::LogLevel::Error, diag); });
@@ -813,6 +815,12 @@ void ProductHost::ensure_settings_window() {
                 window_->post_ui_task([this]() noexcept {
                     try {
                         if (settings_window_ && settings_bridge_) {
+                            if (settings_surface_visible_) {
+                                if (settings_webview_) {
+                                    settings_webview_->set_memory_target_low(false);
+                                    settings_webview_->set_visible(true);
+                                }
+                            }
                             settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
                                 .surface = bridge::SurfaceKind::Settings,
                                 .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
@@ -828,12 +836,10 @@ void ProductHost::ensure_settings_window() {
                                 settings_bridge_->post_update_status(app_updater_->status());
                             }
                             if (settings_surface_visible_) {
-                                if (settings_webview_) {
-                                    settings_webview_->set_visible(true);
-                                }
                                 settings_window_->show(SW_SHOW);
                                 SetForegroundWindow(settings_window_->hwnd());
                             } else if (settings_webview_) {
+                                settings_webview_->set_memory_target_low(true);
                                 settings_webview_->set_visible(false);
                             }
                         }
@@ -855,6 +861,7 @@ void ProductHost::ensure_settings_window() {
             settings_window_->set_bounds(x, y, width, height);
         }
         if (settings_webview_) {
+            settings_webview_->set_memory_target_low(false);
             settings_webview_->set_visible(true);
             if (settings_webview_->is_ready()) {
                 static_cast<void>(settings_webview_->ensure_alive());
@@ -886,6 +893,7 @@ void ProductHost::ensure_settings_window() {
 void ProductHost::close_settings_window() {
     settings_surface_visible_ = false;
     if (settings_webview_) {
+        settings_webview_->set_memory_target_low(true);
         settings_webview_->set_visible(false);
     }
     if (settings_window_) {
@@ -924,8 +932,17 @@ void ProductHost::apply_coordinator_state() {
         last_applied_presentation_state_ = state.presentation_state;
         window_->clear_logical_hit_bounds();
         window_->set_click_through(false);
+        if (webview_) {
+            webview_->set_memory_target_low(true);
+            webview_->set_visible(false);
+        }
         window_->hide();
     } else {
+        if (webview_) {
+            webview_->set_visible(true);
+            webview_->set_memory_target_low(state.presentation_state ==
+                                            coordinator::PresentationState::CapsuleVisible);
+        }
         if (last_applied_presentation_state_ == coordinator::PresentationState::PanelVisible &&
             state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
             !state.is_dragging) {
@@ -1014,12 +1031,18 @@ void ProductHost::publish_surface_state() {
         surface = bridge::SurfaceKind::Capsule;
         break;
     }
+    const bool was_panel = (last_published_surface_ == bridge::SurfaceKind::Panel);
+    last_published_surface_ = surface;
     native_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
         .surface = surface,
         .pinned = coordinator_->state().is_pinned,
         .dock_side = coordinator_->state().anchor_side,
         .auto_hidden = coordinator_->state().is_auto_hidden,
     });
+    if (!was_panel && surface == bridge::SurfaceKind::Panel &&
+        latest_ranking_snapshot_.has_value()) {
+        native_bridge_->post_ranking_snapshot(*latest_ranking_snapshot_);
+    }
 }
 
 void ProductHost::on_show_monitor() {

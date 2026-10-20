@@ -87,6 +87,8 @@ struct WebView2Controller::Impl {
     bool is_ready_{false};
     bool is_creating_{false};
     bool desired_visible_{true};
+    bool desired_low_memory_{false};
+    bool is_suspended_{false};
     int last_width_px_{-1};
     int last_height_px_{-1};
     EventRegistrationToken message_token_{};
@@ -97,6 +99,7 @@ struct WebView2Controller::Impl {
     void reset_controller() {
         is_ready_ = false;
         is_creating_ = false;
+        is_suspended_ = false;
         if (parent_hwnd_ != nullptr) {
             UnsubclassWebViewChildren(parent_hwnd_);
         }
@@ -106,6 +109,41 @@ struct WebView2Controller::Impl {
         }
         webview_.Reset();
         environment_.Reset();
+    }
+
+    void apply_memory_and_suspension_state() {
+        if (webview_.Get() == nullptr) {
+            return;
+        }
+        ComPtr<ICoreWebView2_19> webview_v19;
+        if (SUCCEEDED(webview_.As(&webview_v19)) && webview_v19.Get() != nullptr) {
+            const COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL target_level =
+                (desired_low_memory_ || !desired_visible_)
+                    ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+                    : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL;
+            static_cast<void>(webview_v19->put_MemoryUsageTargetLevel(target_level));
+        }
+
+        ComPtr<ICoreWebView2_3> webview_v3;
+        if (SUCCEEDED(webview_.As(&webview_v3)) && webview_v3.Get() != nullptr) {
+            if (desired_visible_) {
+                if (is_suspended_) {
+                    is_suspended_ = false;
+                    static_cast<void>(webview_v3->Resume());
+                }
+            } else if (is_ready_ && !is_suspended_) {
+                is_suspended_ = true;
+                static_cast<void>(webview_v3->TrySuspend(
+                    Callback<ICoreWebView2TrySuspendCompletedHandler>([this](HRESULT error_code,
+                                                                             BOOL is_successful)
+                                                                          -> HRESULT {
+                        if (FAILED(error_code) || is_successful == FALSE) {
+                            is_suspended_ = false;
+                        }
+                        return S_OK;
+                    }).Get()));
+            }
+        }
     }
 };
 WebView2Controller::WebView2Controller() : impl_(std::make_unique<Impl>()) {}
@@ -139,9 +177,8 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
         SetEnvironmentVariableW(
             L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
             L"--disable-background-timer-throttling "
-            L"--disable-backgrounding-occluded-windows "
-            L"--disable-renderer-backgrounding "
-            L"--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling");
+            L"--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling "
+            L"--js-flags=--lite-mode");
         env_vars_set = true;
     }
 
@@ -265,6 +302,7 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                 if (impl_->navigation_cb_) {
                                     impl_->navigation_cb_(is_success == TRUE, http_status);
                                 }
+                                impl_->apply_memory_and_suspension_state();
                                 return S_OK;
                             })
                             .Get(),
@@ -327,7 +365,7 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                     ctrl->put_IsVisible(impl_->desired_visible_ ? TRUE : FALSE);
                     SubclassWebViewChildren(impl_->parent_hwnd_);
                     impl_->is_ready_ = true;
-
+                    impl_->apply_memory_and_suspension_state();
                     // Navigate to target URL
                     navigate(impl_->last_navigated_url_);
                     return S_OK;
@@ -388,8 +426,19 @@ void WebView2Controller::notify_parent_window_position_changed() {
 void WebView2Controller::set_visible(bool visible) {
     impl_->desired_visible_ = visible;
     if (impl_->controller_.Get() != nullptr) {
-        impl_->controller_->put_IsVisible(visible ? TRUE : FALSE);
+        if (visible) {
+            impl_->apply_memory_and_suspension_state();
+            impl_->controller_->put_IsVisible(TRUE);
+        } else {
+            impl_->controller_->put_IsVisible(FALSE);
+            impl_->apply_memory_and_suspension_state();
+        }
     }
+}
+
+void WebView2Controller::set_memory_target_low(bool low_memory) {
+    impl_->desired_low_memory_ = low_memory;
+    impl_->apply_memory_and_suspension_state();
 }
 void WebView2Controller::navigate(std::wstring_view url) {
     if (!url.empty()) {

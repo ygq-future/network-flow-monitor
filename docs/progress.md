@@ -250,3 +250,15 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `DockCapsuleCoordinator::set_fullscreen_active_on_same_monitor()` 仅在刚进入全屏的边沿（`entered_fullscreen`）自动收拢面板，且 `show_monitor()` 主动清除 `is_click_through` 并激活前台焦点，`Win32Window` 过滤当前进程窗口与任务栏/外壳扩展组件的全屏误判。
 - **合并设置中心重复的「重试连接」与「重启采集服务」按钮 (`SettingsCenter.tsx`, `SettingsCenter.test.tsx`)**：
   - 将「采集与诊断」标签页中后端行为完全相同的两个并排按钮合并为单一主操作按钮：运行正常时显示「重启采集服务」，断开或异常时自动显示「重试连接」。
+
+## 第十五轮 WebView2 原生内存目标水位、隐藏态 TrySuspend 挂起与前端高频渲染隔离优化 — complete
+
+- **WebView2 原生内存水位控制与隐藏态自动休眠 (`webview_controller.h`, `webview_controller.cpp`, `product_host.h`, `product_host.cpp`, `host_tests.cpp`)**：
+  - 精简 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`，移除全局阻止 Chromium 回收后台渲染器与显存的 `--disable-renderer-backgrounding` 与 `--disable-backgrounding-occluded-windows`，并启用 `--js-flags=--lite-mode` 降低 V8 JIT 内存占用；
+  - `WebView2Controller` 封装 `ICoreWebView2_19::put_MemoryUsageTargetLevel` 与 `ICoreWebView2_3::TrySuspend` / `Resume`：当 `settings_webview_` 预热完成处于隐藏态或用户关闭设置窗口时，自动切换为 `COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW` 并执行 `TrySuspend` 释放工作集与 GPU 合成缓存；用户打开设置时先 `Resume` 并恢复 `NORMAL` 水位，兼顾后台极低内存占用与毫秒级零闪烁打开体验；
+  - 主窗口处于贴边胶囊态（`CapsuleVisible`）时将内存目标水位设为 `LOW`，展开监控面板（`PanelVisible`）时切回 `NORMAL`；处于 `TrayOnly` 或全屏隐藏态时自动挂起主 WebView 并停止推送 `trafficTick`。
+- **前端高频 4Hz 流量节拍 Context 隔离与非活跃面板 DOM 卸载 (`BridgeContext.tsx`, `App.tsx`, `ProductSurface.test.tsx`)**：
+  - 将 4Hz `TrafficTickContext` 和 1Hz `RankingSnapshotContext` 从主 `BridgeContext` 拆离，并对速率未变化的 `trafficTick` 跳过状态更新，避免每秒 4 次心跳触发无关组件树重渲染与 V8 临时对象分配；
+  - `ProductSurface` 在胶囊收拢过渡动画（280ms）结束后自动从 DOM 卸载 `<BasicMonitorPanel />` 子树，并在面板重新展开时由 Host 补发最新 `RankingSnapshotDto`。
+- **进程图标缓存容量收敛 (`collector_companion.cpp`)**：
+  - 将 `ExtractExecutableIconDataUri` 图标缓存上限从 256 项收敛至 64 项并按条目淘汰，减少 Host 长期运行时的常驻内存体积。

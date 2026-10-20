@@ -260,7 +260,7 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
 
     if (!result.empty()) {
         const std::scoped_lock lock(cache_mutex);
-        if (icon_cache.size() > 256U) {
+        if (icon_cache.size() >= 64U) {
             icon_cache.clear();
         }
         icon_cache.emplace(utf8_path, result);
@@ -290,7 +290,10 @@ CollectorCompanion::CollectorCompanion(std::filesystem::path collector_executabl
 }
 
 CollectorCompanion::~CollectorCompanion() {
-    stop();
+    try {
+        stop();
+    } catch (...) {
+    }
 }
 
 void CollectorCompanion::set_traffic_tick_callback(TrafficTickCallback callback) {

@@ -33,6 +33,9 @@ class IWebViewController {
     virtual bool initialize(HWND parent_hwnd, const std::filesystem::path& static_assets_dir) = 0;
     virtual void resize(int width_px, int height_px) = 0;
     virtual void set_visible(bool visible) = 0;
+    virtual void set_memory_target_low(bool low_memory) {
+        static_cast<void>(low_memory);
+    }
     virtual void notify_parent_window_position_changed() {}
     virtual void navigate(std::wstring_view url) = 0;
     virtual void post_web_message_json(std::string_view json) = 0;
@@ -57,6 +60,7 @@ class WebView2Controller : public IWebViewController {
     bool initialize(HWND parent_hwnd, const std::filesystem::path& static_assets_dir) override;
     void resize(int width_px, int height_px) override;
     void set_visible(bool visible) override;
+    void set_memory_target_low(bool low_memory) override;
     void notify_parent_window_position_changed() override;
     void navigate(std::wstring_view url) override;
     void post_web_message_json(std::string_view json) override;

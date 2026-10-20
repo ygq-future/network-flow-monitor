@@ -143,6 +143,62 @@ describe('SettingsCenter', () => {
     fireEvent.click(applyBtn)
     expect(spySend).toHaveBeenCalledWith('downloadAndApplyUpdate')
   })
+  it('manages excluded programs via manual input and connected apps fuzzy search', () => {
+    const bridge = new MockBridge(false)
+    const spy = vi.spyOn(bridge, 'sendCommand')
+    renderWithProviders(<SettingsCenter />, bridge)
+
+    const manageBtn = screen.getByRole('button', { name: /Manage Exclusions/i })
+    fireEvent.click(manageBtn)
+
+    expect(spy).toHaveBeenCalledWith('requestConnectedApplications')
+
+    act(() => {
+      bridge.emit('connectedApplications', {
+        applications: [
+          {
+            id: 'app-mihomo',
+            executablePath: 'C:\\Proxy\\mihomo-multi.exe',
+            executableName: 'mihomo-multi.exe',
+            displayName: 'mihomo-multi.exe',
+            iconKey: 'mihomo',
+            totalDownloadBytes: 50000,
+            totalUploadBytes: 50000,
+          },
+          {
+            id: 'app-edge',
+            executablePath: 'C:\\Edge\\msedge.exe',
+            executableName: 'msedge.exe',
+            displayName: 'Microsoft Edge',
+            iconKey: 'msedge',
+            totalDownloadBytes: 25000,
+            totalUploadBytes: 12000,
+          },
+        ],
+      })
+    })
+
+    expect(screen.getByText('mihomo-multi.exe')).toBeInTheDocument()
+
+    // Unified input filters connected apps
+    const searchInput = screen.getByPlaceholderText(/Search connected apps or enter process name/i)
+    fireEvent.change(searchInput, { target: { value: 'mihomo' } })
+    expect(screen.getByText('mihomo-multi.exe')).toBeInTheDocument()
+    expect(screen.queryByText('Microsoft Edge')).not.toBeInTheDocument()
+
+    // Clicking the connected app row directly adds it
+    fireEvent.click(screen.getByText('mihomo-multi.exe'))
+
+    expect(spy).toHaveBeenCalledWith('updateSetting', {
+      key: 'ranking.excluded_programs',
+      value: ['mihomo-multi.exe'],
+    })
+
+    // Refresh button triggers requestConnectedApplications
+    const refreshBtn = screen.getByRole('button', { name: /Refresh/i })
+    fireEvent.click(refreshBtn)
+    expect(spy).toHaveBeenCalledWith('requestConnectedApplications')
+  })
 
   it('handles close button navigation', () => {
     const bridge = new MockBridge(false)

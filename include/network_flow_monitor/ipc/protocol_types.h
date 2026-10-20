@@ -97,6 +97,8 @@ struct RankingApplication {
     std::string icon_key;
     std::uint64_t download_bytes_per_sec{};
     std::uint64_t upload_bytes_per_sec{};
+    std::uint64_t total_download_bytes{};
+    std::uint64_t total_upload_bytes{};
 
     bool operator==(const RankingApplication&) const = default;
 };

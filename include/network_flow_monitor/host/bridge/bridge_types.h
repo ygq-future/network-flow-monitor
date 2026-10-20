@@ -54,6 +54,8 @@ enum class WebCommandType : std::uint8_t {
     OpenLogDirectory,
     CheckForUpdate,
     DownloadAndApplyUpdate,
+    RequestConnectedApplications,
+    BrowseExcludedProgram,
     Unknown,
 };
 
@@ -69,6 +71,7 @@ enum class NativeEventType : std::uint8_t {
     SurfaceChanged,
     CommandResponse,
     UpdateStatus,
+    ConnectedApplications,
     Error,
     Unknown,
 };
@@ -106,6 +109,8 @@ struct RankingAppDto {
     std::string icon_key;
     std::uint64_t download_bytes_per_sec{};
     std::uint64_t upload_bytes_per_sec{};
+    std::uint64_t total_download_bytes{};
+    std::uint64_t total_upload_bytes{};
 
     bool operator==(const RankingAppDto&) const = default;
 };
@@ -171,6 +176,23 @@ struct UpdateStatusDto {
     std::string error_message;
 
     bool operator==(const UpdateStatusDto&) const = default;
+};
+struct ConnectedAppDto {
+    std::string id;
+    std::string executable_path;
+    std::string executable_name;
+    std::string display_name;
+    std::string icon_key;
+    std::uint64_t total_download_bytes{};
+    std::uint64_t total_upload_bytes{};
+
+    bool operator==(const ConnectedAppDto&) const = default;
+};
+
+struct ConnectedApplicationsDto {
+    std::vector<ConnectedAppDto> applications;
+
+    bool operator==(const ConnectedApplicationsDto&) const = default;
 };
 
 struct BridgeErrorDto {

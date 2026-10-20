@@ -361,6 +361,11 @@ FrameEncodeResult EncodeRankingSnapshot(const RankingSnapshotMessage& message) {
         yyjson_mut_obj_add_uint(doc.get(), item, "download_bytes_per_sec",
                                 app.download_bytes_per_sec);
         yyjson_mut_obj_add_uint(doc.get(), item, "upload_bytes_per_sec", app.upload_bytes_per_sec);
+        if (app.total_download_bytes > 0U || app.total_upload_bytes > 0U) {
+            yyjson_mut_obj_add_uint(doc.get(), item, "total_download_bytes",
+                                    app.total_download_bytes);
+            yyjson_mut_obj_add_uint(doc.get(), item, "total_upload_bytes", app.total_upload_bytes);
+        }
     }
 
     return MakeFrameFromDoc(MessageType::RankingSnapshot, doc.get());
@@ -416,6 +421,8 @@ MessageDecodeResult<RankingSnapshotMessage> DecodeRankingSnapshot(
         auto* icon = yyjson_obj_get(item, "icon_key");
         auto* dl = yyjson_obj_get(item, "download_bytes_per_sec");
         auto* ul = yyjson_obj_get(item, "upload_bytes_per_sec");
+        auto* total_dl = yyjson_obj_get(item, "total_download_bytes");
+        auto* total_ul = yyjson_obj_get(item, "total_upload_bytes");
         if (yyjson_is_str(id) && yyjson_is_str(exec) && yyjson_is_str(name) &&
             yyjson_is_str(icon) && yyjson_is_uint(dl) && yyjson_is_uint(ul)) {
             msg.applications.push_back({
@@ -425,6 +432,8 @@ MessageDecodeResult<RankingSnapshotMessage> DecodeRankingSnapshot(
                 .icon_key = std::string(JsonString(icon)),
                 .download_bytes_per_sec = yyjson_get_uint(dl),
                 .upload_bytes_per_sec = yyjson_get_uint(ul),
+                .total_download_bytes = yyjson_is_uint(total_dl) ? yyjson_get_uint(total_dl) : 0U,
+                .total_upload_bytes = yyjson_is_uint(total_ul) ? yyjson_get_uint(total_ul) : 0U,
             });
         }
     }

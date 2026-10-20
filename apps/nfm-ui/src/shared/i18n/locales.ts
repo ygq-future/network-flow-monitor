@@ -138,6 +138,18 @@ export interface TranslationSchema {
     rankingWindowDesc: string
     refreshInterval: string
     refreshIntervalDesc: string
+    excludedPrograms: string
+    excludedProgramsDesc: string
+    excludedProgramsManage: string
+    excludedProgramsInputPlaceholder: string
+    excludedProgramsAdd: string
+    excludedProgramsBrowse: string
+    excludedProgramsRefresh: string
+    excludedProgramsConnectedTitle: string
+    excludedProgramsSearchPlaceholder: string
+    excludedProgramsNoConnected: string
+    excludedProgramsAdded: string
+    excludedProgramsEmpty: string
     // Collector
     collectorStatus: string
     collectorStatusDesc: string

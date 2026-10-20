@@ -278,3 +278,32 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 新增 `TestDetachedUpdateScriptExecution` 端到端测试验证无窗口后台脚本真实执行落盘。
 - **同步升级版本号至 `0.1.2` 并撰写 `.github/release-note/v0.1.2.md`**：
   - 通过真机实测 `0.1.0 -> 0.1.1` 在线更新、文件替换与自动重启全链路验证，发布 `v0.1.2`。
+
+## 第十八轮排除程序流量显示与统计过滤（Phase 1） — complete
+
+- **权威配置与 JSON 持久化扩展 (`app_config.h`, `config_validation.cpp`, `config_codec.cpp`, `config_tests.cpp`)**：
+  - 在 `RankingConfig` 中新增 `excluded_programs`（上限 `kMaximumExcludedPrograms = 128`，单项上限 `260` 字节），支持 `data/config.json` 读写校验与向后兼容默认空列表加载。
+- **全量应用累计字节同步与排除程序实时过滤 (`protocol_types.h`, `frame_codec.cpp`, `snapshot_publisher.cpp`, `collector_companion.h/.cpp`, `product_host.h/.cpp`, `host_tests.cpp`)**：
+  - `SnapshotPublisher` 在 `RankingSnapshotMessage` 中同步每个应用的累计 `total_download_bytes` 与 `total_upload_bytes`（含当前速率为 0 但产生过流量的活跃应用），为实时过滤与后续历史流量统计提供无损字节计数基础；
+  - `CollectorCompanion` 实现 `is_application_excluded` 大小写不敏感匹配（支持进程文件名如 `mihomo-multi.exe`、不含后缀名或完整路径），实时从 `RankingSnapshot` 应用列表、全局上下行总速率以及 4Hz `TrafficTick` 中扣除被排除程序的速率，无需重启管理员采集进程即可即时生效；
+  - `CollectorCompanion` 持续记录已观测到的联网应用清单（`connected_applications()`），供设置页随时检索选择。
+- **Native/Web Bridge 扩展与设置中心排除程序管理 UI (`bridge_types.h/.cpp`, `bridge_dispatcher.h/.cpp`, `native_bridge.h/.cpp`, `SettingsCenter.tsx`, `SettingsCenter.test.tsx`)**：
+  - 新增 `requestConnectedApplications`、`browseExcludedProgram`（调用 Win32 `IFileOpenDialog` 原生文件选择框选择 `.exe`）与 `connectedApplications` 桥接事件；
+  - 在设置中心「通用」页新增「排除程序统计」折叠管理面板：支持展示已排除程序标签并一键移除、手动输入进程名添加、原生浏览 `.exe` 添加，以及对当前已连接程序列表进行模糊搜索筛选与一键排除。
+
+## 第十九轮多级递进历史流量统计（Phase 2） — pending (待下一会话实现)
+
+- **待实现目标（已与用户确认方案，完成编码与测试后不自动 commit，待用户实机验证）**：
+  1. **持久化历史流量存储 (`TrafficHistoryStore`, `<app_root>/data/traffic_history.json`)**：
+     - 从软件启动运行开始持续统计（自动剔除 `ranking.excluded_programs` 中被排除的程序）；
+     - 以 **本地自然日 (`YYYY-MM-DD`) + 应用身份 (`app_id` / `executable_path` / `executable_name` / `display_name`)** 为存储粒度，基于 `RankingSnapshot` 携带的各应用累计 `total_download_bytes` / `total_upload_bytes` 差分累加（处理 Collector 会话重置/重启续接），定时及退出时原子写盘。
+  2. **Bridge 历史数据查询与推送协议**：
+     - 新增历史流量数据查询与实时更新事件（如 `requestTrafficHistory`、`trafficHistoryUpdated`），并在右键菜单支持快捷进入流量统计视图。
+  3. **增强版多级递进历史流量统计 UI（不实现日历视图，专注增强列表视图）**：
+     - 在设置/管理窗口新增独立「流量统计 / History」标签页；
+     - **多级递进下钻表格（Drill-down）**：
+       - **时间维度 ⇄ 应用维度双向递进**：最外层支持按时间（日视图 `YYYY/MM/DD`、周视图、月视图 `YYYY/MM`、季视图、年视图 `YYYY`）聚合展示上传、下载、总流量与右侧水平比例条；点击某一行时间周期可下钻进入该周期内的「历史应用流量排行」；点击某一应用可继续查看该应用按日/周/月/季/年的历史明细（同时支持顶层直接按「历史应用总榜 -> 点击应用查看年月日明细」）；
+     - **排序、筛选与比例切换**：
+       - 支持按应用名/进程名/日期模糊搜索筛选；
+       - 支持按日期/应用名、上传、下载、总流量列头升序/降序排序；
+       - 图表列支持 **对数比例（Logarithmic）** 与 **线性比例（Linear）** 切换。

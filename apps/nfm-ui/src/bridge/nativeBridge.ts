@@ -11,6 +11,7 @@ import {
   UpdateSettingPayload,
   SurfaceChangedDto,
   UpdateStatusDto,
+  ConnectedApplicationsDto,
 } from './bridgeTypes'
 
 declare global {
@@ -136,6 +137,7 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       topN: 5,
       windowMs: 2000,
       refreshIntervalMs: 250,
+      excludedPrograms: [],
     },
     diagnostics: {
       logLevel: 'info',
@@ -173,6 +175,46 @@ export class MockBridge extends NativeBridge {
     downloadProgressPercent: 0,
     errorMessage: '',
   }
+  private currentConnectedApps: ConnectedApplicationsDto = {
+    applications: [
+      {
+        id: 'executable:C:\\Program Files\\mihomo\\mihomo-multi.exe',
+        executablePath: 'C:\\Program Files\\mihomo\\mihomo-multi.exe',
+        executableName: 'mihomo-multi.exe',
+        displayName: 'mihomo-multi.exe',
+        iconKey: 'mihomo',
+        totalDownloadBytes: 52428800,
+        totalUploadBytes: 52428800,
+      },
+      {
+        id: 'app-edge',
+        executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        executableName: 'msedge.exe',
+        displayName: 'Microsoft Edge',
+        iconKey: 'msedge',
+        totalDownloadBytes: 104857600,
+        totalUploadBytes: 12582912,
+      },
+      {
+        id: 'app-code',
+        executablePath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+        executableName: 'Code.exe',
+        displayName: 'Visual Studio Code',
+        iconKey: 'code',
+        totalDownloadBytes: 25165824,
+        totalUploadBytes: 8388608,
+      },
+      {
+        id: 'app-steam',
+        executablePath: 'C:\\Program Files (x86)\\Steam\\steam.exe',
+        executableName: 'steam.exe',
+        displayName: 'Steam Client Bootstrapper',
+        iconKey: 'steam',
+        totalDownloadBytes: 2147483648,
+        totalUploadBytes: 41943040,
+      },
+    ],
+  }
   constructor(autoTick = false) {
     super()
     if (autoTick && typeof window !== 'undefined') {
@@ -186,6 +228,7 @@ export class MockBridge extends NativeBridge {
       setTimeout(() => {
         this.emit('configChanged', this.currentMockConfig)
         this.emit('updateStatus', this.currentUpdateStatus)
+        this.emit('connectedApplications', this.currentConnectedApps)
       }, 0)
     } else if (type === 'showMonitor') {
       this.currentSurface = { ...this.currentSurface, surface: 'panel' }
@@ -255,6 +298,10 @@ export class MockBridge extends NativeBridge {
       }
       setTimeout(() => {
         this.emit('updateStatus', this.currentUpdateStatus)
+      }, 0)
+    } else if (type === 'requestConnectedApplications') {
+      setTimeout(() => {
+        this.emit('connectedApplications', this.currentConnectedApps)
       }, 0)
     }
   }
@@ -341,6 +388,12 @@ export class MockBridge extends NativeBridge {
       key === 'refreshIntervalMs'
     ) {
       cfg.ranking.refreshIntervalMs = Number(value)
+    } else if (
+      key === 'ranking.excluded_programs' ||
+      key === 'ranking.excludedPrograms' ||
+      key === 'excludedPrograms'
+    ) {
+      cfg.ranking.excludedPrograms = Array.isArray(value) ? value.map(v => String(v)) : []
     } else if (key === 'diagnostics.log_level' || key === 'diagnostics.logLevel' || key === 'logLevel') {
       cfg.diagnostics.logLevel = value as 'off' | 'error' | 'info' | 'debug'
     }

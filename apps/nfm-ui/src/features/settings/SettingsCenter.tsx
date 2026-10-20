@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { Sliders, Layers, Activity, FolderOpen, X, RefreshCw, RotateCw, AlertCircle, Download } from 'lucide-react'
+import {
+  Sliders,
+  Layers,
+  Activity,
+  FolderOpen,
+  X,
+  RefreshCw,
+  RotateCw,
+  AlertCircle,
+  Download,
+  Plus,
+  Search,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  AppWindow,
+} from 'lucide-react'
 import { useBridge } from '../../bridge/BridgeContext'
 import {
   AppConfigDto,
@@ -8,6 +24,8 @@ import {
   CollectorStatusDto,
   UpdateStatusDto,
   BridgeErrorDto,
+  ConnectedAppDto,
+  ConnectedApplicationsDto,
 } from '../../bridge/bridgeTypes'
 import { defaultMockConfigChanged } from '../../bridge/nativeBridge'
 import { useTranslation } from '../../shared/i18n/I18nContext'
@@ -52,6 +70,43 @@ const CAPSULE_COLOR_PRESETS: CapsuleColorPreset[] = [
   { id: 'mono-frost', downloadHex: '#e4e4e7', uploadHex: '#71717a' },
 ]
 
+function normalizeProgToken(val: string): string {
+  return val
+    .trim()
+    .replace(/^"+|"+$/g, '')
+    .replace(/\//g, '\\')
+    .toLowerCase()
+}
+
+function extractFileNameToken(val: string): string {
+  const clean = normalizeProgToken(val).replace(/^executable:/, '')
+  const idx = clean.lastIndexOf('\\')
+  return idx >= 0 ? clean.slice(idx + 1) : clean
+}
+
+function stripExeSuffix(val: string): string {
+  return val.endsWith('.exe') ? val.slice(0, -4) : val
+}
+
+function isAppMatchingExcluded(app: ConnectedAppDto, excludedList: string[]): boolean {
+  if (excludedList.length === 0) return false
+  const appExe = extractFileNameToken(app.executableName || app.executablePath || app.displayName)
+  const appStem = stripExeSuffix(appExe)
+  const appPath = normalizeProgToken(app.executablePath)
+  const appDisplay = normalizeProgToken(app.displayName)
+  return excludedList.some(rawRule => {
+    const rule = normalizeProgToken(rawRule)
+    if (!rule) return false
+    const ruleExe = extractFileNameToken(rule)
+    const ruleStem = stripExeSuffix(ruleExe)
+    return (
+      rule === appExe ||
+      ruleExe === appExe ||
+      (ruleStem.length > 0 && (ruleStem === appStem || ruleStem === stripExeSuffix(appDisplay))) ||
+      (appPath.length > 0 && rule === appPath)
+    )
+  })
+}
 export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'general', onBack, onStartDrag }) => {
   const { t, setLocale } = useTranslation()
   const { setTheme } = useTheme()
@@ -78,6 +133,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     errorMessage: '',
   })
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [connectedApps, setConnectedApps] = useState<ConnectedAppDto[]>([])
+  const [showExclusionPanel, setShowExclusionPanel] = useState(false)
+  const [excludeFilterInput, setExcludeFilterInput] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
   // Listen to bridge events
   useEffect(() => {
@@ -102,6 +160,11 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       }
     })
 
+    const unsubConnectedApps = bridge.on<ConnectedApplicationsDto>('connectedApplications', data => {
+      if (data && Array.isArray(data.applications)) {
+        setConnectedApps(data.applications)
+      }
+    })
     const unsubError = bridge.on<BridgeErrorDto>('error', err => {
       if (err) {
         setErrorMessage(`${err.code}: ${err.message}`)
@@ -115,6 +178,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       unsubCollector()
       unsubUpdate()
       unsubError()
+      unsubConnectedApps()
     }
   }, [bridge])
 
@@ -139,11 +203,43 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     updateStatus.state,
     updateStatus.errorMessage,
     errorMessage,
+    showExclusionPanel,
+    connectedApps.length,
+    excludeFilterInput,
   ])
 
   const handleUpdate = (key: string, value: unknown) => {
     bridge.sendCommand('updateSetting', { key, value })
   }
+  const excludedPrograms = config.ranking.excludedPrograms ?? []
+
+  const handleAddExcludedProgram = (rawEntry: string) => {
+    const trimmed = rawEntry.trim()
+    if (!trimmed) return
+    const nextNorm = stripExeSuffix(extractFileNameToken(trimmed))
+    const exists = excludedPrograms.some(item => stripExeSuffix(extractFileNameToken(item)) === nextNorm)
+    if (!exists) {
+      handleUpdate('ranking.excluded_programs', [...excludedPrograms, trimmed])
+    }
+    setExcludeFilterInput('')
+  }
+
+  const handleRemoveExcludedProgram = (target: string) => {
+    handleUpdate(
+      'ranking.excluded_programs',
+      excludedPrograms.filter(item => item !== target),
+    )
+  }
+
+  const filteredConnectedApps = connectedApps.filter(app => {
+    const q = excludeFilterInput.trim().toLowerCase()
+    if (!q) return true
+    return (
+      app.displayName.toLowerCase().includes(q) ||
+      app.executableName.toLowerCase().includes(q) ||
+      app.executablePath.toLowerCase().includes(q)
+    )
+  })
 
   const downloadColor = (config.capsule.downloadColorHex || '#38bdf8').toLowerCase()
   const uploadColor = (config.capsule.uploadColorHex || '#2dd4bf').toLowerCase()
@@ -323,6 +419,175 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   />
                 }
               />
+              <div className="flex flex-col py-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-col">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                        {t.settings.excludedPrograms}
+                      </span>
+                      <Badge variant={excludedPrograms.length > 0 ? 'info' : 'default'} className="font-mono">
+                        {excludedPrograms.length}
+                      </Badge>
+                    </div>
+                    <span className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                      {t.settings.excludedProgramsDesc}
+                    </span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const nextOpen = !showExclusionPanel
+                      setShowExclusionPanel(nextOpen)
+                      if (nextOpen) {
+                        bridge.sendCommand('requestConnectedApplications')
+                      }
+                    }}
+                    className="shrink-0 gap-1">
+                    <span>{t.settings.excludedProgramsManage}</span>
+                    {showExclusionPanel ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+
+                {/* Excluded tags summary */}
+                {excludedPrograms.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {excludedPrograms.map(prog => (
+                      <span
+                        key={prog}
+                        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-zinc-100 px-2 py-0.5 font-mono text-[11px] text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+                        <span className="max-w-[200px] truncate" title={prog}>
+                          {prog}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`${t.common.close} ${prog}`}
+                          onClick={() => handleRemoveExcludedProgram(prog)}
+                          className="ml-0.5 cursor-pointer rounded-xs p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {showExclusionPanel && (
+                  <div className="mt-2 flex flex-col gap-1.5 rounded-md border border-zinc-200/80 bg-zinc-50/70 p-2 dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                    {/* Unified Search + Manual Add Input + Add / Browse / Refresh Buttons */}
+                    <div className="flex items-center gap-1">
+                      <div className="relative flex min-w-0 flex-1 items-center">
+                        <Search className="pointer-events-none absolute left-2 h-3 w-3 text-zinc-400" />
+                        <input
+                          type="text"
+                          value={excludeFilterInput}
+                          onChange={e => setExcludeFilterInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleAddExcludedProgram(excludeFilterInput)
+                            }
+                          }}
+                          placeholder={t.settings.excludedProgramsInputPlaceholder}
+                          className="h-6 w-full rounded-[5px] border border-zinc-200 bg-white pr-6 pl-6 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-600"
+                        />
+                        {excludeFilterInput && (
+                          <button
+                            type="button"
+                            onClick={() => setExcludeFilterInput('')}
+                            className="absolute right-1.5 cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={!excludeFilterInput.trim()}
+                        onClick={() => handleAddExcludedProgram(excludeFilterInput)}
+                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        <Plus className="h-3 w-3" />
+                        <span>{t.settings.excludedProgramsAdd}</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => bridge.sendCommand('browseExcludedProgram')}
+                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        <FolderOpen className="h-3 w-3" />
+                        <span>{t.settings.excludedProgramsBrowse}</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={t.settings.excludedProgramsRefresh}
+                        title={t.settings.excludedProgramsRefresh}
+                        onClick={() => bridge.sendCommand('requestConnectedApplications')}
+                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        <RefreshCw className="h-3 w-3" />
+                        <span>{t.settings.excludedProgramsRefresh}</span>
+                      </Button>
+                    </div>
+
+                    {/* Connected Applications Compact Single-Line List (Click row to add) */}
+                    <div className="max-h-36 divide-y divide-zinc-100 overflow-y-auto rounded-[5px] border border-zinc-200/80 bg-white dark:divide-zinc-900 dark:border-zinc-800/80 dark:bg-zinc-950">
+                      {filteredConnectedApps.length === 0 ? (
+                        <div className="py-3 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                          {t.settings.excludedProgramsNoConnected}
+                        </div>
+                      ) : (
+                        filteredConnectedApps.map(app => {
+                          const isExcluded = isAppMatchingExcluded(app, excludedPrograms)
+                          const targetName = app.executableName || app.displayName || app.id
+                          return (
+                            <button
+                              key={app.id}
+                              type="button"
+                              disabled={isExcluded}
+                              onClick={() => {
+                                if (!isExcluded) {
+                                  handleAddExcludedProgram(targetName)
+                                }
+                              }}
+                              title={app.executablePath || targetName}
+                              className={`flex h-6 w-full items-center justify-between gap-2 px-2 text-left transition-colors ${
+                                isExcluded
+                                  ? 'cursor-default bg-zinc-50/60 opacity-60 dark:bg-zinc-900/40'
+                                  : 'cursor-pointer hover:bg-zinc-100/80 active:bg-zinc-200/60 dark:hover:bg-zinc-900 dark:active:bg-zinc-800/80'
+                              }`}>
+                              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                {app.iconKey && app.iconKey.startsWith('data:image/') ? (
+                                  <img src={app.iconKey} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
+                                ) : (
+                                  <AppWindow className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                                )}
+                                <span className="shrink-0 text-[11px] font-medium text-zinc-900 dark:text-zinc-100">
+                                  {app.displayName || targetName}
+                                </span>
+                                {app.executablePath && (
+                                  <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-zinc-400 dark:text-zinc-500">
+                                    {app.executablePath}
+                                  </span>
+                                )}
+                              </div>
+                              {isExcluded && (
+                                <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                                  <Check className="h-3 w-3" />
+                                  <span>{t.settings.excludedProgramsAdded}</span>
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <SettingsRow
                 label={t.settings.appVersion}
                 description={

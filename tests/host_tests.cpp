@@ -874,6 +874,55 @@ void CheckCollectorCompanionInjections(TestContext& context) {
     context.Check(latest_ranking.applications.size() == 1 &&
                       latest_ranking.applications[0].display_name == "Edge",
                   "ranking app name matches");
+    // 3b2. Check excluded programs filtering on RankingSnapshot and TrafficTick
+    companion.set_excluded_programs({"mihomo-multi.exe"});
+    nfm::ipc::RankingSnapshotMessage proxy_snap{
+        .seq = 2,
+        .monotonic_ms = 2000,
+        .status = "Ready",
+        .total_rate = {.download_bytes_per_sec = 3000, .upload_bytes_per_sec = 1500},
+        .applications =
+            {
+                nfm::ipc::RankingApplication{
+                    .id = "executable:C:\\Proxy\\mihomo-multi.exe",
+                    .executable_path = "C:\\Proxy\\mihomo-multi.exe",
+                    .display_name = "mihomo-multi.exe",
+                    .icon_key = "mihomo",
+                    .download_bytes_per_sec = 1000,
+                    .upload_bytes_per_sec = 1000,
+                    .total_download_bytes = 50000,
+                    .total_upload_bytes = 50000,
+                },
+                nfm::ipc::RankingApplication{
+                    .id = "executable:C:\\Apps\\edge.exe",
+                    .executable_path = "C:\\Apps\\edge.exe",
+                    .display_name = "Edge",
+                    .icon_key = "edge",
+                    .download_bytes_per_sec = 1000,
+                    .upload_bytes_per_sec = 500,
+                    .total_download_bytes = 25000,
+                    .total_upload_bytes = 12000,
+                },
+            },
+    };
+    companion.inject_ranking_snapshot(proxy_snap);
+    context.Check(latest_ranking.applications.size() == 1U &&
+                      latest_ranking.applications[0].display_name == "Edge",
+                  "excluded program is filtered from ranking applications");
+    context.Check(latest_ranking.total_download_bytes_per_sec == 1000U &&
+                      latest_ranking.total_upload_bytes_per_sec == 500U,
+                  "excluded program rate is subtracted from ranking total rate");
+    companion.inject_traffic_tick(nfm::ipc::TrafficTickMessage{
+        .seq = 43,
+        .monotonic_ms = 2250,
+        .download_bytes_per_sec = 2500,
+        .upload_bytes_per_sec = 1200,
+    });
+    context.Check(dl_received == 1500U, "excluded program rate is subtracted from traffic tick");
+    const auto observed = companion.connected_applications();
+    context.Check(observed.applications.size() >= 2U,
+                  "observed connected applications retain both apps for settings selection");
+    companion.set_excluded_programs({});
     // 3c. Check inactive ETW session diagnostic logging and error message propagation
     std::vector<std::pair<bool, std::string>> diagnostics;
     companion.set_diagnostic_callback([&](bool is_error, std::string_view message) {

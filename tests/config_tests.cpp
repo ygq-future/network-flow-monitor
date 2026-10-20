@@ -232,7 +232,7 @@ using nfm::config::ConfigLoadStatus;
 
 constexpr std::string_view kCompleteUserJson = R"json({
   "schema_version": 2,
-  "ranking": {"top_n": 7, "window_ms": 1750},
+  "ranking": {"top_n": 7, "window_ms": 1750, "excluded_programs": ["mihomo-multi.exe", "clash.exe"]},
   "display": {"refresh_interval_ms": 250, "speed_unit": "bits", "show_upload": false, "show_download": true},
   "interaction": {"hover_delay_ms": 100, "dismiss_delay_ms": 200},
   "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "blur_strength_percent": 75, "capsule_width_dip": 12, "capsule_height_dip": 96, "capsule_end_rounding_dip": 6, "nfm_pinned": true, "ignore_hover_when_fullscreen": false, "hide_capsule_when_fullscreen": true, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
@@ -455,6 +455,9 @@ void CheckCompleteDocuments(TestContext& context) {
     context.Check(user.status == ConfigLoadStatus::Loaded, "complete user document loaded");
     context.Check(!user.error, "complete user document has no error");
     context.Check(user.config.ranking.top_n == 7U, "user top N decoded");
+    context.Check(user.config.ranking.excluded_programs.size() == 2U &&
+                      user.config.ranking.excluded_programs[0] == "mihomo-multi.exe",
+                  "excluded_programs decoded");
     context.Check(user.config.floating.capsule_width_dip == 12 &&
                       user.config.floating.anchor_side == nfm::config::DockSide::Left,
                   "capsule configuration and anchor decoded");

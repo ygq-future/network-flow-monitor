@@ -44,6 +44,10 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "checkForUpdate";
     case WebCommandType::DownloadAndApplyUpdate:
         return "downloadAndApplyUpdate";
+    case WebCommandType::RequestConnectedApplications:
+        return "requestConnectedApplications";
+    case WebCommandType::BrowseExcludedProgram:
+        return "browseExcludedProgram";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -111,6 +115,12 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     if (name == "downloadAndApplyUpdate") {
         return WebCommandType::DownloadAndApplyUpdate;
     }
+    if (name == "requestConnectedApplications") {
+        return WebCommandType::RequestConnectedApplications;
+    }
+    if (name == "browseExcludedProgram") {
+        return WebCommandType::BrowseExcludedProgram;
+    }
     return WebCommandType::Unknown;
 }
 
@@ -136,6 +146,8 @@ std::string_view to_string(NativeEventType type) noexcept {
         return "commandResponse";
     case NativeEventType::UpdateStatus:
         return "updateStatus";
+    case NativeEventType::ConnectedApplications:
+        return "connectedApplications";
     case NativeEventType::Error:
         return "error";
     case NativeEventType::Unknown:
@@ -174,6 +186,9 @@ NativeEventType parse_native_event_type(std::string_view name) noexcept {
     }
     if (name == "updateStatus") {
         return NativeEventType::UpdateStatus;
+    }
+    if (name == "connectedApplications") {
+        return NativeEventType::ConnectedApplications;
     }
     if (name == "error") {
         return NativeEventType::Error;

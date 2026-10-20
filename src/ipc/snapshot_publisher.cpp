@@ -222,6 +222,15 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                         std::round(ranking_result.snapshot.total_rate.upload_bytes_per_second)));
                 }
                 for (const auto& ranked_app : ranking_result.snapshot.applications) {
+                    std::uint64_t cum_dl = 0U;
+                    std::uint64_t cum_ul = 0U;
+                    for (const auto& counter_app : capture_result.capture.counters.applications) {
+                        if (counter_app.id == ranked_app.id) {
+                            cum_dl = counter_app.download_bytes;
+                            cum_ul = counter_app.upload_bytes;
+                            break;
+                        }
+                    }
                     RankingApplication app_item{
                         .id = ranked_app.id,
                         .executable_path = ranked_app.metadata.icon_key,
@@ -233,8 +242,32 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                             std::max(0.0, std::round(ranked_app.rate.download_bytes_per_second))),
                         .upload_bytes_per_sec = static_cast<std::uint64_t>(
                             std::max(0.0, std::round(ranked_app.rate.upload_bytes_per_second))),
+                        .total_download_bytes = cum_dl,
+                        .total_upload_bytes = cum_ul,
                     };
                     snapshot.applications.push_back(std::move(app_item));
+                }
+            }
+
+            for (const auto& counter_app : capture_result.capture.counters.applications) {
+                const bool already_present =
+                    std::ranges::any_of(snapshot.applications, [&](const RankingApplication& item) {
+                        return item.id == counter_app.id;
+                    });
+                if (!already_present &&
+                    (counter_app.download_bytes > 0U || counter_app.upload_bytes > 0U)) {
+                    snapshot.applications.push_back(RankingApplication{
+                        .id = counter_app.id,
+                        .executable_path = counter_app.metadata.icon_key,
+                        .display_name = counter_app.metadata.display_name.empty()
+                                            ? counter_app.id
+                                            : counter_app.metadata.display_name,
+                        .icon_key = counter_app.metadata.icon_key,
+                        .download_bytes_per_sec = 0U,
+                        .upload_bytes_per_sec = 0U,
+                        .total_download_bytes = counter_app.download_bytes,
+                        .total_upload_bytes = counter_app.upload_bytes,
+                    });
                 }
             }
 

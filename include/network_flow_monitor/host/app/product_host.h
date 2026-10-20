@@ -97,6 +97,8 @@ class ProductHost : public platform::IWindowEventListener,
     void on_open_log_directory() override;
     void on_check_for_update() override;
     void on_download_and_apply_update() override;
+    void on_request_connected_applications() override;
+    void on_browse_excluded_program() override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }

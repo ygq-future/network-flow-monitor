@@ -11,6 +11,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace nfm::host::lifecycle {
 
@@ -34,6 +36,11 @@ using CollectorStatusCallback = std::function<void(const bridge::CollectorStatus
 using SessionResetCallback = std::function<void(const bridge::SessionResetDto&)>;
 using DiagnosticCallback = std::function<void(bool is_error, std::string_view message)>;
 
+[[nodiscard]] bool is_application_excluded(std::string_view app_id,
+                                           std::string_view executable_path,
+                                           std::string_view display_name,
+                                           const std::vector<std::string>& excluded_programs);
+[[nodiscard]] std::string extract_executable_filename(std::string_view path_or_name);
 class CollectorCompanion : public ipc::IpcClientObserver {
   public:
     explicit CollectorCompanion(std::filesystem::path collector_executable_path = {});
@@ -50,6 +57,9 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     void set_session_reset_callback(SessionResetCallback callback);
     void set_diagnostic_callback(DiagnosticCallback callback);
 
+    void set_excluded_programs(std::vector<std::string> excluded_programs);
+    [[nodiscard]] std::vector<std::string> excluded_programs() const;
+    [[nodiscard]] bridge::ConnectedApplicationsDto connected_applications() const;
     bool start();
     void stop();
     bool restart();
@@ -86,6 +96,10 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     void* collector_process_handle_{nullptr};
     void* stop_event_handle_{nullptr};
     std::string stop_event_name_;
+    std::vector<std::string> excluded_programs_;
+    std::uint64_t excluded_download_bytes_per_sec_{0U};
+    std::uint64_t excluded_upload_bytes_per_sec_{0U};
+    std::vector<bridge::ConnectedAppDto> observed_connected_apps_;
     void emit_diagnostic(bool is_error, std::string_view message) noexcept;
 };
 

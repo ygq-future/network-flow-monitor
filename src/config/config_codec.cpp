@@ -46,7 +46,7 @@ using UniqueJsonBuffer = std::unique_ptr<char, JsonBufferDeleter>;
 constexpr std::array<std::string_view, 8> kUserRootKeys{
     "schema_version", "ranking",    "display", "interaction",
     "floating",       "appearance", "startup", "diagnostics"};
-constexpr std::array<std::string_view, 2> kRankingKeys{"top_n", "window_ms"};
+constexpr std::array<std::string_view, 3> kRankingKeys{"top_n", "window_ms", "excluded_programs"};
 constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
                                                        "show_upload", "show_download"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
@@ -353,6 +353,32 @@ std::optional<ConfigError> ParseRanking(yyjson_val* root, AppConfig& config, boo
     }
     if (yyjson_obj_get(group, "window_ms") != nullptr) {
         config.ranking.window = std::chrono::milliseconds{parsed};
+    }
+    if (auto* excluded_arr = yyjson_obj_get(group, "excluded_programs"); excluded_arr != nullptr) {
+        if (!yyjson_is_arr(excluded_arr)) {
+            return MakeError(ConfigErrorCode::TypeMismatch, "ranking.excluded_programs",
+                             "expected an array of strings");
+        }
+        const auto count = yyjson_arr_size(excluded_arr);
+        if (count > kMaximumExcludedPrograms) {
+            return MakeError(ConfigErrorCode::OutOfRange, "ranking.excluded_programs",
+                             "excluded_programs exceeds the maximum supported count");
+        }
+        config.ranking.excluded_programs.clear();
+        config.ranking.excluded_programs.reserve(count);
+        for (std::size_t idx = 0U; idx < count; ++idx) {
+            auto* item = yyjson_arr_get(excluded_arr, idx);
+            if (!yyjson_is_str(item)) {
+                return MakeError(ConfigErrorCode::TypeMismatch, "ranking.excluded_programs",
+                                 "expected a string element");
+            }
+            const auto text = JsonString(item);
+            if (text.empty() || text.size() > kMaximumExcludedProgramBytes) {
+                return MakeError(ConfigErrorCode::OutOfRange, "ranking.excluded_programs",
+                                 "excluded program entry length is out of range");
+            }
+            config.ranking.excluded_programs.emplace_back(text);
+        }
     }
     return std::nullopt;
 }
@@ -698,9 +724,21 @@ bool AddString(yyjson_mut_doc* document, yyjson_mut_val* object, const char* key
 
 bool AddRanking(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {
     auto* group = yyjson_mut_obj_add_obj(document, root, "ranking");
-    return group != nullptr &&
-           yyjson_mut_obj_add_uint(document, group, "top_n", config.ranking.top_n) &&
-           yyjson_mut_obj_add_sint(document, group, "window_ms", config.ranking.window.count());
+    if (group == nullptr ||
+        !yyjson_mut_obj_add_uint(document, group, "top_n", config.ranking.top_n) ||
+        !yyjson_mut_obj_add_sint(document, group, "window_ms", config.ranking.window.count())) {
+        return false;
+    }
+    auto* excluded = yyjson_mut_obj_add_arr(document, group, "excluded_programs");
+    if (excluded == nullptr) {
+        return false;
+    }
+    for (const auto& item : config.ranking.excluded_programs) {
+        if (!yyjson_mut_arr_add_strn(document, excluded, item.data(), item.size())) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool AddDisplay(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {

@@ -81,6 +81,12 @@ void NativeBridge::post_update_status(const UpdateStatusDto& status) {
     }
     sender_(BridgeDispatcher::serialize_update_status(status));
 }
+void NativeBridge::post_connected_applications(const ConnectedApplicationsDto& apps) {
+    if (!sender_) {
+        return;
+    }
+    sender_(BridgeDispatcher::serialize_connected_applications(apps));
+}
 void NativeBridge::post_error(const BridgeErrorDto& error) {
     if (!sender_) {
         return;

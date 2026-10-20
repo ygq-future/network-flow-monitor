@@ -390,6 +390,12 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::DownloadAndApplyUpdate:
         handler_->on_download_and_apply_update();
         break;
+    case WebCommandType::RequestConnectedApplications:
+        handler_->on_request_connected_applications();
+        break;
+    case WebCommandType::BrowseExcludedProgram:
+        handler_->on_browse_excluded_program();
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);
@@ -603,6 +609,11 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_obj_add_sint(doc.get(), rnk, "refreshIntervalMs",
                             config.display.refresh_interval.count());
 
+    yyjson_mut_val* excluded_arr = yyjson_mut_arr(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), rnk, "excludedPrograms", excluded_arr);
+    for (const auto& prog : config.ranking.excluded_programs) {
+        yyjson_mut_arr_add_str(doc.get(), excluded_arr, prog.c_str());
+    }
     // diagnostics
     yyjson_mut_val* diag = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "diagnostics", diag);
@@ -729,6 +740,34 @@ std::string BridgeDispatcher::serialize_update_status(const UpdateStatusDto& sta
     yyjson_mut_obj_add_uint(doc.get(), payload, "downloadProgressPercent",
                             status.download_progress_percent);
     yyjson_mut_obj_add_str(doc.get(), payload, "errorMessage", status.error_message.c_str());
+
+    return write_mut_doc(doc.get());
+}
+std::string BridgeDispatcher::serialize_connected_applications(
+    const ConnectedApplicationsDto& apps) {
+    ScopedJsonMutDoc doc;
+    yyjson_mut_val* root = yyjson_mut_obj(doc.get());
+    yyjson_mut_doc_set_root(doc.get(), root);
+
+    yyjson_mut_obj_add_str(doc.get(), root, "type", "connectedApplications");
+    yyjson_mut_obj_add_uint(doc.get(), root, "version", kCurrentBridgeVersion);
+
+    yyjson_mut_val* payload = yyjson_mut_obj(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), root, "payload", payload);
+
+    yyjson_mut_val* arr = yyjson_mut_arr(doc.get());
+    yyjson_mut_obj_add_val(doc.get(), payload, "applications", arr);
+    for (const auto& app : apps.applications) {
+        yyjson_mut_val* item = yyjson_mut_obj(doc.get());
+        yyjson_mut_obj_add_str(doc.get(), item, "id", app.id.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "executablePath", app.executable_path.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "executableName", app.executable_name.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "displayName", app.display_name.c_str());
+        yyjson_mut_obj_add_str(doc.get(), item, "iconKey", app.icon_key.c_str());
+        yyjson_mut_obj_add_uint(doc.get(), item, "totalDownloadBytes", app.total_download_bytes);
+        yyjson_mut_obj_add_uint(doc.get(), item, "totalUploadBytes", app.total_upload_bytes);
+        yyjson_mut_arr_append(arr, item);
+    }
 
     return write_mut_doc(doc.get());
 }

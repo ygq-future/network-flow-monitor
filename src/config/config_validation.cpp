@@ -84,6 +84,18 @@ ConfigValidationResult ValidateAppConfig(const AppConfig& config) {
                           "ranking.top_n");
     AddRangeIssueIfNeeded(result, config.ranking.window, kMinimumRankingWindow,
                           kMaximumRankingWindow, "ranking.window_ms");
+    if (config.ranking.excluded_programs.size() > kMaximumExcludedPrograms) {
+        result.issues.push_back(
+            {.code = ConfigIssueCode::OutOfRange, .field_path = "ranking.excluded_programs"});
+    } else {
+        for (const auto& item : config.ranking.excluded_programs) {
+            if (item.empty() || item.size() > kMaximumExcludedProgramBytes) {
+                result.issues.push_back({.code = ConfigIssueCode::OutOfRange,
+                                         .field_path = "ranking.excluded_programs"});
+                break;
+            }
+        }
+    }
     AddRangeIssueIfNeeded(result, config.display.refresh_interval, kMinimumRefreshInterval,
                           kMaximumRefreshInterval, "display.refresh_interval_ms");
     AddRangeIssueIfNeeded(result, config.interaction.hover_delay, kMinimumHoverDelay,

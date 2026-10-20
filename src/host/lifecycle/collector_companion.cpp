@@ -10,6 +10,7 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <shellapi.h>
@@ -267,7 +268,91 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     }
     return result;
 }
+char ToLowerAscii(char c) noexcept {
+    if (c >= 'A' && c <= 'Z') {
+        return static_cast<char>(c + ('a' - 'A'));
+    }
+    return c;
+}
+
+std::string NormalizeRuleToken(std::string_view input) {
+    while (!input.empty() &&
+           (input.front() == ' ' || input.front() == '\t' || input.front() == '"')) {
+        input.remove_prefix(1U);
+    }
+    while (!input.empty() && (input.back() == ' ' || input.back() == '\t' || input.back() == '"')) {
+        input.remove_suffix(1U);
+    }
+    std::string out;
+    out.reserve(input.size());
+    for (char c : input) {
+        if (c == '/') {
+            out.push_back('\\');
+        } else {
+            out.push_back(ToLowerAscii(c));
+        }
+    }
+    return out;
+}
+
+std::string StripExeExtension(std::string_view filename) {
+    if (filename.size() > 4U) {
+        const std::string_view suffix = filename.substr(filename.size() - 4U);
+        if (ToLowerAscii(suffix[0]) == '.' && ToLowerAscii(suffix[1]) == 'e' &&
+            ToLowerAscii(suffix[2]) == 'x' && ToLowerAscii(suffix[3]) == 'e') {
+            return std::string{filename.substr(0U, filename.size() - 4U)};
+        }
+    }
+    return std::string{filename};
+}
 } // namespace
+std::string extract_executable_filename(std::string_view path_or_name) {
+    if (path_or_name.starts_with("executable:")) {
+        path_or_name.remove_prefix(11U);
+    }
+    const auto last_slash = path_or_name.find_last_of("\\/");
+    if (last_slash != std::string_view::npos && last_slash + 1U < path_or_name.size()) {
+        return std::string{path_or_name.substr(last_slash + 1U)};
+    }
+    return std::string{path_or_name};
+}
+
+bool is_application_excluded(std::string_view app_id, std::string_view executable_path,
+                             std::string_view display_name,
+                             const std::vector<std::string>& excluded_programs) {
+    if (excluded_programs.empty()) {
+        return false;
+    }
+    const std::string norm_id = NormalizeRuleToken(app_id);
+    const std::string norm_path = NormalizeRuleToken(executable_path);
+    const std::string norm_display = NormalizeRuleToken(display_name);
+    const std::string exe_filename = NormalizeRuleToken(
+        extract_executable_filename(!executable_path.empty() ? executable_path : app_id));
+    const std::string exe_stem = StripExeExtension(exe_filename);
+    const std::string display_stem = StripExeExtension(norm_display);
+
+    for (const auto& raw_rule : excluded_programs) {
+        const std::string rule = NormalizeRuleToken(raw_rule);
+        if (rule.empty()) {
+            continue;
+        }
+        const std::string rule_filename = NormalizeRuleToken(extract_executable_filename(rule));
+        const std::string rule_stem = StripExeExtension(rule_filename);
+
+        if (rule == norm_id || (!norm_path.empty() && rule == norm_path) ||
+            (!norm_display.empty() && rule == norm_display)) {
+            return true;
+        }
+        if (!exe_filename.empty() && (rule == exe_filename || rule_filename == exe_filename)) {
+            return true;
+        }
+        if (!rule_stem.empty() && ((!exe_stem.empty() && rule_stem == exe_stem) ||
+                                   (!display_stem.empty() && rule_stem == display_stem))) {
+            return true;
+        }
+    }
+    return false;
+}
 
 CollectorCompanion::CollectorCompanion(std::filesystem::path collector_executable_path)
     : collector_path_(std::move(collector_executable_path)),
@@ -318,6 +403,20 @@ void CollectorCompanion::set_session_reset_callback(SessionResetCallback callbac
 void CollectorCompanion::set_diagnostic_callback(DiagnosticCallback callback) {
     const std::scoped_lock lock(mutex_);
     diagnostic_cb_ = std::move(callback);
+}
+void CollectorCompanion::set_excluded_programs(std::vector<std::string> excluded_programs) {
+    const std::scoped_lock lock(mutex_);
+    excluded_programs_ = std::move(excluded_programs);
+}
+
+std::vector<std::string> CollectorCompanion::excluded_programs() const {
+    const std::scoped_lock lock(mutex_);
+    return excluded_programs_;
+}
+
+bridge::ConnectedApplicationsDto CollectorCompanion::connected_applications() const {
+    const std::scoped_lock lock(mutex_);
+    return bridge::ConnectedApplicationsDto{.applications = observed_connected_apps_};
 }
 
 void CollectorCompanion::emit_diagnostic(bool is_error, std::string_view message) noexcept {
@@ -713,16 +812,22 @@ void CollectorCompanion::CollectorStatusReceived(ipc::CollectorStatusMessage sta
 
 void CollectorCompanion::inject_traffic_tick(const ipc::TrafficTickMessage& tick) {
     TrafficTickCallback cb;
+    std::uint64_t excl_dl = 0U;
+    std::uint64_t excl_ul = 0U;
     {
         const std::scoped_lock lock(mutex_);
         cb = traffic_tick_cb_;
+        excl_dl = excluded_download_bytes_per_sec_;
+        excl_ul = excluded_upload_bytes_per_sec_;
     }
     if (cb) {
         bridge::TrafficTickDto dto{
             .seq = tick.seq,
             .monotonic_ms = tick.monotonic_ms,
-            .download_bytes_per_sec = tick.download_bytes_per_sec,
-            .upload_bytes_per_sec = tick.upload_bytes_per_sec,
+            .download_bytes_per_sec =
+                tick.download_bytes_per_sec > excl_dl ? tick.download_bytes_per_sec - excl_dl : 0U,
+            .upload_bytes_per_sec =
+                tick.upload_bytes_per_sec > excl_ul ? tick.upload_bytes_per_sec - excl_ul : 0U,
         };
         cb(dto);
     }
@@ -730,26 +835,86 @@ void CollectorCompanion::inject_traffic_tick(const ipc::TrafficTickMessage& tick
 
 void CollectorCompanion::inject_ranking_snapshot(const ipc::RankingSnapshotMessage& snapshot) {
     RankingSnapshotCallback cb;
+    std::vector<std::string> excluded;
     {
         const std::scoped_lock lock(mutex_);
         cb = ranking_snapshot_cb_;
+        excluded = excluded_programs_;
     }
-    if (cb) {
-        bridge::RankingSnapshotDto dto{
-            .seq = snapshot.seq,
-            .monotonic_ms = snapshot.monotonic_ms,
-            .status = snapshot.status,
-            .total_download_bytes_per_sec = snapshot.total_rate.download_bytes_per_sec,
-            .total_upload_bytes_per_sec = snapshot.total_rate.upload_bytes_per_sec,
-        };
-        dto.applications.reserve(snapshot.applications.size());
-        for (const auto& app : snapshot.applications) {
-            const std::string& path_source =
-                !app.executable_path.empty() ? app.executable_path : app.icon_key;
-            std::string resolved_icon = ExtractExecutableIconDataUri(path_source);
-            if (resolved_icon.empty()) {
-                resolved_icon = app.icon_key;
+
+    std::uint64_t excluded_dl_rate = 0U;
+    std::uint64_t excluded_ul_rate = 0U;
+    std::uint64_t included_dl_rate_sum = 0U;
+    std::uint64_t included_ul_rate_sum = 0U;
+
+    bridge::RankingSnapshotDto dto{
+        .seq = snapshot.seq,
+        .monotonic_ms = snapshot.monotonic_ms,
+        .status = snapshot.status,
+        .total_download_bytes_per_sec = snapshot.total_rate.download_bytes_per_sec,
+        .total_upload_bytes_per_sec = snapshot.total_rate.upload_bytes_per_sec,
+    };
+    dto.applications.reserve(snapshot.applications.size());
+
+    for (const auto& app : snapshot.applications) {
+        const std::string& path_source =
+            !app.executable_path.empty() ? app.executable_path : app.icon_key;
+        std::string resolved_icon = ExtractExecutableIconDataUri(path_source);
+        if (resolved_icon.empty()) {
+            resolved_icon = app.icon_key;
+        }
+        std::string exe_name = extract_executable_filename(
+            !app.executable_path.empty() ? app.executable_path : app.display_name);
+        if (exe_name.empty()) {
+            exe_name = app.display_name.empty() ? app.id : app.display_name;
+        }
+
+        if (!app.id.starts_with("collector:")) {
+            const std::scoped_lock lock(mutex_);
+            auto existing = std::ranges::find_if(
+                observed_connected_apps_,
+                [&](const bridge::ConnectedAppDto& item) { return item.id == app.id; });
+            if (existing != observed_connected_apps_.end()) {
+                if (!app.executable_path.empty()) {
+                    existing->executable_path = app.executable_path;
+                }
+                if (!exe_name.empty()) {
+                    existing->executable_name = exe_name;
+                }
+                if (!app.display_name.empty()) {
+                    existing->display_name = app.display_name;
+                }
+                if (!resolved_icon.empty()) {
+                    existing->icon_key = resolved_icon;
+                }
+                existing->total_download_bytes =
+                    std::max(existing->total_download_bytes, app.total_download_bytes);
+                existing->total_upload_bytes =
+                    std::max(existing->total_upload_bytes, app.total_upload_bytes);
+            } else if (observed_connected_apps_.size() < 256U) {
+                observed_connected_apps_.push_back(bridge::ConnectedAppDto{
+                    .id = app.id,
+                    .executable_path = app.executable_path,
+                    .executable_name = std::move(exe_name),
+                    .display_name = app.display_name.empty() ? app.id : app.display_name,
+                    .icon_key = resolved_icon,
+                    .total_download_bytes = app.total_download_bytes,
+                    .total_upload_bytes = app.total_upload_bytes,
+                });
             }
+        }
+
+        if (is_application_excluded(app.id, app.executable_path, app.display_name, excluded)) {
+            excluded_dl_rate += app.download_bytes_per_sec;
+            excluded_ul_rate += app.upload_bytes_per_sec;
+            continue;
+        }
+
+        included_dl_rate_sum += app.download_bytes_per_sec;
+        included_ul_rate_sum += app.upload_bytes_per_sec;
+
+        if (app.download_bytes_per_sec > 0U || app.upload_bytes_per_sec > 0U ||
+            snapshot.applications.size() == 1U) {
             dto.applications.push_back(bridge::RankingAppDto{
                 .id = app.id,
                 .executable_path = app.executable_path,
@@ -757,8 +922,36 @@ void CollectorCompanion::inject_ranking_snapshot(const ipc::RankingSnapshotMessa
                 .icon_key = std::move(resolved_icon),
                 .download_bytes_per_sec = app.download_bytes_per_sec,
                 .upload_bytes_per_sec = app.upload_bytes_per_sec,
+                .total_download_bytes = app.total_download_bytes,
+                .total_upload_bytes = app.total_upload_bytes,
             });
         }
+    }
+
+    if (!excluded.empty()) {
+        dto.total_download_bytes_per_sec =
+            dto.total_download_bytes_per_sec > excluded_dl_rate
+                ? std::min(dto.total_download_bytes_per_sec - excluded_dl_rate,
+                           included_dl_rate_sum > 0U
+                               ? included_dl_rate_sum
+                               : dto.total_download_bytes_per_sec - excluded_dl_rate)
+                : 0U;
+        dto.total_upload_bytes_per_sec =
+            dto.total_upload_bytes_per_sec > excluded_ul_rate
+                ? std::min(dto.total_upload_bytes_per_sec - excluded_ul_rate,
+                           included_ul_rate_sum > 0U
+                               ? included_ul_rate_sum
+                               : dto.total_upload_bytes_per_sec - excluded_ul_rate)
+                : 0U;
+    }
+
+    {
+        const std::scoped_lock lock(mutex_);
+        excluded_download_bytes_per_sec_ = excluded_dl_rate;
+        excluded_upload_bytes_per_sec_ = excluded_ul_rate;
+    }
+
+    if (cb) {
         cb(dto);
     }
 }

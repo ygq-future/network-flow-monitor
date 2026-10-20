@@ -22,6 +22,8 @@ export type WebCommandType =
   | 'openLogDirectory'
   | 'checkForUpdate'
   | 'downloadAndApplyUpdate'
+  | 'requestConnectedApplications'
+  | 'browseExcludedProgram'
 export type NativeEventType =
   | 'trafficTick'
   | 'rankingSnapshot'
@@ -33,6 +35,7 @@ export type NativeEventType =
   | 'surfaceChanged'
   | 'commandResponse'
   | 'updateStatus'
+  | 'connectedApplications'
   | 'error'
 export interface TrafficTickDto {
   seq: number
@@ -150,6 +153,7 @@ export interface RankingConfigDto {
   topN: number
   windowMs: number
   refreshIntervalMs: number
+  excludedPrograms?: string[]
 }
 
 export interface DiagnosticsConfigDto {
@@ -198,6 +202,19 @@ export interface UpdateStatusDto {
   errorMessage: string
 }
 
+export interface ConnectedAppDto {
+  id: string
+  executablePath: string
+  executableName: string
+  displayName: string
+  iconKey: string
+  totalDownloadBytes: number
+  totalUploadBytes: number
+}
+
+export interface ConnectedApplicationsDto {
+  applications: ConnectedAppDto[]
+}
 export interface BridgeErrorDto {
   code: string
   message: string

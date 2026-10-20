@@ -8,6 +8,7 @@
 #include <cmath>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <utility>
 #include <yyjson.h>
 namespace nfm::host::app {
@@ -208,6 +209,7 @@ bool ProductHost::initialize() {
     collector_companion_ =
         std::make_shared<lifecycle::CollectorCompanion>(options_.collector_executable_path);
 
+    collector_companion_->set_excluded_programs(current_config_.ranking.excluded_programs);
     collector_companion_->set_traffic_tick_callback([this](const bridge::TrafficTickDto& tick) {
         if (window_ != nullptr) {
             window_->post_ui_task([this, tick]() noexcept {
@@ -237,6 +239,10 @@ bool ProductHost::initialize() {
                                     coordinator::PresentationState::PanelVisible) {
                                 native_bridge_->post_ranking_snapshot(*snap_ptr);
                             }
+                        }
+                        if (settings_surface_visible_ && settings_bridge_ && collector_companion_) {
+                            settings_bridge_->post_connected_applications(
+                                collector_companion_->connected_applications());
                         }
                     } catch (...) {
                     }
@@ -835,6 +841,10 @@ void ProductHost::ensure_settings_window() {
                             if (app_updater_) {
                                 settings_bridge_->post_update_status(app_updater_->status());
                             }
+                            if (collector_companion_) {
+                                settings_bridge_->post_connected_applications(
+                                    collector_companion_->connected_applications());
+                            }
                             if (settings_surface_visible_) {
                                 settings_window_->show(SW_SHOW);
                                 SetForegroundWindow(settings_window_->hwnd());
@@ -881,6 +891,10 @@ void ProductHost::ensure_settings_window() {
             }
             if (app_updater_) {
                 settings_bridge_->post_update_status(app_updater_->status());
+            }
+            if (collector_companion_) {
+                settings_bridge_->post_connected_applications(
+                    collector_companion_->connected_applications());
             }
         }
         if (!settings_webview_ || settings_webview_->is_ready()) {
@@ -1199,6 +1213,10 @@ void ProductHost::on_request_config() {
             if (app_updater_) {
                 settings_bridge_->post_update_status(app_updater_->status());
             }
+            if (collector_companion_) {
+                settings_bridge_->post_connected_applications(
+                    collector_companion_->connected_applications());
+            }
         }
     }
     broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
@@ -1208,6 +1226,9 @@ void ProductHost::on_request_config() {
         }
         if (app_updater_) {
             b.post_update_status(app_updater_->status());
+        }
+        if (collector_companion_) {
+            b.post_connected_applications(collector_companion_->connected_applications());
         }
     });
     if (native_bridge_ && latest_ranking_snapshot_.has_value()) {
@@ -1545,6 +1566,93 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected integer for refresh_interval_ms";
         }
+    } else if (key == "ranking.excluded_programs" || key == "ranking.excludedPrograms" ||
+               key == "excludedPrograms") {
+        if (yyjson_is_arr(val)) {
+            const auto count = yyjson_arr_size(val);
+            if (count > config::kMaximumExcludedPrograms) {
+                err_msg = "excluded_programs exceeds maximum count";
+            } else {
+                std::vector<std::string> next_list;
+                next_list.reserve(count);
+                bool valid_items = true;
+                for (std::size_t idx = 0U; idx < count; ++idx) {
+                    auto* item = yyjson_arr_get(val, idx);
+                    if (!yyjson_is_str(item)) {
+                        err_msg = "Expected string items in excluded_programs";
+                        valid_items = false;
+                        break;
+                    }
+                    std::string_view item_str{yyjson_get_str(item), yyjson_get_len(item)};
+                    while (!item_str.empty() &&
+                           (item_str.front() == ' ' || item_str.front() == '\t')) {
+                        item_str.remove_prefix(1U);
+                    }
+                    while (!item_str.empty() &&
+                           (item_str.back() == ' ' || item_str.back() == '\t')) {
+                        item_str.remove_suffix(1U);
+                    }
+                    if (item_str.empty()) {
+                        continue;
+                    }
+                    if (item_str.size() > config::kMaximumExcludedProgramBytes) {
+                        err_msg = "Excluded program item exceeds maximum length";
+                        valid_items = false;
+                        break;
+                    }
+                    const std::string entry{item_str};
+                    const bool duplicate =
+                        std::ranges::any_of(next_list, [&](const std::string& existing) {
+                            return lifecycle::is_application_excluded(
+                                existing, existing, existing, std::vector<std::string>{entry});
+                        });
+                    if (!duplicate) {
+                        next_list.push_back(entry);
+                    }
+                }
+                if (valid_items) {
+                    current_config_.ranking.excluded_programs = std::move(next_list);
+                    if (collector_companion_) {
+                        collector_companion_->set_excluded_programs(
+                            current_config_.ranking.excluded_programs);
+                    }
+                    if (latest_ranking_snapshot_.has_value()) {
+                        auto& snap = *latest_ranking_snapshot_;
+                        std::uint64_t excl_dl = 0U;
+                        std::uint64_t excl_ul = 0U;
+                        std::vector<bridge::RankingAppDto> kept;
+                        kept.reserve(snap.applications.size());
+                        for (const auto& app : snap.applications) {
+                            if (lifecycle::is_application_excluded(
+                                    app.id, app.executable_path, app.display_name,
+                                    current_config_.ranking.excluded_programs)) {
+                                excl_dl += app.download_bytes_per_sec;
+                                excl_ul += app.upload_bytes_per_sec;
+                            } else {
+                                kept.push_back(app);
+                            }
+                        }
+                        snap.total_download_bytes_per_sec =
+                            snap.total_download_bytes_per_sec > excl_dl
+                                ? snap.total_download_bytes_per_sec - excl_dl
+                                : 0U;
+                        snap.total_upload_bytes_per_sec =
+                            snap.total_upload_bytes_per_sec > excl_ul
+                                ? snap.total_upload_bytes_per_sec - excl_ul
+                                : 0U;
+                        snap.applications = std::move(kept);
+                        if (native_bridge_ && coordinator_ &&
+                            coordinator_->state().presentation_state ==
+                                coordinator::PresentationState::PanelVisible) {
+                            native_bridge_->post_ranking_snapshot(snap);
+                        }
+                    }
+                    updated = true;
+                }
+            }
+        } else {
+            err_msg = "Expected array of strings for excluded_programs";
+        }
     } else if (key == "diagnostics.log_level" || key == "diagnostics.logLevel" ||
                key == "logLevel") {
         if (yyjson_is_str(val)) {
@@ -1732,5 +1840,82 @@ void ProductHost::on_download_and_apply_update() {
     if (app_updater_) {
         app_updater_->download_and_apply_async();
     }
+}
+void ProductHost::on_request_connected_applications() {
+    if (!collector_companion_) {
+        return;
+    }
+    const auto dto = collector_companion_->connected_applications();
+    broadcast_to_all_bridges(
+        [&dto](bridge::INativeBridge& b) { b.post_connected_applications(dto); });
+}
+
+void ProductHost::on_browse_excluded_program() {
+    IFileOpenDialog* dialog = nullptr;
+    const HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || dialog == nullptr) {
+        return;
+    }
+    DWORD flags = 0;
+    if (SUCCEEDED(dialog->GetOptions(&flags))) {
+        static_cast<void>(dialog->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST |
+                                             FOS_PATHMUSTEXIST));
+    }
+    const bool is_zh =
+        (current_config_.appearance.language == config::LanguageMode::SimplifiedChinese);
+    const COMDLG_FILTERSPEC filter_specs[] = {
+        {is_zh ? L"可执行程序 (*.exe)" : L"Executable Files (*.exe)", L"*.exe"},
+        {is_zh ? L"所有文件 (*.*)" : L"All Files (*.*)", L"*.*"},
+    };
+    static_cast<void>(dialog->SetFileTypes(2U, filter_specs));
+    static_cast<void>(dialog->SetFileTypeIndex(1U));
+    static_cast<void>(dialog->SetTitle(is_zh ? L"选择要排除的程序" : L"Select Program to Exclude"));
+
+    HWND owner_hwnd = nullptr;
+    if (settings_window_ && settings_window_->hwnd() != nullptr &&
+        IsWindowVisible(settings_window_->hwnd()) != FALSE) {
+        owner_hwnd = settings_window_->hwnd();
+    } else if (window_) {
+        owner_hwnd = window_->hwnd();
+    }
+
+    if (SUCCEEDED(dialog->Show(owner_hwnd))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item)) && item != nullptr) {
+            PWSTR file_path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &file_path)) &&
+                file_path != nullptr) {
+                const std::filesystem::path chosen_path(file_path);
+                CoTaskMemFree(file_path);
+                const auto u8_name = chosen_path.filename().u8string();
+                std::string exe_name(reinterpret_cast<const char*>(u8_name.data()), u8_name.size());
+                if (!exe_name.empty() && current_config_.ranking.excluded_programs.size() <
+                                             config::kMaximumExcludedPrograms) {
+                    const bool already = std::ranges::any_of(
+                        current_config_.ranking.excluded_programs,
+                        [&](const std::string& existing) {
+                            return lifecycle::is_application_excluded(
+                                existing, existing, existing, std::vector<std::string>{exe_name});
+                        });
+                    if (!already) {
+                        current_config_.ranking.excluded_programs.push_back(exe_name);
+                        if (collector_companion_) {
+                            collector_companion_->set_excluded_programs(
+                                current_config_.ranking.excluded_programs);
+                        }
+                        static_cast<void>(config::SaveConfigFile(options_.config_file_path,
+                                                                 current_config_,
+                                                                 config::ConfigDocumentKind::User));
+                        broadcast_to_all_bridges([this](bridge::INativeBridge& b) {
+                            b.post_config_changed(current_config_);
+                        });
+                    }
+                }
+            }
+            item->Release();
+        }
+    }
+    dialog->Release();
 }
 } // namespace nfm::host::app

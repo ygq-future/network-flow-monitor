@@ -4,7 +4,9 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace nfm::config {
 
@@ -35,6 +37,8 @@ inline constexpr std::int32_t kMaximumCapsuleEndRoundingDip = 12;
 inline constexpr std::int32_t kDefaultCapsuleEndRoundingDip = 5;
 inline constexpr std::size_t kMaximumMonitorIdentifierBytes = 255U;
 inline constexpr std::size_t kMaximumColorHexBytes = 15U;
+inline constexpr std::size_t kMaximumExcludedPrograms = 128U;
+inline constexpr std::size_t kMaximumExcludedProgramBytes = 260U;
 inline constexpr std::string_view kDefaultDownloadColorHex = "#38bdf8";
 inline constexpr std::string_view kDefaultUploadColorHex = "#2dd4bf";
 enum class SpeedUnit : std::uint8_t {
@@ -68,6 +72,7 @@ enum class LogLevel : std::uint8_t {
 struct RankingConfig {
     std::uint8_t top_n;
     std::chrono::milliseconds window;
+    std::vector<std::string> excluded_programs{};
 
     bool operator==(const RankingConfig&) const = default;
 };

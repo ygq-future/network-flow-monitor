@@ -146,7 +146,7 @@ export const enUS: TranslationSchema = {
     excludedProgramsAdd: 'Add',
     excludedProgramsBrowse: 'Browse .exe',
     excludedProgramsRefresh: 'Refresh',
-    excludedProgramsConnectedTitle: 'Click any connected program below to exclude',
+    excludedProgramsConnectedTitle: 'Select a connected program below, then click Add to exclude',
     excludedProgramsSearchPlaceholder: 'Search connected apps or enter process name to add...',
     excludedProgramsNoConnected: 'No matching connected programs found',
     excludedProgramsAdded: 'Excluded',

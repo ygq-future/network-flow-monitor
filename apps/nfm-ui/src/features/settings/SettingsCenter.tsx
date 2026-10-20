@@ -146,6 +146,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   const [historyLayoutSeq, setHistoryLayoutSeq] = useState(0)
   const [showExclusionPanel, setShowExclusionPanel] = useState(false)
   const [excludeFilterInput, setExcludeFilterInput] = useState('')
+  const [selectedConnectedAppId, setSelectedConnectedAppId] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -267,6 +268,16 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     )
   })
 
+  const selectedConnectedApp =
+    selectedConnectedAppId != null
+      ? (filteredConnectedApps.find(
+          app => app.id === selectedConnectedAppId && !isAppMatchingExcluded(app, excludedPrograms),
+        ) ?? null)
+      : null
+  const selectedConnectedAppTarget = selectedConnectedApp
+    ? selectedConnectedApp.executableName || selectedConnectedApp.displayName || selectedConnectedApp.id
+    : ''
+  const pendingAddTarget = selectedConnectedAppTarget || excludeFilterInput.trim()
   const downloadColor = (config.capsule.downloadColorHex || '#38bdf8').toLowerCase()
   const uploadColor = (config.capsule.uploadColorHex || '#2dd4bf').toLowerCase()
 
@@ -469,6 +480,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     onClick={() => {
                       const nextOpen = !showExclusionPanel
                       setShowExclusionPanel(nextOpen)
+                      setSelectedConnectedAppId(null)
                       if (nextOpen) {
                         bridge.sendCommand('requestConnectedApplications')
                       }
@@ -513,11 +525,17 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         <input
                           type="text"
                           value={excludeFilterInput}
-                          onChange={e => setExcludeFilterInput(e.target.value)}
+                          onChange={e => {
+                            setExcludeFilterInput(e.target.value)
+                            setSelectedConnectedAppId(null)
+                          }}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault()
-                              handleAddExcludedProgram(excludeFilterInput)
+                              if (pendingAddTarget) {
+                                handleAddExcludedProgram(pendingAddTarget)
+                                setSelectedConnectedAppId(null)
+                              }
                             }
                           }}
                           placeholder={t.settings.excludedProgramsInputPlaceholder}
@@ -535,8 +553,13 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       <Button
                         variant="primary"
                         size="sm"
-                        disabled={!excludeFilterInput.trim()}
-                        onClick={() => handleAddExcludedProgram(excludeFilterInput)}
+                        disabled={!pendingAddTarget}
+                        onClick={() => {
+                          if (pendingAddTarget) {
+                            handleAddExcludedProgram(pendingAddTarget)
+                            setSelectedConnectedAppId(null)
+                          }
+                        }}
                         className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
                         <Plus className="h-3 w-3" />
                         <span>{t.settings.excludedProgramsAdd}</span>
@@ -561,7 +584,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       </Button>
                     </div>
 
-                    {/* Connected Applications Compact Single-Line List (Click row to add) */}
+                    {/* Connected Applications Compact Single-Line List (Click row to select, then click Add) */}
                     <div className="max-h-36 divide-y divide-zinc-100 overflow-y-auto rounded-[5px] border border-zinc-200/80 bg-white dark:divide-zinc-900 dark:border-zinc-800/80 dark:bg-zinc-950">
                       {filteredConnectedApps.length === 0 ? (
                         <div className="py-3 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -570,22 +593,26 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       ) : (
                         filteredConnectedApps.map(app => {
                           const isExcluded = isAppMatchingExcluded(app, excludedPrograms)
+                          const isSelected = !isExcluded && selectedConnectedApp?.id === app.id
                           const targetName = app.executableName || app.displayName || app.id
                           return (
                             <button
                               key={app.id}
                               type="button"
                               disabled={isExcluded}
+                              aria-pressed={isSelected}
                               onClick={() => {
                                 if (!isExcluded) {
-                                  handleAddExcludedProgram(targetName)
+                                  setSelectedConnectedAppId(prev => (prev === app.id ? null : app.id))
                                 }
                               }}
                               title={app.executablePath || targetName}
                               className={`flex h-6 w-full items-center justify-between gap-2 px-2 text-left transition-colors ${
                                 isExcluded
                                   ? 'cursor-default bg-zinc-50/60 opacity-60 dark:bg-zinc-900/40'
-                                  : 'cursor-pointer hover:bg-zinc-100/80 active:bg-zinc-200/60 dark:hover:bg-zinc-900 dark:active:bg-zinc-800/80'
+                                  : isSelected
+                                    ? 'cursor-pointer bg-zinc-900/10 ring-1 ring-zinc-900/20 ring-inset dark:bg-zinc-100/15 dark:ring-zinc-100/25'
+                                    : 'cursor-pointer hover:bg-zinc-100/80 active:bg-zinc-200/60 dark:hover:bg-zinc-900 dark:active:bg-zinc-800/80'
                               }`}>
                               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                                 {app.iconKey && app.iconKey.startsWith('data:image/') ? (
@@ -602,12 +629,14 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                                   </span>
                                 )}
                               </div>
-                              {isExcluded && (
+                              {isExcluded ? (
                                 <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
                                   <Check className="h-3 w-3" />
                                   <span>{t.settings.excludedProgramsAdded}</span>
                                 </span>
-                              )}
+                              ) : isSelected ? (
+                                <Check className="h-3 w-3 shrink-0 text-zinc-900 dark:text-zinc-100" />
+                              ) : null}
                             </button>
                           )
                         })

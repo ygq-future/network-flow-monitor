@@ -145,7 +145,7 @@ export const zhCN: TranslationSchema = {
     excludedProgramsAdd: '添加',
     excludedProgramsBrowse: '浏览 .exe',
     excludedProgramsRefresh: '刷新',
-    excludedProgramsConnectedTitle: '点击下方已连接程序即可直接添加排除',
+    excludedProgramsConnectedTitle: '点击选中下方已连接程序，再点击“添加”即可排除',
     excludedProgramsSearchPlaceholder: '搜索已连接程序或输入进程名添加...',
     excludedProgramsNoConnected: '未找到匹配的已连接程序',
     excludedProgramsAdded: '已排除',

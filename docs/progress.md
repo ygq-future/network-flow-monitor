@@ -289,7 +289,7 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `CollectorCompanion` 持续记录已观测到的联网应用清单（`connected_applications()`），供设置页随时检索选择。
 - **Native/Web Bridge 扩展与设置中心排除程序管理 UI (`bridge_types.h/.cpp`, `bridge_dispatcher.h/.cpp`, `native_bridge.h/.cpp`, `SettingsCenter.tsx`, `SettingsCenter.test.tsx`)**：
   - 新增 `requestConnectedApplications`、`browseExcludedProgram`（调用 Win32 `IFileOpenDialog` 原生文件选择框选择 `.exe`）与 `connectedApplications` 桥接事件；
-  - 在设置中心「通用」页新增「排除程序统计」折叠管理面板：支持展示已排除程序标签并一键移除、手动输入进程名添加、原生浏览 `.exe` 添加，以及对当前已连接程序列表进行模糊搜索筛选与一键排除。
+  - 在设置中心「通用」页新增「排除程序统计」折叠管理面板：支持展示已排除程序标签并一键移除、手动输入进程名添加、原生浏览 `.exe` 添加，以及对当前已连接程序列表进行模糊搜索筛选、点击选中后再点击「添加」确认排除。
 
 ## 第十九轮多级递进历史流量统计（Phase 2） — complete
 

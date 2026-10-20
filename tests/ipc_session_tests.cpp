@@ -311,7 +311,13 @@ void CheckIntegration(TestContext& context) {
                       "TrafficTick matches published values");
     }
 
-    const auto health = server.health();
+    auto health = server.health();
+    for (int attempt = 0; attempt < 50 && (health.accepted_connections < 1U ||
+                                           health.frames_received < 1U || health.frames_sent < 2U);
+         ++attempt) {
+        Sleep(2U);
+        health = server.health();
+    }
     context.Check(health.accepted_connections >= 1U && health.frames_received >= 1U &&
                       health.frames_sent >= 2U,
                   "real server records bounded session health");

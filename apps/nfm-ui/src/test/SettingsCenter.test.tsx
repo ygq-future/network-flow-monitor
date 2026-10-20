@@ -179,20 +179,31 @@ describe('SettingsCenter', () => {
 
     expect(screen.getByText('mihomo-multi.exe')).toBeInTheDocument()
 
-    // Unified input filters connected apps
+    const addBtn = screen.getByRole('button', { name: /^Add$/i })
+    expect(addBtn).toBeDisabled()
+
+    // Clicking a connected app row selects it without immediately adding
+    fireEvent.click(screen.getByText('mihomo-multi.exe'))
+    expect(spy).not.toHaveBeenCalledWith('updateSetting', expect.anything())
+    expect(addBtn).not.toBeDisabled()
+
+    // Unified input filters connected apps and clears selection while typing
     const searchInput = screen.getByPlaceholderText(/Search connected apps or enter process name/i)
     fireEvent.change(searchInput, { target: { value: 'mihomo' } })
     expect(screen.getByText('mihomo-multi.exe')).toBeInTheDocument()
     expect(screen.queryByText('Microsoft Edge')).not.toBeInTheDocument()
+    fireEvent.change(searchInput, { target: { value: '' } })
+    expect(addBtn).toBeDisabled()
 
-    // Clicking the connected app row directly adds it
+    // Select connected app row, then click Add button to commit
     fireEvent.click(screen.getByText('mihomo-multi.exe'))
+    expect(addBtn).not.toBeDisabled()
+    fireEvent.click(addBtn)
 
     expect(spy).toHaveBeenCalledWith('updateSetting', {
       key: 'ranking.excluded_programs',
       value: ['mihomo-multi.exe'],
     })
-
     // Refresh button triggers requestConnectedApplications
     const refreshBtn = screen.getByRole('button', { name: /Refresh/i })
     fireEvent.click(refreshBtn)

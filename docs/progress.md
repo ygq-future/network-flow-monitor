@@ -262,3 +262,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `ProductSurface` 在胶囊收拢过渡动画（280ms）结束后自动从 DOM 卸载 `<BasicMonitorPanel />` 子树，并在面板重新展开时由 Host 补发最新 `RankingSnapshotDto`。
 - **进程图标缓存容量收敛 (`collector_companion.cpp`)**：
   - 将 `ExtractExecutableIconDataUri` 图标缓存上限从 256 项收敛至 64 项并按条目淘汰，减少 Host 长期运行时的常驻内存体积。
+
+## 第十六轮 v0.1.1 版本发布准备与质量门禁验收 — complete
+
+- **全仓版本号同步升级至 `0.1.1` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 同步升级 CMake 工程版本、前端包清单、Windows 资源文件 `FILEVERSION`/`PRODUCTVERSION`（`0,1,1,0` / `"0.1.1"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.1.1.md`)**：
+  - 汇总 WebView2 原生内存目标水位与隐藏态 `TrySuspend` 自动休眠、4Hz 流量节拍 Context 隔离与非活跃面板 DOM 卸载、采集器二次启动管道独占保护、断连胶囊颜色清零、关闭设置/托盘左键唤醒修复与设置按钮精简。

@@ -168,7 +168,7 @@ export class MockBridge extends NativeBridge {
   private currentSurface: SurfaceChangedDto = { surface: 'capsule', pinned: false, dockSide: 'right' }
   private currentUpdateStatus: UpdateStatusDto = {
     state: 'Idle',
-    currentVersion: '0.1.0',
+    currentVersion: '0.1.1',
     latestVersion: '',
     downloadProgressPercent: 0,
     errorMessage: '',

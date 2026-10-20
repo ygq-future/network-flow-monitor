@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full
 # 3. 一键格式化全仓 C++ 与前端代码
 powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Format
 
-# 4. 生成 Release 便携式 ZIP 发行包（输出至 dist/NetworkFlowMonitor-0.1.0-win-x64.zip）
+# 4. 生成 Release 便携式 ZIP 发行包（输出至 dist/NetworkFlowMonitor-<version>-win-x64.zip）
 powershell -ExecutionPolicy Bypass -File tools/package.ps1 -Configuration Release
 ```
 

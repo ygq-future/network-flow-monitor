@@ -1460,8 +1460,40 @@ void CheckStartFailure(TestContext& context) {
     const auto result = host.Start();
     context.Check(result.error == CollectorHostError::EtwStartFailed &&
                       host.state() == CollectorHostState::Failed,
-                  "host classifies ETW startup denial before opening IPC");
+                  "host classifies ETW startup denial and rolls back IPC server");
+    context.Check(server.health().state == nfm::ipc::IpcServerState::Stopped,
+                  "IPC server is stopped when ETW start fails");
     context.Check(host.Stop().ok(), "failed host can be stopped safely");
+
+    // Verify second CollectorHost instance fails at IPC ownership before touching ETW
+    FakeEtwApi active_etw;
+    WindowsEtwSession active_session{active_etw};
+    EtwSnapshotProvider active_provider{active_session};
+    IpcServer active_server{"cinst_active", principal, transport};
+    SnapshotPublisher active_publisher{"cinst_active", std::chrono::steady_clock::now() - 1s,
+                                       active_provider, active_server};
+    FakeWait active_wait;
+    CollectorHost active_host{active_session, active_server, active_publisher, active_wait};
+    context.Check(active_host.Start().ok(), "first collector host starts");
+
+    FakeEtwApi second_etw;
+    WindowsEtwSession second_session{
+        second_etw,
+        {.existing_session_policy = nfm::collector::ExistingSessionPolicy::StopAndRetry}};
+    EtwSnapshotProvider second_provider{second_session};
+    IpcServer second_server{"cinst_second", principal, transport};
+    SnapshotPublisher second_publisher{"cinst_second", std::chrono::steady_clock::now() - 1s,
+                                       second_provider, second_server};
+    FakeWait second_wait;
+    CollectorHost second_host{second_session, second_server, second_publisher, second_wait};
+    const auto second_result = second_host.Start();
+    context.Check(second_result.error == CollectorHostError::IpcStartFailed &&
+                      second_host.state() == CollectorHostState::Failed,
+                  "second collector host fails immediately on IPC endpoint ownership");
+    context.Check(second_etw.start_calls == 0U && second_etw.stop_calls == 0U &&
+                      active_etw.stop_calls == 0U,
+                  "second collector host never starts or stops the active ETW session");
+    context.Check(active_host.Stop().ok(), "first collector host stops cleanly");
 }
 
 } // namespace

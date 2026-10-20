@@ -870,6 +870,31 @@ void CheckCollectorCompanionInjections(TestContext& context) {
     };
     companion.inject_ranking_snapshot(snap_msg);
     context.Check(ranking_called, "ranking_snapshot injection calls callback");
+    // 3c. Check inactive ETW session diagnostic logging and error message propagation
+    std::vector<std::pair<bool, std::string>> diagnostics;
+    companion.set_diagnostic_callback([&](bool is_error, std::string_view message) {
+        diagnostics.emplace_back(is_error, std::string(message));
+    });
+    nfm::host::bridge::CollectorStatusDto latest_dto{};
+    companion.set_collector_status_callback(
+        [&](const nfm::host::bridge::CollectorStatusDto& dto) { latest_dto = dto; });
+    companion.inject_collector_status(nfm::ipc::CollectorStatusMessage{
+        .monotonic_ms = 2000,
+        .etw_session_active = false,
+        .dropped_packets = 0,
+        .active_pids = 0,
+    });
+    context.Check(!latest_dto.etw_session_active && !latest_dto.last_error.empty(),
+                  "inactive ETW status sets error detail");
+    context.Check(!diagnostics.empty() && diagnostics.back().first,
+                  "inactive ETW status emits error diagnostic");
+
+    // 3d. Check Backoff state transition emits diagnostic
+    diagnostics.clear();
+    companion.StateChanged(nfm::ipc::IpcClientState::Backoff);
+    context.Check(!diagnostics.empty() && diagnostics.back().first,
+                  "IPC Backoff from Running emits error diagnostic");
+
     // 4. Test stop and restart state
     companion.stop();
     context.Check(!companion.is_running(), "companion not running after stop");

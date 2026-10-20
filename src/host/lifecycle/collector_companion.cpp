@@ -528,21 +528,43 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
         bool diag_error = false;
         {
             const std::scoped_lock lock(mutex_);
+            std::string exit_code_suffix;
+            DWORD exit_code = STILL_ACTIVE;
+            if (collector_process_handle_ != nullptr) {
+                if (GetExitCodeProcess(static_cast<HANDLE>(collector_process_handle_),
+                                       &exit_code) != FALSE &&
+                    exit_code != STILL_ACTIVE) {
+                    exit_code_suffix = ", collector_exit_code=" + std::to_string(exit_code);
+                }
+            }
             if (state == ipc::IpcClientState::Streaming) {
                 info_.state = CollectorState::Running;
+            } else if (state == ipc::IpcClientState::Backoff) {
+                if (info_.state == CollectorState::Running) {
+                    diag_error = true;
+                    if (exit_code != STILL_ACTIVE) {
+                        info_.state = CollectorState::Failed;
+                        info_.error_message =
+                            "Collector process exited (exit_code=" + std::to_string(exit_code) +
+                            ")";
+                    } else {
+                        info_.state = CollectorState::Starting;
+                        info_.error_message = "Collector IPC stream interrupted; reconnecting";
+                    }
+                    diag_msg = "Collector IPC stream lost; entering reconnect backoff (pid=" +
+                               std::to_string(info_.process_id) + exit_code_suffix + ")";
+                } else if (exit_code != STILL_ACTIVE && info_.state != CollectorState::Failed) {
+                    info_.state = CollectorState::Failed;
+                    info_.error_message =
+                        "Collector process exited (exit_code=" + std::to_string(exit_code) + ")";
+                    diag_error = true;
+                    diag_msg = "Collector companion process exited before IPC handshake (pid=" +
+                               std::to_string(info_.process_id) + exit_code_suffix + ")";
+                }
             } else if (state == ipc::IpcClientState::Failed ||
                        state == ipc::IpcClientState::Unauthorized) {
                 info_.state = CollectorState::Failed;
                 diag_error = true;
-                std::string exit_code_suffix;
-                if (collector_process_handle_ != nullptr) {
-                    DWORD exit_code = 0;
-                    if (GetExitCodeProcess(static_cast<HANDLE>(collector_process_handle_),
-                                           &exit_code) != FALSE &&
-                        exit_code != STILL_ACTIVE) {
-                        exit_code_suffix = ", collector_exit_code=" + std::to_string(exit_code);
-                    }
-                }
                 if (state == ipc::IpcClientState::Unauthorized) {
                     info_.error_message = "IPC pipe authorization rejected";
                     diag_msg = "Collector IPC state=Unauthorized (pid=" +
@@ -646,10 +668,29 @@ void CollectorCompanion::inject_ranking_snapshot(const ipc::RankingSnapshotMessa
 void CollectorCompanion::inject_collector_status(const ipc::CollectorStatusMessage& status) {
     CollectorStatusCallback cb;
     CollectorInfo current_info;
+    std::string diag_msg;
+    bool diag_error = false;
     {
         const std::scoped_lock lock(mutex_);
+        if (!status.etw_session_active && info_.state == CollectorState::Running) {
+            info_.error_message = "ETW session NetworkFlowMonitor.SystemTrace is inactive";
+            diag_error = true;
+            diag_msg =
+                "Collector reported ETW session inactive (pid=" + std::to_string(info_.process_id) +
+                ", instance=" + info_.instance_id + ")";
+        } else if (status.etw_session_active &&
+                   info_.error_message ==
+                       "ETW session NetworkFlowMonitor.SystemTrace is inactive") {
+            info_.error_message.clear();
+            diag_msg =
+                "Collector ETW session active restored (pid=" + std::to_string(info_.process_id) +
+                ", instance=" + info_.instance_id + ")";
+        }
         cb = collector_status_cb_;
         current_info = info_;
+    }
+    if (!diag_msg.empty()) {
+        emit_diagnostic(diag_error, diag_msg);
     }
     if (cb) {
         std::string state_str = "Running";

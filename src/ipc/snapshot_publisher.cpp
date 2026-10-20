@@ -105,8 +105,40 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
             return {};
         }
 
+        const auto monotonic_ms = MonotonicMs(now, instance_started_at_);
         const auto capture_result = provider_->Capture();
         if (capture_result.error != CaptureError::None) {
+            previous_total_download_.reset();
+            previous_total_upload_.reset();
+            previous_sample_time_.reset();
+            if (tick_due) {
+                const TrafficTickMessage zero_tick{
+                    .seq = ++tick_sequence_,
+                    .monotonic_ms = monotonic_ms,
+                    .download_bytes_per_sec = 0U,
+                    .upload_bytes_per_sec = 0U,
+                };
+                static_cast<void>(server_->PublishTrafficTick(zero_tick));
+                last_tick_run_ = now;
+            }
+            if (snapshot_due) {
+                const RankingSnapshotMessage empty_snapshot{
+                    .seq = ++snapshot_sequence_,
+                    .monotonic_ms = monotonic_ms,
+                    .status = "WarmingUp",
+                    .total_rate = {.download_bytes_per_sec = 0U, .upload_bytes_per_sec = 0U},
+                };
+                static_cast<void>(server_->PublishRankingSnapshot(empty_snapshot));
+                const CollectorStatusMessage inactive_status{
+                    .monotonic_ms = monotonic_ms,
+                    .etw_session_active = false,
+                    .dropped_packets = capture_result.capture.health.events_lost +
+                                       capture_result.capture.health.realtime_buffers_lost,
+                    .active_pids = 0U,
+                };
+                static_cast<void>(server_->PublishCollectorStatus(inactive_status));
+                last_snapshot_run_ = now;
+            }
             return PublisherFailure(PublisherError::CaptureFailed);
         }
 
@@ -143,8 +175,6 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
         previous_total_download_ = total_download;
         previous_total_upload_ = total_upload;
         previous_sample_time_ = now;
-
-        const auto monotonic_ms = MonotonicMs(now, instance_started_at_);
 
         ranking::RankingResult ranking_result;
         if (ranking_engine_) {

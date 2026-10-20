@@ -58,14 +58,14 @@ CollectorHostResult CollectorHost::Start() noexcept {
     if (!observer.ok()) {
         return Fail(CollectorHostError::SubscriptionObserverFailed, observer.win32_error);
     }
-    const auto started = session_->Start();
-    if (!started.ok()) {
-        return Fail(CollectorHostError::EtwStartFailed, started.win32_error);
-    }
     const auto server_started = server_->Start();
     if (!server_started.ok()) {
-        static_cast<void>(session_->Stop());
         return Fail(CollectorHostError::IpcStartFailed, server_started.win32_error);
+    }
+    const auto started = session_->Start();
+    if (!started.ok()) {
+        static_cast<void>(server_->Stop());
+        return Fail(CollectorHostError::EtwStartFailed, started.win32_error);
     }
     state_ = CollectorHostState::Running;
     return {};

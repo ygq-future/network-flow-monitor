@@ -21,9 +21,128 @@ namespace nfm::host::platform {
 
 namespace {
 
-constexpr DWORD kHttpConnectTimeoutMs = 10'000;
+constexpr DWORD kHttpConnectTimeoutMs = 8'000;
 constexpr DWORD kHttpSendReceiveTimeoutMs = 30'000;
 constexpr std::uint64_t kMaxReleaseArchiveSizeBytes = 256ULL * 1024ULL * 1024ULL; // 256 MiB
+
+std::wstring TrimWide(std::wstring_view text) {
+    constexpr std::wstring_view kWhitespace = L" \t\r\n";
+    const auto first = text.find_first_not_of(kWhitespace);
+    if (first == std::wstring_view::npos) {
+        return {};
+    }
+    const auto last = text.find_last_not_of(kWhitespace);
+    return std::wstring(text.substr(first, last - first + 1U));
+}
+
+std::string WideToUtf8(std::wstring_view wide) {
+    if (wide.empty()) {
+        return {};
+    }
+    const int needed = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()),
+                                           nullptr, 0, nullptr, nullptr);
+    if (needed <= 0) {
+        return {};
+    }
+    std::string out(static_cast<std::size_t>(needed), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), out.data(), needed,
+                        nullptr, nullptr);
+    return out;
+}
+
+std::wstring ReadEnvironmentProxy() {
+    constexpr std::array<const wchar_t*, 6> kProxyVars{
+        L"HTTPS_PROXY", L"https_proxy", L"HTTP_PROXY", L"http_proxy", L"ALL_PROXY", L"all_proxy",
+    };
+    std::array<wchar_t, 512> buf{};
+    for (const wchar_t* var_name : kProxyVars) {
+        const DWORD len =
+            GetEnvironmentVariableW(var_name, buf.data(), static_cast<DWORD>(buf.size()));
+        if (len > 0U && len < buf.size()) {
+            std::wstring normalized =
+                AppUpdater::normalize_winhttp_proxy_server(std::wstring_view(buf.data(), len));
+            if (!normalized.empty()) {
+                return normalized;
+            }
+        }
+    }
+    return {};
+}
+
+struct RegistryProxySnapshot {
+    std::wstring proxy_server;
+    bool proxy_enabled{false};
+};
+
+RegistryProxySnapshot ReadInternetSettingsProxy() {
+    RegistryProxySnapshot snapshot;
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings", 0,
+                      KEY_QUERY_VALUE, &key) != ERROR_SUCCESS ||
+        key == nullptr) {
+        return snapshot;
+    }
+
+    DWORD enabled = 0;
+    DWORD enabled_size = sizeof(enabled);
+    DWORD value_type = 0;
+    if (RegQueryValueExW(key, L"ProxyEnable", nullptr, &value_type,
+                         reinterpret_cast<LPBYTE>(&enabled), &enabled_size) == ERROR_SUCCESS &&
+        value_type == REG_DWORD) {
+        snapshot.proxy_enabled = (enabled != 0U);
+    }
+
+    std::array<wchar_t, 512> server_buf{};
+    DWORD server_bytes = sizeof(server_buf) - sizeof(wchar_t);
+    value_type = 0;
+    if (RegQueryValueExW(key, L"ProxyServer", nullptr, &value_type,
+                         reinterpret_cast<LPBYTE>(server_buf.data()),
+                         &server_bytes) == ERROR_SUCCESS &&
+        (value_type == REG_SZ || value_type == REG_EXPAND_SZ)) {
+        snapshot.proxy_server = server_buf.data();
+    }
+
+    RegCloseKey(key);
+    return snapshot;
+}
+
+std::vector<HttpAccessCandidate> DiscoverRuntimeHttpAccessCandidates() {
+    const std::wstring env_proxy = ReadEnvironmentProxy();
+    const RegistryProxySnapshot reg_proxy = ReadInternetSettingsProxy();
+    return AppUpdater::build_http_access_candidates(HttpProxyConfigSources{
+        .env_proxy = env_proxy,
+        .registry_proxy = reg_proxy.proxy_server,
+        .registry_proxy_enabled = reg_proxy.proxy_enabled,
+    });
+}
+
+HINTERNET OpenWinHttpSessionForCandidate(const HttpAccessCandidate& candidate) noexcept {
+    switch (candidate.mode) {
+    case HttpAccessMode::AutomaticProxy:
+        return WinHttpOpen(L"NetworkFlowMonitor-Updater/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    case HttpAccessMode::NamedProxy:
+        return WinHttpOpen(L"NetworkFlowMonitor-Updater/1.0", WINHTTP_ACCESS_TYPE_NAMED_PROXY,
+                           candidate.proxy_server.c_str(), L"<local>", 0);
+    case HttpAccessMode::NoProxy:
+        return WinHttpOpen(L"NetworkFlowMonitor-Updater/1.0", WINHTTP_ACCESS_TYPE_NO_PROXY,
+                           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    }
+    return nullptr;
+}
+
+std::string DescribeAccessCandidate(const HttpAccessCandidate& candidate) {
+    switch (candidate.mode) {
+    case HttpAccessMode::AutomaticProxy:
+        return "auto-proxy";
+    case HttpAccessMode::NamedProxy:
+        return "proxy=" + WideToUtf8(candidate.proxy_server);
+    case HttpAccessMode::NoProxy:
+        return "direct";
+    }
+    return "unknown";
+}
 
 class ScopedInternetHandle {
   public:
@@ -127,47 +246,38 @@ std::optional<ParsedUrl> CrackUrl(std::string_view url_utf8) {
     return result;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::string* error_out) {
-    auto parsed = CrackUrl(url_utf8);
-    if (!parsed.has_value()) {
-        if (error_out != nullptr) {
-            *error_out = "Invalid URL format";
-        }
-        return false;
-    }
-
-    ScopedInternetHandle session(WinHttpOpen(L"NetworkFlowMonitor-Updater/1.0",
-                                             WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+std::optional<std::string> HttpGetBufferSingle(const ParsedUrl& parsed,
+                                               const HttpAccessCandidate& candidate,
+                                               std::string* error_out) {
+    ScopedInternetHandle session(OpenWinHttpSessionForCandidate(candidate));
     if (session.get() == nullptr) {
         if (error_out != nullptr) {
             *error_out = "WinHttpOpen failed (win32=" + std::to_string(GetLastError()) + ")";
         }
-        return false;
+        return std::nullopt;
     }
 
     WinHttpSetTimeouts(session.get(), kHttpConnectTimeoutMs, kHttpConnectTimeoutMs,
                        kHttpSendReceiveTimeoutMs, kHttpSendReceiveTimeoutMs);
 
     ScopedInternetHandle connection(
-        WinHttpConnect(session.get(), parsed->host.c_str(), parsed->port, 0));
+        WinHttpConnect(session.get(), parsed.host.c_str(), parsed.port, 0));
     if (connection.get() == nullptr) {
         if (error_out != nullptr) {
             *error_out = "WinHttpConnect failed (win32=" + std::to_string(GetLastError()) + ")";
         }
-        return false;
+        return std::nullopt;
     }
 
-    const DWORD flags = parsed->is_https ? WINHTTP_FLAG_SECURE : 0U;
+    const DWORD flags = parsed.is_https ? WINHTTP_FLAG_SECURE : 0U;
     ScopedInternetHandle request(
-        WinHttpOpenRequest(connection.get(), L"GET", parsed->path_and_query.c_str(), nullptr,
+        WinHttpOpenRequest(connection.get(), L"GET", parsed.path_and_query.c_str(), nullptr,
                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
     if (request.get() == nullptr) {
         if (error_out != nullptr) {
             *error_out = "WinHttpOpenRequest failed (win32=" + std::to_string(GetLastError()) + ")";
         }
-        return false;
+        return std::nullopt;
     }
 
     const std::wstring headers = L"Accept: application/vnd.github+json\r\n"
@@ -178,7 +288,7 @@ bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::s
         if (error_out != nullptr) {
             *error_out = "HTTP request failed (win32=" + std::to_string(GetLastError()) + ")";
         }
-        return false;
+        return std::nullopt;
     }
 
     DWORD status_code = 0;
@@ -189,14 +299,14 @@ bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::s
         if (error_out != nullptr) {
             *error_out = "Failed to query HTTP status code";
         }
-        return false;
+        return std::nullopt;
     }
 
     if (status_code != 200U) {
         if (error_out != nullptr) {
             *error_out = "GitHub API returned HTTP " + std::to_string(status_code);
         }
-        return false;
+        return std::nullopt;
     }
 
     std::string body;
@@ -206,7 +316,7 @@ bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::s
             if (error_out != nullptr) {
                 *error_out = "WinHttpQueryDataAvailable failed";
             }
-            return false;
+            return std::nullopt;
         }
         if (available == 0U) {
             break;
@@ -215,7 +325,7 @@ bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::s
             if (error_out != nullptr) {
                 *error_out = "GitHub API response exceeded 4 MiB limit";
             }
-            return false;
+            return std::nullopt;
         }
         const std::size_t offset = body.size();
         body.resize(offset + available);
@@ -224,32 +334,56 @@ bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::s
             if (error_out != nullptr) {
                 *error_out = "WinHttpReadData failed";
             }
-            return false;
+            return std::nullopt;
         }
         body.resize(offset + bytes_read);
     }
 
-    if (response_body != nullptr) {
-        *response_body = std::move(body);
-    }
-    return true;
+    return body;
 }
 
-bool HttpDownloadFile(std::string_view url_utf8, const std::filesystem::path& destination_file,
-                      std::uint64_t expected_size_bytes, const std::atomic_bool& stop_requested,
-                      const std::function<void(std::uint8_t)>& on_progress,
-                      std::string* error_out) {
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+bool HttpGetBuffer(std::string_view url_utf8, std::string* response_body, std::string* error_out) {
     auto parsed = CrackUrl(url_utf8);
     if (!parsed.has_value()) {
         if (error_out != nullptr) {
-            *error_out = "Invalid asset download URL";
+            *error_out = "Invalid URL format";
         }
         return false;
     }
 
-    ScopedInternetHandle session(WinHttpOpen(L"NetworkFlowMonitor-Updater/1.0",
-                                             WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    const auto candidates = DiscoverRuntimeHttpAccessCandidates();
+    std::string first_error;
+    std::string last_error;
+    for (const auto& candidate : candidates) {
+        std::string attempt_error;
+        if (auto body = HttpGetBufferSingle(*parsed, candidate, &attempt_error); body.has_value()) {
+            if (response_body != nullptr) {
+                *response_body = std::move(*body);
+            }
+            return true;
+        }
+        const std::string tagged = attempt_error + " [" + DescribeAccessCandidate(candidate) + "]";
+        if (first_error.empty()) {
+            first_error = tagged;
+        }
+        last_error = tagged;
+    }
+    if (error_out != nullptr) {
+        *error_out = (first_error == last_error || last_error.empty())
+                         ? first_error
+                         : (first_error + "; fallback: " + last_error);
+    }
+    return false;
+}
+
+bool HttpDownloadFileSingle(const ParsedUrl& parsed, const HttpAccessCandidate& candidate,
+                            const std::filesystem::path& destination_file,
+                            std::uint64_t expected_size_bytes,
+                            const std::atomic_bool& stop_requested,
+                            const std::function<void(std::uint8_t)>& on_progress,
+                            std::string* error_out) {
+    ScopedInternetHandle session(OpenWinHttpSessionForCandidate(candidate));
     if (session.get() == nullptr) {
         if (error_out != nullptr) {
             *error_out = "WinHttpOpen failed (win32=" + std::to_string(GetLastError()) + ")";
@@ -261,7 +395,7 @@ bool HttpDownloadFile(std::string_view url_utf8, const std::filesystem::path& de
                        kHttpSendReceiveTimeoutMs, kHttpSendReceiveTimeoutMs);
 
     ScopedInternetHandle connection(
-        WinHttpConnect(session.get(), parsed->host.c_str(), parsed->port, 0));
+        WinHttpConnect(session.get(), parsed.host.c_str(), parsed.port, 0));
     if (connection.get() == nullptr) {
         if (error_out != nullptr) {
             *error_out = "WinHttpConnect failed (win32=" + std::to_string(GetLastError()) + ")";
@@ -269,9 +403,9 @@ bool HttpDownloadFile(std::string_view url_utf8, const std::filesystem::path& de
         return false;
     }
 
-    const DWORD flags = parsed->is_https ? WINHTTP_FLAG_SECURE : 0U;
+    const DWORD flags = parsed.is_https ? WINHTTP_FLAG_SECURE : 0U;
     ScopedInternetHandle request(
-        WinHttpOpenRequest(connection.get(), L"GET", parsed->path_and_query.c_str(), nullptr,
+        WinHttpOpenRequest(connection.get(), L"GET", parsed.path_and_query.c_str(), nullptr,
                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
     if (request.get() == nullptr) {
         if (error_out != nullptr) {
@@ -397,6 +531,53 @@ bool HttpDownloadFile(std::string_view url_utf8, const std::filesystem::path& de
         on_progress(100);
     }
     return true;
+}
+
+bool HttpDownloadFile(std::string_view url_utf8, const std::filesystem::path& destination_file,
+                      std::uint64_t expected_size_bytes, const std::atomic_bool& stop_requested,
+                      const std::function<void(std::uint8_t)>& on_progress,
+                      std::string* error_out) {
+    auto parsed = CrackUrl(url_utf8);
+    if (!parsed.has_value()) {
+        if (error_out != nullptr) {
+            *error_out = "Invalid asset download URL";
+        }
+        return false;
+    }
+
+    const auto candidates = DiscoverRuntimeHttpAccessCandidates();
+    std::string first_error;
+    std::string last_error;
+    for (const auto& candidate : candidates) {
+        if (stop_requested.load()) {
+            if (error_out != nullptr) {
+                *error_out = "Update download cancelled";
+            }
+            return false;
+        }
+
+        std::string attempt_error;
+        if (HttpDownloadFileSingle(*parsed, candidate, destination_file, expected_size_bytes,
+                                   stop_requested, on_progress, &attempt_error)) {
+            return true;
+        }
+
+        std::error_code remove_ec;
+        std::filesystem::remove(destination_file, remove_ec);
+
+        const std::string tagged = attempt_error + " [" + DescribeAccessCandidate(candidate) + "]";
+        if (first_error.empty()) {
+            first_error = tagged;
+        }
+        last_error = tagged;
+    }
+
+    if (error_out != nullptr) {
+        *error_out = (first_error == last_error || last_error.empty())
+                         ? first_error
+                         : (first_error + "; fallback: " + last_error);
+    }
+    return false;
 }
 
 bool ExtractZipArchiveToDirectory(const std::filesystem::path& zip_path,
@@ -731,6 +912,117 @@ bool AppUpdater::launch_detached_update_script(const std::filesystem::path& scri
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return true;
+}
+
+std::wstring AppUpdater::normalize_winhttp_proxy_server(std::wstring_view raw_proxy) {
+    std::wstring trimmed = TrimWide(raw_proxy);
+    if (trimmed.empty()) {
+        return {};
+    }
+
+    // Reject SOCKS-only proxy URLs that WinHTTP HTTP/HTTPS CONNECT does not speak natively
+    if (trimmed.starts_with(L"socks") || trimmed.starts_with(L"SOCKS")) {
+        return {};
+    }
+
+    // Handle per-scheme WinINET proxy strings like "http=127.0.0.1:7890;https=127.0.0.1:7890"
+    if (trimmed.find(L'=') != std::wstring::npos) {
+        std::wstring selected;
+        std::size_t pos = 0;
+        while (pos < trimmed.size()) {
+            const std::size_t next = trimmed.find(L';', pos);
+            const std::wstring_view token =
+                (next == std::wstring::npos) ? std::wstring_view(trimmed).substr(pos)
+                                             : std::wstring_view(trimmed).substr(pos, next - pos);
+            const std::size_t eq = token.find(L'=');
+            if (eq != std::wstring_view::npos) {
+                const std::wstring scheme = TrimWide(token.substr(0, eq));
+                const std::wstring value = TrimWide(token.substr(eq + 1U));
+                if ((scheme == L"https" || scheme == L"HTTPS") && !value.empty()) {
+                    selected = value;
+                    break;
+                }
+                if ((scheme == L"http" || scheme == L"HTTP") && selected.empty() &&
+                    !value.empty()) {
+                    selected = value;
+                }
+            }
+            if (next == std::wstring::npos) {
+                break;
+            }
+            pos = next + 1U;
+        }
+        if (!selected.empty()) {
+            trimmed = std::move(selected);
+        }
+    }
+
+    for (std::wstring_view prefix : {L"http://", L"HTTP://", L"https://", L"HTTPS://"}) {
+        if (trimmed.starts_with(prefix)) {
+            trimmed.erase(0, prefix.size());
+            break;
+        }
+    }
+
+    // Strip any credentials prefix user:pass@
+    if (const auto at_pos = trimmed.rfind(L'@'); at_pos != std::wstring::npos) {
+        trimmed.erase(0, at_pos + 1U);
+    }
+
+    // Strip any trailing path slash
+    if (const auto slash_pos = trimmed.find(L'/'); slash_pos != std::wstring::npos) {
+        trimmed.erase(slash_pos);
+    }
+
+    trimmed = TrimWide(trimmed);
+    if (trimmed.empty() || trimmed.find(L':') == std::wstring::npos) {
+        return {};
+    }
+    return trimmed;
+}
+
+std::vector<HttpAccessCandidate> AppUpdater::build_http_access_candidates(
+    const HttpProxyConfigSources& sources) {
+    std::vector<HttpAccessCandidate> candidates;
+    candidates.push_back(HttpAccessCandidate{
+        .mode = HttpAccessMode::AutomaticProxy,
+        .proxy_server = {},
+    });
+
+    auto add_named_proxy = [&candidates](std::wstring_view raw) {
+        std::wstring normalized = normalize_winhttp_proxy_server(raw);
+        if (normalized.empty()) {
+            return;
+        }
+        for (const auto& existing : candidates) {
+            if (existing.mode == HttpAccessMode::NamedProxy &&
+                existing.proxy_server == normalized) {
+                return;
+            }
+        }
+        candidates.push_back(HttpAccessCandidate{
+            .mode = HttpAccessMode::NamedProxy,
+            .proxy_server = std::move(normalized),
+        });
+    };
+
+    add_named_proxy(sources.env_proxy);
+    add_named_proxy(sources.registry_proxy);
+    if (!sources.registry_proxy_enabled && candidates.size() == 1U) {
+        // Common local HTTP proxy fallback ports (Clash / Mihomo / v2rayN) when no explicit
+        // ProxyServer string was saved in registry
+        add_named_proxy(L"127.0.0.1:7890");
+        add_named_proxy(L"127.0.0.1:7897");
+        add_named_proxy(L"127.0.0.1:10809");
+    }
+
+    // Always append explicit Direct (WINHTTP_ACCESS_TYPE_NO_PROXY) as final fallback in case
+    // system/named proxy is unreachable or broken
+    candidates.push_back(HttpAccessCandidate{
+        .mode = HttpAccessMode::NoProxy,
+        .proxy_server = {},
+    });
+    return candidates;
 }
 
 void AppUpdater::update_state(const bridge::UpdateStatusDto& next_status) {

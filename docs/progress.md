@@ -311,3 +311,5 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 将项目版本号从 `0.1.2` 升级至小版本 `0.2.0`，同步更新 CMake 工程版本、前端包清单、Windows 资源文件 `FILEVERSION`/`PRODUCTVERSION`（`0,2,0,0` / `"0.2.0"`）以及前端默认回退版本号。
 - **撰写中英双语发布说明 (`.github/release-note/v0.2.0.md`)**：
   - 完整汇总多级递进历史流量统计（持久化二维账本、按时间/应用双根维度、日/周/月/季/年五级粒度、面包屑多级下钻、搜索排序、汇总底栏与对数/线性比例条切换）与排除程序流量显示及统计过滤（实时总速率/排行/历史账本全链路过滤、原生文件浏览与已连接应用模糊搜索添加）。
+- **在线自更新多级代理与直连双向自动兜底 (`app_updater.h/.cpp`, `host_tests.cpp`)**：
+  - 新增 `normalize_winhttp_proxy_server` 与 `build_http_access_candidates`，使检查更新与下载归档包按「系统自动代理 (`AUTOMATIC_PROXY`) $\rightarrow$ 环境变量/注册表 `ProxyServer`/本地代理端口 (`NAMED_PROXY`) $\rightarrow$ 强制直连 (`NO_PROXY`)」顺序自动重试兜底，解决未开启系统代理开关时直连 GitHub Release CDN 超时或代理失效导致更新失败的问题。

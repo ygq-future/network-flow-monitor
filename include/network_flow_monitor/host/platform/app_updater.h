@@ -12,7 +12,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
-
+#include <vector>
 namespace nfm::host::platform {
 
 struct SemanticVersion {
@@ -27,6 +27,23 @@ struct ReleaseAssetInfo {
     std::string version;
     std::string download_url;
     std::uint64_t asset_size_bytes{0};
+};
+
+enum class HttpAccessMode : std::uint8_t {
+    AutomaticProxy = 0,
+    NamedProxy = 1,
+    NoProxy = 2,
+};
+
+struct HttpAccessCandidate {
+    HttpAccessMode mode{HttpAccessMode::AutomaticProxy};
+    std::wstring proxy_server;
+};
+
+struct HttpProxyConfigSources {
+    std::wstring_view env_proxy;
+    std::wstring_view registry_proxy;
+    bool registry_proxy_enabled{false};
 };
 
 struct AppUpdaterOptions {
@@ -75,6 +92,10 @@ class AppUpdater {
                                                 std::string* error_out = nullptr);
     [[nodiscard]] static bool launch_detached_update_script(
         const std::filesystem::path& script_path, std::string* error_out = nullptr);
+
+    [[nodiscard]] static std::wstring normalize_winhttp_proxy_server(std::wstring_view raw_proxy);
+    [[nodiscard]] static std::vector<HttpAccessCandidate> build_http_access_candidates(
+        const HttpProxyConfigSources& sources);
 
   private:
     void update_state(const bridge::UpdateStatusDto& next_status);

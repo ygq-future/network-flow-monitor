@@ -1631,6 +1631,47 @@ void TestDetachedUpdateScriptExecution(TestContext& ctx) {
     ctx.Check(marker_created, "detached batch script actually executed and wrote marker file");
     std::filesystem::remove_all(temp_dir, ec);
 }
+
+void TestProxyNormalizationAndFallbackCandidates(TestContext& ctx) {
+    using nfm::host::platform::AppUpdater;
+    using nfm::host::platform::HttpAccessMode;
+    using nfm::host::platform::HttpProxyConfigSources;
+    ctx.Check(AppUpdater::normalize_winhttp_proxy_server(L"http://127.0.0.1:7890/") ==
+                  L"127.0.0.1:7890",
+              "normalize http:// proxy URL with trailing slash");
+    ctx.Check(AppUpdater::normalize_winhttp_proxy_server(
+                  L"http=127.0.0.1:7890;https=127.0.0.1:7891") == L"127.0.0.1:7891",
+              "select https proxy from multi-scheme WinINET string");
+    ctx.Check(AppUpdater::normalize_winhttp_proxy_server(L"socks5://127.0.0.1:1080").empty(),
+              "reject socks5 scheme not supported by WinHTTP HTTP CONNECT");
+
+    // Case 1: ProxyEnable=0, but ProxyServer="127.0.0.1:7890" is present in registry
+    const auto candidates_with_reg =
+        AppUpdater::build_http_access_candidates(HttpProxyConfigSources{
+            .env_proxy = L"",
+            .registry_proxy = L"127.0.0.1:7890",
+            .registry_proxy_enabled = false,
+        });
+    ctx.Check(candidates_with_reg.size() == 3U,
+              "AutoProxy -> NamedProxy(127.0.0.1:7890) -> Direct(NoProxy)");
+    if (candidates_with_reg.size() == 3U) {
+        ctx.Check(candidates_with_reg[0].mode == HttpAccessMode::AutomaticProxy,
+                  "first candidate is AutomaticProxy");
+        ctx.Check(candidates_with_reg[1].mode == HttpAccessMode::NamedProxy &&
+                      candidates_with_reg[1].proxy_server == L"127.0.0.1:7890",
+                  "second candidate is NamedProxy from registry ProxyServer");
+        ctx.Check(candidates_with_reg[2].mode == HttpAccessMode::NoProxy,
+                  "final candidate is Direct NoProxy fallback");
+    }
+
+    const auto candidates_default =
+        AppUpdater::build_http_access_candidates(HttpProxyConfigSources{});
+    ctx.Check(candidates_default.size() >= 3U &&
+                  candidates_default.front().mode == HttpAccessMode::AutomaticProxy &&
+                  candidates_default.back().mode == HttpAccessMode::NoProxy,
+              "empty proxy config still includes local port fallbacks and ends with "
+              "Direct NoProxy");
+}
 } // namespace
 
 int Run() {
@@ -1638,6 +1679,7 @@ int Run() {
     TestSemVerParsingAndComparison(ctx);
     TestGitHubReleaseJsonParsing(ctx);
     TestDetachedUpdateScriptExecution(ctx);
+    TestProxyNormalizationAndFallbackCandidates(ctx);
     return ctx.failures();
 }
 } // namespace app_updater_suite

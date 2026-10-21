@@ -13,16 +13,16 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    'inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 disabled:pointer-events-none disabled:opacity-45 cursor-pointer select-none rounded-md'
+    'inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 disabled:pointer-events-none disabled:opacity-45 cursor-pointer select-none rounded-[5px]'
   const sizeStyles = {
-    sm: 'h-7 px-2.5 text-xs gap-1.5',
-    md: 'h-8 px-3.5 text-xs gap-2',
-    lg: 'h-9 px-4 text-sm gap-2',
+    sm: 'h-6 px-2 text-[11px] gap-1',
+    md: 'h-7 px-3 text-xs gap-1.5',
+    lg: 'h-8 px-3.5 text-sm gap-2',
   }
 
   const variantStyles = {
     primary:
-      'bg-zinc-900 text-white shadow-2xs hover:bg-zinc-800 active:bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:active:bg-zinc-200',
+      'border border-transparent bg-zinc-900 text-white shadow-2xs hover:bg-zinc-800 active:bg-zinc-950 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:active:bg-zinc-200',
     secondary:
       'border border-black/[0.08] bg-white/80 text-zinc-800 hover:bg-white active:bg-zinc-100/80 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-zinc-100 dark:hover:bg-white/[0.1] dark:active:bg-white/[0.04]',
     ghost:

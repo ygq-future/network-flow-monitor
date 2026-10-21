@@ -6,7 +6,7 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 export const Badge: React.FC<BadgeProps> = ({ children, variant = 'default', className = '', ...props }) => {
   const baseStyles =
-    'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors'
+    'inline-flex h-6 items-center gap-1 px-2 rounded-[5px] text-[11px] font-medium border transition-colors'
 
   const variantStyles = {
     default:

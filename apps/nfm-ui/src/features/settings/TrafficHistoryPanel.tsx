@@ -475,12 +475,12 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
 
   const renderSortIcon = (field: HistorySortField) => {
     if (sortField !== field) {
-      return <ArrowUpDown className="h-2.5 w-2.5 opacity-40" />
+      return <ArrowUpDown className="h-2.5 w-2.5 shrink-0 opacity-40" />
     }
     return sortDirection === 'asc' ? (
-      <ArrowUp className="h-2.5 w-2.5 text-zinc-900 dark:text-zinc-100" />
+      <ArrowUp className="h-2.5 w-2.5 shrink-0 text-zinc-900 dark:text-zinc-100" />
     ) : (
-      <ArrowDown className="h-2.5 w-2.5 text-zinc-900 dark:text-zinc-100" />
+      <ArrowDown className="h-2.5 w-2.5 shrink-0 text-zinc-900 dark:text-zinc-100" />
     )
   }
 
@@ -495,17 +495,17 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
   return (
     <Card className="flex flex-col gap-2 p-2.5">
       {/* Top Control Bar: Root Dimension Switch + Period Granularity + Scale Toggle + Refresh */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1">
           {/* Root Dimension Toggle: Time vs App */}
           <div
             role="group"
             aria-label="History Dimension"
-            className="flex items-center rounded-md border border-zinc-200/80 bg-zinc-100/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
+            className="flex shrink-0 items-center rounded-md border border-zinc-200/80 bg-zinc-100/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
             <button
               type="button"
               onClick={() => handleSwitchRootDimension('time')}
-              className={`flex h-6 cursor-pointer items-center gap-1 rounded-[4px] px-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              className={`flex h-6 cursor-pointer items-center gap-1 rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
                 rootDimension === 'time'
                   ? 'bg-white font-semibold text-zinc-900 shadow-2xs dark:bg-zinc-800 dark:text-zinc-100'
                   : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -516,7 +516,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
             <button
               type="button"
               onClick={() => handleSwitchRootDimension('app')}
-              className={`flex h-6 cursor-pointer items-center gap-1 rounded-[4px] px-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              className={`flex h-6 cursor-pointer items-center gap-1 rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
                 rootDimension === 'app'
                   ? 'bg-white font-semibold text-zinc-900 shadow-2xs dark:bg-zinc-800 dark:text-zinc-100'
                   : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -525,12 +525,11 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
               <span>{t.settings.historyByApp}</span>
             </button>
           </div>
-
           {/* Granularity Selector (Day / Week / Month / Quarter / Year) */}
           <div
             role="group"
             aria-label="Period Granularity"
-            className="flex items-center rounded-md border border-zinc-200/80 bg-zinc-100/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
+            className="flex shrink-0 items-center rounded-md border border-zinc-200/80 bg-zinc-100/80 p-0.5 dark:border-zinc-800 dark:bg-zinc-900">
             {periodOptions.map(opt => {
               const active = granularity === opt.id
               return (
@@ -545,7 +544,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
                     }
                     onLayoutChange?.()
                   }}
-                  className={`flex h-6 min-w-[26px] cursor-pointer items-center justify-center rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+                  className={`flex h-6 min-w-[24px] cursor-pointer items-center justify-center rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
                     active
                       ? 'bg-zinc-900 font-semibold text-white shadow-2xs dark:bg-zinc-100 dark:text-zinc-950'
                       : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100'
@@ -558,7 +557,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
         </div>
 
         {/* Scale Mode (Log / Linear) + Refresh */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           <div
             role="group"
             aria-label="Chart Scale"
@@ -566,7 +565,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
             <button
               type="button"
               onClick={() => setScaleMode('logarithmic')}
-              className={`flex h-6 cursor-pointer items-center rounded-[4px] px-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              className={`flex h-6 cursor-pointer items-center rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
                 scaleMode === 'logarithmic'
                   ? 'bg-white font-semibold text-zinc-900 shadow-2xs dark:bg-zinc-800 dark:text-zinc-100'
                   : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -576,7 +575,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
             <button
               type="button"
               onClick={() => setScaleMode('linear')}
-              className={`flex h-6 cursor-pointer items-center rounded-[4px] px-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
+              className={`flex h-6 cursor-pointer items-center rounded-[4px] px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
                 scaleMode === 'linear'
                   ? 'bg-white font-semibold text-zinc-900 shadow-2xs dark:bg-zinc-800 dark:text-zinc-100'
                   : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
@@ -591,7 +590,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
             aria-label={t.settings.excludedProgramsRefresh}
             title={t.settings.excludedProgramsRefresh}
             onClick={onRefresh}
-            className="!h-7 !px-2">
+            className="shrink-0 !px-2">
             <RefreshCw className="h-3 w-3" />
           </Button>
         </div>
@@ -662,11 +661,11 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
       {/* Multi-level Progressive Table */}
       <div className="flex flex-col overflow-hidden rounded-md border border-zinc-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-950">
         {/* Sortable Table Header */}
-        <div className="grid h-7 grid-cols-[minmax(0,1fr)_56px_56px_60px_84px] items-center gap-1.5 border-b border-zinc-200/80 bg-zinc-50/90 pr-[10px] pl-2.5 text-[10px] font-semibold text-zinc-500 dark:border-zinc-800/80 dark:bg-zinc-900/80 dark:text-zinc-400">
+        <div className="grid h-7 grid-cols-[minmax(0,1fr)_68px_62px_62px_78px] items-center gap-1 border-b border-zinc-200/80 bg-zinc-50/90 pr-[10px] pl-2.5 text-[10px] font-semibold whitespace-nowrap text-zinc-500 dark:border-zinc-800/80 dark:bg-zinc-900/80 dark:text-zinc-400">
           <button
             type="button"
             onClick={() => handleToggleSort('name')}
-            className="flex cursor-pointer items-center gap-1 truncate text-left hover:text-zinc-900 dark:hover:text-zinc-100">
+            className="flex cursor-pointer items-center gap-1 truncate text-left whitespace-nowrap hover:text-zinc-900 dark:hover:text-zinc-100">
             <span className="truncate">
               {showingMode === 'periods' ? t.settings.historyColDate : t.settings.historyColApp}
             </span>
@@ -676,28 +675,28 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
           <button
             type="button"
             onClick={() => handleToggleSort('download')}
-            className="flex cursor-pointer items-center justify-end gap-0.5 text-right hover:text-zinc-900 dark:hover:text-zinc-100">
-            <span>{t.settings.historyColDownload}</span>
+            className="flex cursor-pointer items-center justify-end gap-0.5 text-right whitespace-nowrap hover:text-zinc-900 dark:hover:text-zinc-100">
+            <span className="whitespace-nowrap">{t.settings.historyColDownload}</span>
             {renderSortIcon('download')}
           </button>
 
           <button
             type="button"
             onClick={() => handleToggleSort('upload')}
-            className="flex cursor-pointer items-center justify-end gap-0.5 text-right hover:text-zinc-900 dark:hover:text-zinc-100">
-            <span>{t.settings.historyColUpload}</span>
+            className="flex cursor-pointer items-center justify-end gap-0.5 text-right whitespace-nowrap hover:text-zinc-900 dark:hover:text-zinc-100">
+            <span className="whitespace-nowrap">{t.settings.historyColUpload}</span>
             {renderSortIcon('upload')}
           </button>
 
           <button
             type="button"
             onClick={() => handleToggleSort('total')}
-            className="flex cursor-pointer items-center justify-end gap-0.5 text-right hover:text-zinc-900 dark:hover:text-zinc-100">
-            <span>{t.settings.historyColTotal}</span>
+            className="flex cursor-pointer items-center justify-end gap-0.5 text-right whitespace-nowrap hover:text-zinc-900 dark:hover:text-zinc-100">
+            <span className="whitespace-nowrap">{t.settings.historyColTotal}</span>
             {renderSortIcon('total')}
           </button>
 
-          <div className="text-right">{t.settings.historyColChart}</div>
+          <div className="text-right whitespace-nowrap">{t.settings.historyColChart}</div>
         </div>
 
         {/* Table Body (Scrollable, max height so window stays compact within 640 DIP) */}
@@ -731,7 +730,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
                       handleRowClick(row)
                     }
                   }}
-                  className={`grid h-8 grid-cols-[minmax(0,1fr)_56px_56px_60px_84px] items-center gap-1.5 pr-[5px] pl-2.5 text-[11px] transition-colors ${
+                  className={`grid h-8 grid-cols-[minmax(0,1fr)_68px_62px_62px_78px] items-center gap-1 pr-[5px] pl-2.5 text-[11px] transition-colors ${
                     row.canDrillDown
                       ? 'cursor-pointer hover:bg-zinc-100/80 active:bg-zinc-200/50 dark:hover:bg-zinc-900/80 dark:active:bg-zinc-800/60'
                       : 'cursor-default'
@@ -802,7 +801,7 @@ export const TrafficHistoryPanel: React.FC<TrafficHistoryPanelProps> = ({
 
         {/* Footer Summary Row */}
         {filteredAndSortedRows.length > 0 && (
-          <div className="grid h-7 grid-cols-[minmax(0,1fr)_56px_56px_60px_84px] items-center gap-1.5 border-t border-zinc-200/80 bg-zinc-50/90 pr-[10px] pl-2.5 text-[11px] font-semibold dark:border-zinc-800/80 dark:bg-zinc-900/80">
+          <div className="grid h-7 grid-cols-[minmax(0,1fr)_68px_62px_62px_78px] items-center gap-1 border-t border-zinc-200/80 bg-zinc-50/90 pr-[10px] pl-2.5 text-[11px] font-semibold dark:border-zinc-800/80 dark:bg-zinc-900/80">
             <div className="truncate text-zinc-700 dark:text-zinc-300">
               {t.settings.historyTotalSummary} ({filteredAndSortedRows.length})
             </div>

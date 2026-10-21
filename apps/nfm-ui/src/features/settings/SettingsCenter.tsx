@@ -151,6 +151,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
 
   useEffect(() => {
     setActiveTab(normalizeSettingsTab(initialTab))
+    setShowExclusionPanel(false)
+    setSelectedConnectedAppId(null)
+    setExcludeFilterInput('')
   }, [initialTab])
   useEffect(() => {
     const unsubConfig = bridge.on<ConfigChangedDto>('configChanged', data => {
@@ -185,8 +188,13 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       }
     })
     const unsubSurface = bridge.on<SurfaceChangedDto>('surfaceChanged', data => {
-      if (data && data.surface === 'settings' && data.route) {
-        setActiveTab(normalizeSettingsTab(data.route as LegacySettingsTab))
+      if (data && data.surface === 'settings') {
+        setShowExclusionPanel(false)
+        setSelectedConnectedAppId(null)
+        setExcludeFilterInput('')
+        if (data.route) {
+          setActiveTab(normalizeSettingsTab(data.route as LegacySettingsTab))
+        }
       }
     })
     const unsubError = bridge.on<BridgeErrorDto>('error', err => {
@@ -304,7 +312,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
           </h1>
         </div>
 
-        <nav className="flex items-center gap-1 rounded-md border border-zinc-200/80 bg-zinc-200/50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
+        <nav className="flex items-center gap-0.5 rounded-md border border-zinc-200/80 bg-zinc-200/50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
           {tabs.map(tab => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -312,8 +320,13 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative flex h-6 cursor-pointer items-center justify-center gap-1 rounded-[5px] px-2.5 text-[11px] font-medium whitespace-nowrap transition-colors ${
+                onClick={() => {
+                  setActiveTab(tab.id)
+                  setShowExclusionPanel(false)
+                  setSelectedConnectedAppId(null)
+                  setExcludeFilterInput('')
+                }}
+                className={`relative flex h-6 cursor-pointer items-center justify-center gap-1 rounded-[5px] px-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
                   isActive
                     ? 'bg-zinc-900 font-semibold text-white shadow-xs dark:bg-zinc-100 dark:text-zinc-950'
                     : 'text-zinc-600 hover:bg-zinc-200/80 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
@@ -466,7 +479,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                       </span>
                       <Badge
                         variant={excludedPrograms.length > 0 ? 'info' : 'default'}
-                        className="!rounded-[4px] !px-1.5 !py-0 font-mono !text-[10px] leading-4">
+                        className="!h-4 !rounded-[4px] !px-1.5 !py-0 font-mono !text-[10px] leading-4">
                         {excludedPrograms.length}
                       </Badge>
                     </div>
@@ -485,13 +498,9 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         bridge.sendCommand('requestConnectedApplications')
                       }
                     }}
-                    className="shrink-0 gap-1">
+                    className="shrink-0">
                     <span>{t.settings.excludedProgramsManage}</span>
-                    {showExclusionPanel ? (
-                      <ChevronUp className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    )}
+                    {showExclusionPanel ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </Button>
                 </div>
 
@@ -551,7 +560,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         )}
                       </div>
                       <Button
-                        variant="primary"
+                        variant={pendingAddTarget ? 'primary' : 'outline'}
                         size="sm"
                         disabled={!pendingAddTarget}
                         onClick={() => {
@@ -560,7 +569,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                             setSelectedConnectedAppId(null)
                           }
                         }}
-                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        className="shrink-0">
                         <Plus className="h-3 w-3" />
                         <span>{t.settings.excludedProgramsAdd}</span>
                       </Button>
@@ -568,7 +577,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         variant="outline"
                         size="sm"
                         onClick={() => bridge.sendCommand('browseExcludedProgram')}
-                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        className="shrink-0">
                         <FolderOpen className="h-3 w-3" />
                         <span>{t.settings.excludedProgramsBrowse}</span>
                       </Button>
@@ -578,7 +587,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         aria-label={t.settings.excludedProgramsRefresh}
                         title={t.settings.excludedProgramsRefresh}
                         onClick={() => bridge.sendCommand('requestConnectedApplications')}
-                        className="!h-6 shrink-0 gap-1 !px-2 !text-[11px]">
+                        className="shrink-0">
                         <RefreshCw className="h-3 w-3" />
                         <span>{t.settings.excludedProgramsRefresh}</span>
                       </Button>
@@ -666,28 +675,26 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     {updateStatus.state === 'Error' && <Badge variant="danger">{t.settings.updateFailed}</Badge>}
                     {updateStatus.state === 'UpdateAvailable' ? (
                       <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('downloadAndApplyUpdate')}>
-                        <Download className="h-3.5 w-3.5" />
+                        <Download className="h-3 w-3" />
                         {t.settings.updateNowAndRestart}
                       </Button>
                     ) : updateStatus.state === 'Downloading' ? (
                       <Button variant="secondary" size="sm" disabled>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <RefreshCw className="h-3 w-3 animate-spin" />
                         {t.settings.downloadingUpdate} ({updateStatus.downloadProgressPercent}%)
                       </Button>
                     ) : updateStatus.state === 'Applying' ? (
                       <Button variant="secondary" size="sm" disabled>
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <RefreshCw className="h-3 w-3 animate-spin" />
                         {t.settings.applyingUpdate}
                       </Button>
                     ) : (
                       <Button
-                        variant="secondary"
+                        variant="primary"
                         size="sm"
                         disabled={updateStatus.state === 'Checking'}
                         onClick={() => bridge.sendCommand('checkForUpdate')}>
-                        <RefreshCw
-                          className={`h-3.5 w-3.5 ${updateStatus.state === 'Checking' ? 'animate-spin' : ''}`}
-                        />
+                        <RefreshCw className={`h-3 w-3 ${updateStatus.state === 'Checking' ? 'animate-spin' : ''}`} />
                         {updateStatus.state === 'Checking' ? t.settings.checkingUpdates : t.settings.checkForUpdates}
                       </Button>
                     )}
@@ -903,11 +910,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => bridge.sendCommand('restartCollector')}
-                    className="gap-1">
+                  <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('restartCollector')}>
                     <RotateCw className="h-3 w-3" />
                     <span>
                       {collectorStatus.state === 'Running' && collectorStatus.etwSessionActive
@@ -933,11 +936,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                         { value: 'debug', label: t.settings.logLevelDebug },
                       ]}
                     />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => bridge.sendCommand('openLogDirectory')}
-                      className="gap-1">
+                    <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('openLogDirectory')}>
                       <FolderOpen className="h-3 w-3" />
                       <span>{t.settings.openLogDirectory}</span>
                     </Button>

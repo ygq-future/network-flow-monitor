@@ -24,7 +24,7 @@ describe('SettingsCenter', () => {
 
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /General/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Dock Capsule/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Capsule$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Traffic History/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Collector & Logs/i })).toBeInTheDocument()
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
@@ -43,7 +43,7 @@ describe('SettingsCenter', () => {
     renderWithProviders(<SettingsCenter />, bridge)
 
     // 1. Capsule tab
-    fireEvent.click(screen.getByRole('button', { name: /Dock Capsule/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Capsule$/i }))
     expect(screen.getByText('Capsule Width')).toBeInTheDocument()
     expect(screen.getByText('Capsule Height')).toBeInTheDocument()
     expect(screen.getByText('End Rounding')).toBeInTheDocument()
@@ -77,7 +77,7 @@ describe('SettingsCenter', () => {
     })
 
     // Switch to capsule tab and change width
-    fireEvent.click(screen.getByRole('button', { name: /Dock Capsule/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Capsule$/i }))
     const widthSlider = screen.getByRole('slider', { name: 'Capsule Width' })
     fireEvent.change(widthSlider, { target: { value: '14' } })
     expect(spySend).toHaveBeenCalledWith('updateSetting', {
@@ -208,6 +208,24 @@ describe('SettingsCenter', () => {
     const refreshBtn = screen.getByRole('button', { name: /Refresh/i })
     fireEvent.click(refreshBtn)
     expect(spy).toHaveBeenCalledWith('requestConnectedApplications')
+
+    // Switching tabs or re-opening settings collapses the exclusion panel by default
+    fireEvent.click(screen.getByRole('button', { name: /^Capsule$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^General$/i }))
+    expect(screen.queryByPlaceholderText(/Search connected apps or enter process name/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Manage Exclusions/i }))
+    expect(screen.getByPlaceholderText(/Search connected apps or enter process name/i)).toBeInTheDocument()
+    act(() => {
+      bridge.emit('surfaceChanged', {
+        surface: 'settings',
+        pinned: false,
+        dockSide: 'right',
+        autoHidden: false,
+        route: 'general',
+      })
+    })
+    expect(screen.queryByPlaceholderText(/Search connected apps or enter process name/i)).not.toBeInTheDocument()
   })
 
   it('supports multi-level progressive traffic history drill-down, period granularity, search, sorting and scale toggle', () => {
@@ -268,17 +286,17 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('26/09/15')).toBeInTheDocument()
 
     // Switch granularity to Month -> shows 26/10 and 26/09
-    fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mo' }))
     expect(screen.getByText('26/10')).toBeInTheDocument()
     expect(screen.getByText('26/09')).toBeInTheDocument()
 
     // Switch granularity to Quarter -> shows 26 Q4 and 26 Q3
-    fireEvent.click(screen.getByRole('button', { name: 'Quarter' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Qtr' }))
     expect(screen.getByText('26 Q4')).toBeInTheDocument()
     expect(screen.getByText('26 Q3')).toBeInTheDocument()
 
     // Switch granularity to Year -> shows 26
-    fireEvent.click(screen.getByRole('button', { name: 'Year' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yr' }))
     expect(screen.getByText('26')).toBeInTheDocument()
 
     // Switch back to Day and drill down into 26/10/20 -> shows Microsoft Edge and Visual Studio Code
@@ -292,7 +310,7 @@ describe('SettingsCenter', () => {
     expect(screen.getAllByText('26/10/20').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('26/09/15')).toBeInTheDocument()
     // Switch root dimension to By Application
-    fireEvent.click(screen.getByRole('button', { name: /By Application/i }))
+    fireEvent.click(screen.getByRole('button', { name: /By App/i }))
     expect(screen.getByText('Microsoft Edge')).toBeInTheDocument()
     expect(screen.getByText('Visual Studio Code')).toBeInTheDocument()
 
@@ -304,7 +322,7 @@ describe('SettingsCenter', () => {
 
     // Clear search and test scale toggle (Log <-> Linear) and column sorting
     fireEvent.change(filterInput, { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Linear' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Lin' }))
     fireEvent.click(screen.getByRole('button', { name: 'Log' }))
     fireEvent.click(screen.getByRole('button', { name: /↓ Download/i }))
   })

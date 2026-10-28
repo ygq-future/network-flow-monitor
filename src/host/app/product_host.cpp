@@ -19,6 +19,8 @@ constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
 constexpr std::chrono::milliseconds kPanelShrinkBoundsDelay{240};
 constexpr std::chrono::milliseconds kTrafficHistoryAutoSaveInterval{30'000};
 constexpr std::chrono::milliseconds kPresentationRepairLogCooldown{30'000};
+constexpr std::chrono::milliseconds kUiStallLogThreshold{750};
+constexpr std::chrono::milliseconds kUiStallLogCooldown{5'000};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -639,6 +641,22 @@ void ProductHost::on_surface_pointer_cancel() {
 void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
     if (!coordinator_) {
         return;
+    }
+    // The surface clock is the only periodic work on the UI thread, so an unusually long gap means
+    // the thread was blocked outside our control (shell, IME/TSF, WebView2 browser, DWM). Recording
+    // the gap keeps those external stalls diagnosable while the 250 ms frame cap hides them from
+    // the interaction timers.
+    if (ui_stall_log_cooldown_.count() > 0) {
+        ui_stall_log_cooldown_ -= elapsed;
+    }
+    if (window_ != nullptr && ui_stall_log_cooldown_.count() <= 0) {
+        const auto gap = window_->last_tick_gap();
+        if (gap >= kUiStallLogThreshold) {
+            ui_stall_log_cooldown_ = kUiStallLogCooldown;
+            write_diagnostic_log(config::LogLevel::Info, "UI thread stalled for " +
+                                                             std::to_string(gap.count()) +
+                                                             " ms between surface ticks");
+        }
     }
     const auto before = coordinator_->state().presentation_state;
     const bool was_topmost = coordinator_->state().is_topmost;

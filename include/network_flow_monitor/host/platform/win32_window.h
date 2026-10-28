@@ -31,9 +31,13 @@ inline constexpr UINT kWebSurfacePointerLeaveMessage = WM_APP + 0x34;
 // deltas are measured with QueryPerformanceCounter and bounded to keep a stalled message pump from
 // completing every interaction timer in a single step.
 inline constexpr std::chrono::milliseconds kMaximumTickElapsed{250};
+// Diagnostics keep the unclamped gap (bounded only to stay overflow-free) so UI-thread stalls stay
+// observable after the state machine applies its 250 ms frame cap.
+inline constexpr std::chrono::milliseconds kMaximumObservedTickGap{10'000};
 
 [[nodiscard]] std::chrono::milliseconds tick_elapsed_from_counter_delta(
-    std::int64_t delta_ticks, std::int64_t counter_frequency) noexcept;
+    std::int64_t delta_ticks, std::int64_t counter_frequency,
+    std::chrono::milliseconds max_elapsed = kMaximumTickElapsed) noexcept;
 
 struct ContextMenuOptions {
     int screen_x{-1};
@@ -146,6 +150,9 @@ class Win32Window {
     [[nodiscard]] bool is_presented() const noexcept;
     [[nodiscard]] bool is_topmost() const noexcept;
     [[nodiscard]] bool get_bounds(RECT* bounds) const noexcept;
+    // Unclamped gap between the last two surface clock ticks (bounded by kMaximumObservedTickGap)
+    // so UI-thread stalls remain observable after the 250 ms frame cap.
+    [[nodiscard]] std::chrono::milliseconds last_tick_gap() const noexcept;
 
     static int run_message_loop();
     static void exit_message_loop(int exit_code = 0);
@@ -159,6 +166,7 @@ class Win32Window {
     IWindowEventListener* listener_{nullptr};
     std::int64_t tick_counter_frequency_{0};
     std::int64_t last_tick_counter_{0};
+    std::chrono::milliseconds last_tick_gap_{0};
     bool class_registered_{false};
     bool tray_icon_active_{false};
     bool surface_pointer_inside_{false};

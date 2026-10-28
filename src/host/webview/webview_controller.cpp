@@ -495,19 +495,14 @@ bool WebView2Controller::ensure_alive() {
     HWND child = GetWindow(impl_->parent_hwnd_, GW_CHILD);
     if (impl_->is_ready_ && impl_->controller_.Get() != nullptr &&
         impl_->webview_.Get() != nullptr && child != nullptr && IsWindow(child) != FALSE) {
+        // Reconcile against the size the controller was last asked to render. Polling get_Bounds
+        // here would park the UI thread on a browser-process round-trip every watchdog tick.
         RECT parent_rc{};
         if (GetClientRect(impl_->parent_hwnd_, &parent_rc) != FALSE) {
             const int w = parent_rc.right - parent_rc.left;
             const int h = parent_rc.bottom - parent_rc.top;
-            if (w > 0 && h > 0) {
-                RECT ctrl_bounds{};
-                if (SUCCEEDED(impl_->controller_->get_Bounds(&ctrl_bounds))) {
-                    const int cw = ctrl_bounds.right - ctrl_bounds.left;
-                    const int ch = ctrl_bounds.bottom - ctrl_bounds.top;
-                    if (cw != w || ch != h) {
-                        resize(w, h);
-                    }
-                }
+            if (w > 0 && h > 0 && (impl_->last_width_px_ != w || impl_->last_height_px_ != h)) {
+                resize(w, h);
             }
         }
         return true;

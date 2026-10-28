@@ -338,3 +338,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `Win32Window` 在创建表面时钟时读取 `QueryPerformanceFrequency` 与起始 `QueryPerformanceCounter`，每次 `WM_TIMER` 调用 `next_tick_elapsed()` 计算真实间隔（`tick_elapsed_from_counter_delta()` 为纯函数，先限幅再换算以避免溢出，四舍五入到毫秒）；
   - 单帧间隔上限 `kMaximumTickElapsed = 250ms`，避免长时间阻塞后一次性完成全部交互计时器；`SetTimer` 仍只负责触发节奏与指针采样，协调器 API 与时序语义保持不变；
   - `host_tests.cpp` 新增纯函数用例，覆盖 8ms 精确换算、15.7ms 就近取整、负值与非法频率归零以及 250ms 上限钳制。
+
+## 第二十三轮 UI 线程停顿诊断与 WebView2 轮询收敛 — complete
+
+- **现象**：个别运行了一段时间的实例出现「胶囊/面板动画与流量排序流畅，但悬停后面板不收起、设置页与托盘点不动」；实测宿主 UI 线程处理 `WM_NULL` 需 ~1s，线程周期计数为 0（等待而非计算），同期显示器在 2560×1440@125% 与 2048×1152@96% 之间切换；旧版安装实例与当前 Release 构建均出现，重启后恢复，Debug/分析构建未复现。
+- **停顿日志 (`win32_window.cpp`, `product_host.cpp`)**：表面时钟保留未钳制的真实间隔（诊断上限 10s），宿主在间隔 ≥750ms 时写 `[WARNING] UI thread stalled for ... ms between surface ticks`（5 秒冷却），用于把外部阻塞源（shell / IME-TSF / WebView2 浏览器进程 / DWM）和发生时刻关联起来。
+- **WebView2 轮询收敛 (`webview_controller.cpp`)**：`ensure_alive()` 不再每秒调用 `get_Bounds()` 轮询浏览器进程，而是与最近一次下发的控制器尺寸比较，仅在父窗口客户区变化时 `resize()`；UI 线程因此不再在每次看门狗中等待跨进程 COM 往返，同时保留尺寸自愈能力。
+- `host_tests.cpp` 补充诊断间隔换算用例（5s 间隔按 10s 诊断上限换算为 500ms）。

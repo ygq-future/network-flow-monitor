@@ -1036,6 +1036,10 @@ void CheckTickElapsedConversion(TestContext& context) {
     context.Check(tick_elapsed_from_counter_delta(5'000'000, kCounterFrequency).count() ==
                       kMaximumTickElapsed.count(),
                   "blocked interval clamps to the maximum frame delta");
+    context.Check(
+        tick_elapsed_from_counter_delta(5'000'000, kCounterFrequency, kMaximumObservedTickGap)
+                .count() == 500,
+        "diagnostic gap reports stall durations beyond the frame clamp");
     context.Check(tick_elapsed_from_counter_delta(80'000, 0).count() == 0,
                   "invalid counter frequency yields zero elapsed");
 }

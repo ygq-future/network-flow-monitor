@@ -158,6 +158,7 @@ class ProductHost : public platform::IWindowEventListener,
     std::chrono::milliseconds watchdog_elapsed_{0};
     std::chrono::milliseconds history_persist_elapsed_{0};
     std::chrono::milliseconds presentation_repair_log_cooldown_{0};
+    std::chrono::milliseconds ui_stall_log_cooldown_{0};
     std::string last_presentation_repair_reason_;
     surface::WindowGeometry applied_window_geometry_{};
     bool has_applied_window_geometry_{false};

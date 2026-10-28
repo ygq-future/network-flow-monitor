@@ -6,9 +6,9 @@
 - `docs/development.md`（构建、质量门、打包与验收规范）
 - `docs/progress.md`（阶段演进与交付记录）
 
-## 行动确认
+## 代码索引
 
-除用户显式调用自动化指令外，面对排查、设计或修改请求时必须先说明理解、路径、行动、预期影响，并等待用户明确确认。只读审计可以用于形成计划。
+XERJ prefix: "nfm"
 
 ## 产品架构
 
@@ -61,7 +61,6 @@ Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系�
 - 异常不得穿过 Win32 callback、thread entry、collector entry 或 IPC ABI。
 - 第一方 Debug、Release 和 CI 启用 `/W4 /WX /permissive- /sdl`。
 - `.clang-format` 和 `.clang-tidy` 是唯一 C/C++ 格式与 lint 配置。
-- `NOLINT` 必须限定检查并写明局部原因。
 
 ## Frontend 质量
 
@@ -70,16 +69,14 @@ Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系�
 - Bun lockfile 是唯一 package lockfile。
 - 稳定状态不得运行永久 JavaScript animation loop。
 - 所有用户可见文本使用 locale key，所有主题相关颜色使用语义 token。
-- 严格执行《Deprecation & API Freshness Contract》：禁止使用已弃用的配置（如 tsconfig 的 `baseUrl`、`ignoreDeprecations`）或 API，禁止 blanket warning suppression，禁止复制旧博客/StackOverflow 过时模板。
+- 禁止使用已弃用的配置（如 tsconfig 的 `baseUrl`、`ignoreDeprecations`）或 API，禁止复制过时模板；该策略由 Fast 门的 Deprecation policy check 强制。
 
 ## 质量门
 
-统一入口是 `tools/quality.ps1`：
-- **Fast**：Deprecation policy check、C++ 格式校验、Debug 构建与模块测试套件、Bun 确定性依赖、Prettier、type-aware ESLint (`no-deprecated`)、TypeScript typecheck、Vitest 测试套件与 Vite 生产构建。
-- **Full**：包含 Fast 全部检查，外加完整 clang-tidy (0 diagnostics)、MSVC `/analyze` (0 warnings)、Release 构建与测试，以及 CPack 便携 ZIP 打包验证。
+统一入口是 `tools/quality.ps1`，Fast/Full 的检查项以 `docs/development.md` 为准。
 
 Fast/Full 必须 headless：不显示 HWND/WebView、无 UAC、无人工交互、无 Vite server。
 
-## 完成与提交
+## 完成与交付
 
-功能或修复完成后按 `docs/development.md` 运行适用质量门并更新 `docs/progress.md`。不得自主 Git commit。必须先汇报修改、质量结果、目标机验收步骤和待验收项，只有用户明确指令后才能提交。
+功能或修复完成后按 `docs/development.md` 运行适用质量门并更新 `docs/progress.md`；交付前汇报修改、质量结果、目标机验收步骤和待验收项。

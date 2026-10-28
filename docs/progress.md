@@ -366,3 +366,13 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **后台预热 (`product_host.cpp`)**：启动完成后由独立线程遍历历史与已连接程序的 executable 路径，仅对未缓存项调用 `SHGetFileInfo` 提取（每 16 个落盘一次），结束后强制刷新一次设置页历史；UI 线程全程不参与，退出时 `stop + join`。
 - **同名程序归并 (`traffic_history_store.cpp`)**：历史键从「完整路径」改为「可执行文件名」（`exe:<name>`），同一程序不同安装路径在加载/记录时即合并字节数；历史文件下次保存后自动完成迁移。
 - **测试与验证**：新增同名校验用例；全新进程冷缓存下设置窗口 202ms 出现、宿主/设置窗口响应 0–1ms，预热日志与 `icon_cache.json` 生成正常。
+
+## 第二十六轮 v0.3.0 小版本发布与质量门禁验收 — complete
+
+- **全仓版本号同步升级至 `0.3.0` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 将项目版本号从 `0.2.0` 升级至小版本 `0.3.0`，同步更新 CMake 工程版本、前端包清单、Windows 资源文件 `FILEVERSION`/`PRODUCTVERSION`（`0,3,0,0` / `"0.3.0"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.3.0.md`)**：
+  - 汇总自 `v0.2.0` 以来的 5 项用户可见改进：图标缓存持久化与后台预热、历史统计按可执行文件名归并、历史导出与推送移出 UI 线程、UI 线程停顿诊断与 WebView2 尺寸轮询收敛、实测帧差表面时钟与贴边胶囊表现自愈。
+- **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（版本一致性 `v0.3.0`、clang-format、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试）；`-Mode Full` 20/20 通过（clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
+- **便携发行包 (`tools/package.ps1`)**：`dist/NetworkFlowMonitor-0.3.0-win-x64.zip`（884352 字节，SHA256 `73D2E5FF136582F07A77DA773A44F9822E94DA05DCB3425D65233CBFD8FAA4A9`），归档内含 `NetworkFlowMonitor.exe` / `nfm-collector.exe`（文件版本 `0.3.0.0`）、`ui/`、`README.md`、`LICENSE`。
+- **发布流程**：提交版本升级与发布说明后推送 `v0.3.0` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。

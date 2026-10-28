@@ -190,29 +190,31 @@ void Win32Window::hide() {
 }
 
 void Win32Window::set_bounds(int x, int y, int width, int height) {
-    if (hwnd_ != nullptr) {
-        if (IsIconic(hwnd_) != 0) {
-            ShowWindow(hwnd_, SW_RESTORE);
-            bounds_initialized_ = false;
-        }
-        if (bounds_initialized_ && last_x_px_ == x && last_y_px_ == y && last_width_px_ == width &&
-            last_height_px_ == height) {
+    if (hwnd_ == nullptr) {
+        return;
+    }
+    if (IsIconic(hwnd_) != 0) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
+    UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
+    // Compare against the live window rect (not a cached request) so that bounds changed by the
+    // shell, DPI transitions, or display topology updates are always reconciled back.
+    RECT current{};
+    if (GetWindowRect(hwnd_, &current) != FALSE) {
+        const int current_width = current.right - current.left;
+        const int current_height = current.bottom - current.top;
+        if (current.left == x && current.top == y && current_width == width &&
+            current_height == height) {
             return;
         }
-        UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
-        if (bounds_initialized_ && last_width_px_ == width && last_height_px_ == height) {
+        if (current_width == width && current_height == height) {
             flags |= SWP_NOSIZE;
         }
-        if (bounds_initialized_ && last_x_px_ == x && last_y_px_ == y) {
+        if (current.left == x && current.top == y) {
             flags |= SWP_NOMOVE;
         }
-        bounds_initialized_ = true;
-        last_x_px_ = x;
-        last_y_px_ = y;
-        last_width_px_ = width;
-        last_height_px_ = height;
-        SetWindowPos(hwnd_, nullptr, x, y, width, height, flags);
     }
+    SetWindowPos(hwnd_, nullptr, x, y, width, height, flags);
 }
 
 void Win32Window::set_logical_hit_bounds(int x, int y, int width, int height) noexcept {
@@ -225,15 +227,18 @@ void Win32Window::clear_logical_hit_bounds() noexcept {
 }
 
 void Win32Window::set_topmost(bool topmost) {
-    if (hwnd_ != nullptr) {
-        if (topmost_initialized_ && last_topmost_ == topmost) {
-            return;
-        }
-        topmost_initialized_ = true;
-        last_topmost_ = topmost;
-        SetWindowPos(hwnd_, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (hwnd_ == nullptr) {
+        return;
     }
+    // The cached request alone cannot prove the window is still topmost: the style can be lost
+    // externally, so the actual extended style participates in the decision.
+    if (topmost_initialized_ && last_topmost_ == topmost && is_topmost() == topmost) {
+        return;
+    }
+    topmost_initialized_ = true;
+    last_topmost_ = topmost;
+    SetWindowPos(hwnd_, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 void Win32Window::begin_interactive_drag() noexcept {
@@ -248,7 +253,6 @@ void Win32Window::perform_system_move() noexcept {
         return;
     }
     surface_button_down_ = false;
-    bounds_initialized_ = false;
     in_system_move_loop_ = true;
     ReleaseCapture();
     SetForegroundWindow(hwnd_);
@@ -687,6 +691,27 @@ double Win32Window::dpi_scale() const noexcept {
     return static_cast<double>(dpi()) / 96.0;
 }
 
+bool Win32Window::is_presented() const noexcept {
+    if (hwnd_ == nullptr) {
+        return false;
+    }
+    return IsWindowVisible(hwnd_) != FALSE && IsIconic(hwnd_) == 0;
+}
+
+bool Win32Window::is_topmost() const noexcept {
+    if (hwnd_ == nullptr) {
+        return false;
+    }
+    return (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & static_cast<LONG_PTR>(WS_EX_TOPMOST)) != 0;
+}
+
+bool Win32Window::get_bounds(RECT* bounds) const noexcept {
+    if (hwnd_ == nullptr || bounds == nullptr) {
+        return false;
+    }
+    return GetWindowRect(hwnd_, bounds) != FALSE;
+}
+
 int Win32Window::run_message_loop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -842,10 +867,6 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         return 0;
     }
     case WM_MOVE: {
-        const int x = static_cast<int>(static_cast<short>(LOWORD(lparam)));
-        const int y = static_cast<int>(static_cast<short>(HIWORD(lparam)));
-        self->last_x_px_ = x;
-        self->last_y_px_ = y;
         if (self->listener_ != nullptr) {
             self->listener_->on_window_position_changed();
         }
@@ -991,6 +1012,14 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             self->listener_->on_display_change();
         }
         return 0;
+    }
+    case WM_SETTINGCHANGE: {
+        // Taskbar moves, auto-hide toggles and resolution switches change the work area without a
+        // WM_DISPLAYCHANGE, so the dock capsule must re-resolve monitor geometry to stay visible.
+        if (wparam == SPI_SETWORKAREA && self->listener_ != nullptr) {
+            self->listener_->on_display_change();
+        }
+        break;
     }
     case WM_CLOSE: {
         if (self->listener_ != nullptr) {

@@ -134,6 +134,10 @@ class Win32Window {
     [[nodiscard]] bool has_tray_icon() const noexcept {
         return tray_icon_active_;
     }
+    // Actual (not cached) presentation state; used to detect external window changes.
+    [[nodiscard]] bool is_presented() const noexcept;
+    [[nodiscard]] bool is_topmost() const noexcept;
+    [[nodiscard]] bool get_bounds(RECT* bounds) const noexcept;
 
     static int run_message_loop();
     static void exit_message_loop(int exit_code = 0);
@@ -150,13 +154,8 @@ class Win32Window {
     bool surface_button_down_{false};
     bool outside_button_was_down_{false};
     bool in_system_move_loop_{false};
-    int last_x_px_{CW_USEDEFAULT};
-    int last_y_px_{CW_USEDEFAULT};
-    int last_width_px_{0};
-    int last_height_px_{0};
     bool has_logical_hit_bounds_{false};
     RECT logical_hit_rect_{};
-    bool bounds_initialized_{false};
     bool topmost_initialized_{false};
     bool last_topmost_{false};
     bool last_rounded_frame_{false};

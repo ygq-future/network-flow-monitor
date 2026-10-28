@@ -313,3 +313,18 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 完整汇总多级递进历史流量统计（持久化二维账本、按时间/应用双根维度、日/周/月/季/年五级粒度、面包屑多级下钻、搜索排序、汇总底栏与对数/线性比例条切换）与排除程序流量显示及统计过滤（实时总速率/排行/历史账本全链路过滤、原生文件浏览与已连接应用模糊搜索添加）。
 - **在线自更新多级代理与直连双向自动兜底 (`app_updater.h/.cpp`, `host_tests.cpp`)**：
   - 新增 `normalize_winhttp_proxy_server` 与 `build_http_access_candidates`，使检查更新与下载归档包按「系统自动代理 (`AUTOMATIC_PROXY`) $\rightarrow$ 环境变量/注册表 `ProxyServer`/本地代理端口 (`NAMED_PROXY`) $\rightarrow$ 强制直连 (`NO_PROXY`)」顺序自动重试兜底，解决未开启系统代理开关时直连 GitHub Release CDN 超时或代理失效导致更新失败的问题。
+
+## 第二十一轮 贴边胶囊偶发消失的窗口表现自愈 — complete
+
+- **现象与代码证据 (`product_host.cpp`, `win32_window.cpp`)**：
+  - 用户配置为 `hide_capsule_when_fullscreen=false`，`TrayOnly` 在运行时不可达，因此胶囊消失并非协调器主动隐藏，而是 HWND 被外部（shell、全屏/远程桌面工具、DPI/显示切换）隐藏、最小化、移动或丢失置顶；
+  - `ProductHost` 仅在状态迁移时调用 `apply_coordinator_state()`，`on_surface_clock_tick()` 只比较协调器状态，窗口被外部改动后没有任何自愈路径，只能等用户点击托盘触发 `show_monitor()` 才重新放映；
+  - 1 秒看门狗原本调用 `window_->set_topmost(true)`，但 `Win32Window::set_topmost()` 只缓存“期望值”，实际丢失置顶样式后调用会直接返回；`set_bounds()` 同样只比较缓存请求，外部移动/缩放后会被判定为“无需移动”。
+- **窗口状态以真实 Win32 事实为准 (`win32_window.h/.cpp`, `host_tests.cpp`)**：
+  - 新增 `is_presented()`（`IsWindowVisible` + `IsIconic`）、`is_topmost()`（实时 `WS_EX_TOPMOST`）与 `get_bounds()`（`GetWindowRect`）；
+  - `set_bounds()` 改为与实时窗口矩形比较（不再维护 `bounds_initialized_` / `last_*` 缓存），`set_topmost()` 同时校验实时扩展样式，外部改动后再次请求即可真正修复；
+  - `WM_SETTINGCHANGE` 的 `SPI_SETWORKAREA` 重新枚举显示器并应用几何，覆盖任务栏移动/自动隐藏、分辨率与显示拓扑变化等不产生 `WM_DISPLAYCHANGE` 的工作区变化。
+- **表现自愈看门狗 (`product_host.h/.cpp`)**：
+  - 记录最近一次实际下发的窗口几何；1 秒看门狗检测「未呈现 / 置顶样式丢失 / 几何漂移」（拖动、收拢与面板收缩动画期间跳过），命中即重新 `apply_coordinator_state()` + `webview_->set_visible(true)` + `ensure_alive()` + `publish_surface_state()`；
+  - 修复事件写入 `logs/nfm-host.log`（`Window presentation repaired: ...`，30 秒日志冷却），便于后续定位外部触发源；
+  - `host_tests.cpp` 新增无窗口展示的 headless 用例，覆盖外部移动后的 `set_bounds` 复位与外部失去置顶后的 `set_topmost` 恢复。

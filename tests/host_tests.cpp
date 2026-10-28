@@ -974,11 +974,58 @@ void CheckCollectorCompanionInjections(TestContext& context) {
                       !latest_dto.etw_session_active,
                   "stop zeroes traffic tick and broadcasts Stopped status");
 }
+
+void CheckWindowPresentationRecovery(TestContext& context) {
+    using namespace nfm::host::platform;
+
+    WindowConfig config{
+        .title = L"Network Flow Monitor Test Window",
+        .class_name = L"NetworkFlowMonitor_TestWindow",
+        .initial_x = 100,
+        .initial_y = 100,
+        .initial_width = 340,
+        .initial_height = 64,
+        .frameless = true,
+        .topmost = false,
+        .tool_window = true,
+        .transparent_backdrop = true,
+    };
+    Win32Window window(config);
+    context.Check(window.create(nullptr), "test window creates headlessly");
+    if (window.hwnd() == nullptr) {
+        return;
+    }
+    context.Check(!window.is_presented(), "unshown test window is not presented");
+
+    window.set_bounds(100, 120, 340, 64);
+    RECT bounds{};
+    context.Check(window.get_bounds(&bounds) && bounds.left == 100 && bounds.top == 120 &&
+                      (bounds.right - bounds.left) == 340 && (bounds.bottom - bounds.top) == 64,
+                  "set_bounds applies requested geometry");
+
+    // An external move (shell snap, display topology change) must be reconciled even though the
+    // requested geometry did not change.
+    SetWindowPos(window.hwnd(), nullptr, 400, 300, 340, 64, SWP_NOZORDER | SWP_NOACTIVATE);
+    window.set_bounds(100, 120, 340, 64);
+    context.Check(window.get_bounds(&bounds) && bounds.left == 100 && bounds.top == 120,
+                  "set_bounds repairs externally moved window");
+
+    window.set_topmost(true);
+    context.Check(window.is_topmost(), "set_topmost applies topmost extended style");
+    SetWindowPos(window.hwnd(), HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    context.Check(!window.is_topmost(), "external topmost loss is observable");
+    window.set_topmost(true);
+    context.Check(window.is_topmost(), "set_topmost restores externally lost topmost style");
+
+    window.close();
+}
 } // namespace
 
 int Run() {
     TestContext context;
     CheckCollectorCompanionInjections(context);
+    CheckWindowPresentationRecovery(context);
     return context.failures();
 }
 } // namespace host_lifecycle_suite

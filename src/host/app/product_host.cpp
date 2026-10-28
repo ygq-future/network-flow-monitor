@@ -18,6 +18,7 @@ constexpr int kSettingsSurfaceWidthDip = 520;
 constexpr std::chrono::milliseconds kPanelCollapseBoundsDelay{260};
 constexpr std::chrono::milliseconds kPanelShrinkBoundsDelay{240};
 constexpr std::chrono::milliseconds kTrafficHistoryAutoSaveInterval{30'000};
+constexpr std::chrono::milliseconds kPresentationRepairLogCooldown{30'000};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -692,17 +693,16 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
     watchdog_elapsed_ += elapsed;
     if (watchdog_elapsed_ >= std::chrono::milliseconds{1000}) {
         watchdog_elapsed_ = std::chrono::milliseconds{0};
+        if (presentation_repair_log_cooldown_.count() > 0) {
+            presentation_repair_log_cooldown_ -= std::chrono::milliseconds{1000};
+        }
         if (webview_) {
             static_cast<void>(webview_->ensure_alive());
         }
         if (settings_surface_visible_ && settings_webview_) {
             static_cast<void>(settings_webview_->ensure_alive());
         }
-        if (window_ && coordinator_->state().is_topmost &&
-            !coordinator_->state().is_fullscreen_hidden &&
-            coordinator_->state().presentation_state != coordinator::PresentationState::TrayOnly) {
-            window_->set_topmost(true);
-        }
+        ensure_window_presentation();
     }
     history_persist_elapsed_ += elapsed;
     if (history_persist_elapsed_ >= kTrafficHistoryAutoSaveInterval) {
@@ -988,6 +988,52 @@ void ProductHost::close_settings_window() {
     }
 }
 
+void ProductHost::ensure_window_presentation() {
+    if (!coordinator_ || !window_ || window_->hwnd() == nullptr) {
+        return;
+    }
+    const auto& state = coordinator_->state();
+    if (state.presentation_state == coordinator::PresentationState::TrayOnly ||
+        state.is_fullscreen_hidden) {
+        has_applied_window_geometry_ = false;
+        return;
+    }
+
+    // The coordinator only pushes state on transitions, so an HWND hidden, minimized, moved or
+    // de-topmosted by the shell, a fullscreen application, a DPI/display switch or a remote-desktop
+    // tool would otherwise stay invisible until the next user interaction with the tray.
+    std::string_view reason;
+    if (!window_->is_presented()) {
+        reason = "window hidden or minimized";
+    } else if (state.is_topmost && !window_->is_topmost()) {
+        reason = "topmost style lost";
+    } else if (has_applied_window_geometry_ && !state.is_dragging &&
+               collapse_bounds_remaining_.count() == 0 &&
+               panel_shrink_bounds_remaining_.count() == 0) {
+        RECT actual{};
+        const auto& expected = applied_window_geometry_;
+        if (window_->get_bounds(&actual) &&
+            (actual.left != expected.x_px || actual.top != expected.y_px ||
+             (actual.right - actual.left) != expected.width_px ||
+             (actual.bottom - actual.top) != expected.height_px)) {
+            reason = "window bounds drifted";
+        }
+    }
+    if (reason.empty()) {
+        return;
+    }
+
+    apply_coordinator_state();
+    publish_surface_state();
+    if (presentation_repair_log_cooldown_.count() == 0 ||
+        reason != last_presentation_repair_reason_) {
+        presentation_repair_log_cooldown_ = kPresentationRepairLogCooldown;
+        last_presentation_repair_reason_.assign(reason);
+        write_diagnostic_log(config::LogLevel::Info,
+                             "Window presentation repaired: " + std::string(reason));
+    }
+}
+
 void ProductHost::apply_coordinator_state() {
     if (!coordinator_ || !window_) {
         return;
@@ -1007,6 +1053,7 @@ void ProductHost::apply_coordinator_state() {
         collapse_bounds_remaining_ = std::chrono::milliseconds{0};
         panel_shrink_bounds_remaining_ = std::chrono::milliseconds{0};
         last_applied_presentation_state_ = state.presentation_state;
+        has_applied_window_geometry_ = false;
         window_->clear_logical_hit_bounds();
         window_->set_click_through(false);
         if (webview_) {
@@ -1065,6 +1112,13 @@ void ProductHost::apply_coordinator_state() {
                 webview_->resize(window_w, window_h);
             }
             window_->set_bounds(window_x, window_y, window_w, window_h);
+            applied_window_geometry_ = surface::WindowGeometry{
+                .x_px = window_x,
+                .y_px = window_y,
+                .width_px = window_w,
+                .height_px = window_h,
+            };
+            has_applied_window_geometry_ = true;
         }
         window_->set_click_through(state.is_click_through);
         window_->set_topmost(state.is_topmost);

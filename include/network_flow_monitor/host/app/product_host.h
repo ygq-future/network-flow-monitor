@@ -118,6 +118,7 @@ class ProductHost : public platform::IWindowEventListener,
 
   private:
     void apply_coordinator_state();
+    void ensure_window_presentation();
     void publish_surface_state();
     void ensure_settings_window();
     void close_settings_window();
@@ -156,6 +157,10 @@ class ProductHost : public platform::IWindowEventListener,
     std::chrono::milliseconds panel_shrink_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
     std::chrono::milliseconds history_persist_elapsed_{0};
+    std::chrono::milliseconds presentation_repair_log_cooldown_{0};
+    std::string last_presentation_repair_reason_;
+    surface::WindowGeometry applied_window_geometry_{};
+    bool has_applied_window_geometry_{false};
     mutable platform::RotatingFileLogger logger_;
     std::string last_logged_collector_error_;
     std::uint64_t last_logged_dropped_packets_{0};

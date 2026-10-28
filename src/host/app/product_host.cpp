@@ -21,6 +21,7 @@ constexpr std::chrono::milliseconds kTrafficHistoryAutoSaveInterval{30'000};
 constexpr std::chrono::milliseconds kPresentationRepairLogCooldown{30'000};
 constexpr std::chrono::milliseconds kUiStallLogThreshold{750};
 constexpr std::chrono::milliseconds kUiStallLogCooldown{5'000};
+constexpr std::chrono::milliseconds kHistoryPushInterval{30'000};
 } // namespace
 
 ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(options)) {
@@ -277,8 +278,12 @@ bool ProductHost::initialize() {
             if (changed && window_ != nullptr) {
                 window_->post_ui_task([this]() noexcept {
                     try {
+                        // Snapshots change several times per second; publishing the full history at
+                        // that rate makes the settings renderer re-parse and re-render it
+                        // constantly.
                         if (!is_shutting_down_ && settings_surface_visible_ && settings_bridge_ &&
-                            traffic_history_store_) {
+                            traffic_history_store_ && history_push_cooldown_.count() <= 0) {
+                            history_push_cooldown_ = kHistoryPushInterval;
                             settings_bridge_->post_traffic_history(
                                 traffic_history_store_->export_dto(
                                     current_config_.ranking.excluded_programs));
@@ -648,6 +653,9 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
     // the interaction timers.
     if (ui_stall_log_cooldown_.count() > 0) {
         ui_stall_log_cooldown_ -= elapsed;
+    }
+    if (history_push_cooldown_.count() > 0) {
+        history_push_cooldown_ -= elapsed;
     }
     if (window_ != nullptr && ui_stall_log_cooldown_.count() <= 0) {
         const auto gap = window_->last_tick_gap();
@@ -1376,10 +1384,6 @@ void ProductHost::on_request_config() {
         if (collector_companion_) {
             b.post_connected_applications(collector_companion_->connected_applications());
         }
-        if (traffic_history_store_) {
-            b.post_traffic_history(
-                traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
-        }
     });
     if (native_bridge_ && latest_ranking_snapshot_.has_value()) {
         native_bridge_->post_ranking_snapshot(*latest_ranking_snapshot_);
@@ -1798,12 +1802,9 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
                         }
                     }
                     updated = true;
-                    if (traffic_history_store_) {
-                        const auto hist_dto = traffic_history_store_->export_dto(
-                            current_config_.ranking.excluded_programs);
-                        broadcast_to_all_bridges([&hist_dto](bridge::INativeBridge& b) {
-                            b.post_traffic_history(hist_dto);
-                        });
+                    if (traffic_history_store_ && settings_bridge_) {
+                        settings_bridge_->post_traffic_history(traffic_history_store_->export_dto(
+                            current_config_.ranking.excluded_programs));
                     }
                 }
             }

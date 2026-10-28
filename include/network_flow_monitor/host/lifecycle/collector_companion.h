@@ -44,6 +44,9 @@ using DiagnosticCallback = std::function<void(bool is_error, std::string_view me
                                            const std::vector<std::string>& excluded_programs);
 [[nodiscard]] std::string extract_executable_filename(std::string_view path_or_name);
 [[nodiscard]] std::string extract_executable_icon_data_uri(std::string_view utf8_path);
+// Cache-only lookup: never touches the shell or the filesystem, so callers on the UI thread can
+// fill icon keys without stalling on SHGetFileInfo.
+[[nodiscard]] std::string cached_executable_icon_data_uri(std::string_view utf8_path);
 class CollectorCompanion : public ipc::IpcClientObserver {
   public:
     explicit CollectorCompanion(std::filesystem::path collector_executable_path = {});

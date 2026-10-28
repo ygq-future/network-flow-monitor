@@ -157,6 +157,7 @@ class ProductHost : public platform::IWindowEventListener,
     std::chrono::milliseconds panel_shrink_bounds_remaining_{0};
     std::chrono::milliseconds watchdog_elapsed_{0};
     std::chrono::milliseconds history_persist_elapsed_{0};
+    std::chrono::milliseconds history_push_cooldown_{0};
     std::chrono::milliseconds presentation_repair_log_cooldown_{0};
     std::chrono::milliseconds ui_stall_log_cooldown_{0};
     std::string last_presentation_repair_reason_;

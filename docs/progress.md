@@ -345,3 +345,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **停顿日志 (`win32_window.cpp`, `product_host.cpp`)**：表面时钟保留未钳制的真实间隔（诊断上限 10s），宿主在间隔 ≥750ms 时写 `[WARNING] UI thread stalled for ... ms between surface ticks`（5 秒冷却），用于把外部阻塞源（shell / IME-TSF / WebView2 浏览器进程 / DWM）和发生时刻关联起来。
 - **WebView2 轮询收敛 (`webview_controller.cpp`)**：`ensure_alive()` 不再每秒调用 `get_Bounds()` 轮询浏览器进程，而是与最近一次下发的控制器尺寸比较，仅在父窗口客户区变化时 `resize()`；UI 线程因此不再在每次看门狗中等待跨进程 COM 往返，同时保留尺寸自愈能力。
 - `host_tests.cpp` 补充诊断间隔换算用例（5s 间隔按 10s 诊断上限换算为 500ms）。
+
+## 第二十四轮 设置页打开卡顿：历史图标提取与全量历史推送 — complete
+
+- **实测定位 (`product_host.cpp`, `traffic_history_store.cpp`)**：
+  - 用户打开设置后宿主 UI 线程停顿 **2.7s**（诊断日志 `UI thread stalled for 2707/2741 ms`）；同一时刻 WebView 渲染进程仍流畅；
+  - 根因一：`export_dto(resolve_icons=true)` 在 UI 线程对历史中的**每个 executable 路径**调用 `SHGetFileInfoW` + 图标位图/PNG 编码；本机历史含 **1007 条日/应用记录、406 个不同路径**，首次导出即数秒；且设置打开路径会重复导出（导航回调、`requestConfig`、`broadcast_to_all_bridges` 每个桥各一次）；
+  - 根因二：`record_snapshot` 在每次聚合快照（4Hz）返回 changed 时，设置窗口可见就推送**全量历史**（序列化 ~300KB + 渲染进程反复解析/重渲染）。
+- **修复**：
+  - `lifecycle::cached_executable_icon_data_uri()` 提供只读缓存的图标查询；历史导出改用该接口，**绝不在 UI 线程触碰 shell/文件系统**（实时排行路径仍按需提取并回填缓存）；
+  - 历史推送限频 `kHistoryPushInterval = 30s`，且只发给设置桥；`on_request_config` 与排除程序变更后的广播不再重复导出/向所有桥推送历史；
+  - 图标缓存容量从 64 提升到 256，覆盖实时应用集合。
+- **实机验证（全新进程、冷缓存）**：设置窗口出现 207ms，打开 2.5s 后宿主与设置窗口 `WM_NULL` 均为 **0ms**，日志无停顿记录；设置页直接回显当前 Top N=10 等配置（不再先显示默认值数秒）。

@@ -680,8 +680,10 @@ bridge::TrafficHistoryDto TrafficHistoryStore::export_dto(
             bridge::TrafficHistoryAppEntryDto item = entry;
             if (resolve_icons && !item.executable_path.empty() &&
                 (item.icon_key.empty() || !item.icon_key.starts_with("data:"))) {
+                // Cache-only: history export runs on the UI thread and must never block on shell
+                // icon lookups for hundreds of historical executables.
                 std::string resolved_icon =
-                    lifecycle::extract_executable_icon_data_uri(item.executable_path);
+                    lifecycle::cached_executable_icon_data_uri(item.executable_path);
                 if (!resolved_icon.empty()) {
                     item.icon_key = std::move(resolved_icon);
                 }

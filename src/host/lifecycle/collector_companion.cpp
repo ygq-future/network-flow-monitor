@@ -159,14 +159,33 @@ std::string Base64Encode(const std::vector<std::uint8_t>& data) {
     return out;
 }
 
+std::mutex& IconCacheMutex() {
+    static std::mutex cache_mutex;
+    return cache_mutex;
+}
+
+std::unordered_map<std::string, std::string>& IconCache() {
+    static std::unordered_map<std::string, std::string> icon_cache;
+    return icon_cache;
+}
+
+std::string LookupCachedIconDataUri(const std::string& utf8_path) {
+    const std::scoped_lock lock(IconCacheMutex());
+    auto& icon_cache = IconCache();
+    auto it = icon_cache.find(utf8_path);
+    if (it != icon_cache.end()) {
+        return it->second;
+    }
+    return {};
+}
+
 std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     if (utf8_path.empty() || utf8_path.starts_with("data:")) {
         return utf8_path;
     }
-    static std::mutex cache_mutex;
-    static std::unordered_map<std::string, std::string> icon_cache;
     {
-        const std::scoped_lock lock(cache_mutex);
+        const std::scoped_lock lock(IconCacheMutex());
+        auto& icon_cache = IconCache();
         auto it = icon_cache.find(utf8_path);
         if (it != icon_cache.end()) {
             return it->second;
@@ -260,8 +279,9 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     DestroyIcon(sfi.hIcon);
 
     if (!result.empty()) {
-        const std::scoped_lock lock(cache_mutex);
-        if (icon_cache.size() >= 64U) {
+        const std::scoped_lock lock(IconCacheMutex());
+        auto& icon_cache = IconCache();
+        if (icon_cache.size() >= 256U) {
             icon_cache.clear();
         }
         icon_cache.emplace(utf8_path, result);
@@ -319,6 +339,13 @@ std::string extract_executable_filename(std::string_view path_or_name) {
 
 std::string extract_executable_icon_data_uri(std::string_view utf8_path) {
     return ExtractExecutableIconDataUri(std::string{utf8_path});
+}
+
+std::string cached_executable_icon_data_uri(std::string_view utf8_path) {
+    if (utf8_path.empty()) {
+        return {};
+    }
+    return LookupCachedIconDataUri(std::string{utf8_path});
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)

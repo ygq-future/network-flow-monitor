@@ -74,6 +74,19 @@ std::int32_t auto_hide_taskbar_reservation_px(const RECT& monitor_rect, UINT edg
 
 } // namespace
 
+std::chrono::milliseconds tick_elapsed_from_counter_delta(std::int64_t delta_ticks,
+                                                          std::int64_t counter_frequency) noexcept {
+    if (counter_frequency <= 0 || delta_ticks <= 0) {
+        return std::chrono::milliseconds{0};
+    }
+    // Bound the raw delta before scaling so the millisecond conversion cannot overflow.
+    const std::int64_t max_ticks = (kMaximumTickElapsed.count() * counter_frequency) / 1000 + 1;
+    const std::int64_t clamped_ticks = std::min(delta_ticks, max_ticks);
+    const std::int64_t elapsed_ms =
+        ((clamped_ticks * 1000) + (counter_frequency / 2)) / counter_frequency;
+    return std::chrono::milliseconds{std::min(elapsed_ms, kMaximumTickElapsed.count())};
+}
+
 Win32Window::Win32Window(WindowConfig config) : config_(std::move(config)) {}
 
 Win32Window::~Win32Window() {
@@ -163,6 +176,14 @@ bool Win32Window::create(IWindowEventListener* listener) {
     }
 
     if (config_.tool_window) {
+        LARGE_INTEGER frequency{};
+        if (QueryPerformanceFrequency(&frequency) != FALSE) {
+            tick_counter_frequency_ = frequency.QuadPart;
+        }
+        LARGE_INTEGER start_counter{};
+        if (QueryPerformanceCounter(&start_counter) != FALSE) {
+            last_tick_counter_ = start_counter.QuadPart;
+        }
         SetTimer(hwnd_, kSurfaceClockTimerId, kSurfaceClockPeriodMs, nullptr);
     }
     return true;
@@ -712,6 +733,23 @@ bool Win32Window::get_bounds(RECT* bounds) const noexcept {
     return GetWindowRect(hwnd_, bounds) != FALSE;
 }
 
+std::chrono::milliseconds Win32Window::next_tick_elapsed() noexcept {
+    if (tick_counter_frequency_ <= 0) {
+        return std::chrono::milliseconds{kSurfaceClockPeriodMs};
+    }
+    LARGE_INTEGER now{};
+    if (QueryPerformanceCounter(&now) == FALSE) {
+        return std::chrono::milliseconds{kSurfaceClockPeriodMs};
+    }
+    if (last_tick_counter_ == 0) {
+        last_tick_counter_ = now.QuadPart;
+        return std::chrono::milliseconds{kSurfaceClockPeriodMs};
+    }
+    const std::int64_t delta_ticks = now.QuadPart - last_tick_counter_;
+    last_tick_counter_ = now.QuadPart;
+    return tick_elapsed_from_counter_delta(delta_ticks, tick_counter_frequency_);
+}
+
 int Win32Window::run_message_loop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
@@ -935,8 +973,7 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
                     }
                 }
             }
-            self->listener_->on_surface_clock_tick(
-                std::chrono::milliseconds{kSurfaceClockPeriodMs});
+            self->listener_->on_surface_clock_tick(self->next_tick_elapsed());
         }
         return 0;
     }

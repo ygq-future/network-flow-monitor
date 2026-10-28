@@ -328,3 +328,13 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 记录最近一次实际下发的窗口几何；1 秒看门狗检测「未呈现 / 置顶样式丢失 / 几何漂移」（拖动、收拢与面板收缩动画期间跳过），命中即重新 `apply_coordinator_state()` + `webview_->set_visible(true)` + `ensure_alive()` + `publish_surface_state()`；
   - 修复事件写入 `logs/nfm-host.log`（`Window presentation repaired: ...`，30 秒日志冷却），便于后续定位外部触发源；
   - `host_tests.cpp` 新增无窗口展示的 headless 用例，覆盖外部移动后的 `set_bounds` 复位与外部失去置顶后的 `set_topmost` 恢复。
+
+## 第二十二轮 表面时钟改为实测真实时间差 — complete
+
+- **问题与实测证据 (`win32_window.cpp`)**：
+  - `SetTimer(8ms)` 受系统时钟节拍量化并会被合并，实测 2 秒内仅 127~128 次 `WM_TIMER`（平均 15.7ms/次），而 `on_surface_clock_tick()` 固定按 8ms 推进时间，导致所有交互计时约为配置值的 $1.96$ 倍：悬停展开 350ms → ≈685ms、自动隐藏 500ms → ≈980ms、收起 250ms → ≈490ms、表现自愈看门狗 1s → ≈1.95s、历史落盘 30s → ≈58.5s；
+  - 原生移动循环、模态流程期间消息泵阻塞时 tick 完全缺失，固定步长还会让这段时间被永久丢弃。
+- **实测时间差驱动的表面时钟 (`win32_window.h/.cpp`, `host_tests.cpp`)**：
+  - `Win32Window` 在创建表面时钟时读取 `QueryPerformanceFrequency` 与起始 `QueryPerformanceCounter`，每次 `WM_TIMER` 调用 `next_tick_elapsed()` 计算真实间隔（`tick_elapsed_from_counter_delta()` 为纯函数，先限幅再换算以避免溢出，四舍五入到毫秒）；
+  - 单帧间隔上限 `kMaximumTickElapsed = 250ms`，避免长时间阻塞后一次性完成全部交互计时器；`SetTimer` 仍只负责触发节奏与指针采样，协调器 API 与时序语义保持不变；
+  - `host_tests.cpp` 新增纯函数用例，覆盖 8ms 精确换算、15.7ms 就近取整、负值与非法频率归零以及 250ms 上限钳制。

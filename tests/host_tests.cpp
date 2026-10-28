@@ -1020,12 +1020,32 @@ void CheckWindowPresentationRecovery(TestContext& context) {
 
     window.close();
 }
+
+void CheckTickElapsedConversion(TestContext& context) {
+    using namespace nfm::host::platform;
+    constexpr std::int64_t kCounterFrequency = 10'000'000; // 10 MHz QPC
+
+    context.Check(tick_elapsed_from_counter_delta(0, kCounterFrequency).count() == 0,
+                  "zero counter delta yields zero elapsed");
+    context.Check(tick_elapsed_from_counter_delta(-1000, kCounterFrequency).count() == 0,
+                  "negative counter delta clamps to zero");
+    context.Check(tick_elapsed_from_counter_delta(80'000, kCounterFrequency).count() == 8,
+                  "8ms counter delta converts without drift");
+    context.Check(tick_elapsed_from_counter_delta(157'000, kCounterFrequency).count() == 16,
+                  "15.7ms counter delta rounds to the nearest millisecond");
+    context.Check(tick_elapsed_from_counter_delta(5'000'000, kCounterFrequency).count() ==
+                      kMaximumTickElapsed.count(),
+                  "blocked interval clamps to the maximum frame delta");
+    context.Check(tick_elapsed_from_counter_delta(80'000, 0).count() == 0,
+                  "invalid counter frequency yields zero elapsed");
+}
 } // namespace
 
 int Run() {
     TestContext context;
     CheckCollectorCompanionInjections(context);
     CheckWindowPresentationRecovery(context);
+    CheckTickElapsedConversion(context);
     return context.failures();
 }
 } // namespace host_lifecycle_suite

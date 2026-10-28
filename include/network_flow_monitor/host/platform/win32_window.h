@@ -27,6 +27,14 @@ inline constexpr UINT kWebSurfacePointerMoveMessage = WM_APP + 0x31;
 inline constexpr UINT kWebSurfacePointerUpMessage = WM_APP + 0x33;
 inline constexpr UINT kWebSurfacePointerLeaveMessage = WM_APP + 0x34;
 
+// Windows quantizes WM_TIMER to the system tick and coalesces pending timer messages, so frame
+// deltas are measured with QueryPerformanceCounter and bounded to keep a stalled message pump from
+// completing every interaction timer in a single step.
+inline constexpr std::chrono::milliseconds kMaximumTickElapsed{250};
+
+[[nodiscard]] std::chrono::milliseconds tick_elapsed_from_counter_delta(
+    std::int64_t delta_ticks, std::int64_t counter_frequency) noexcept;
+
 struct ContextMenuOptions {
     int screen_x{-1};
     int screen_y{-1};
@@ -144,10 +152,13 @@ class Win32Window {
 
   private:
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+    [[nodiscard]] std::chrono::milliseconds next_tick_elapsed() noexcept;
 
     WindowConfig config_;
     HWND hwnd_{nullptr};
     IWindowEventListener* listener_{nullptr};
+    std::int64_t tick_counter_frequency_{0};
+    std::int64_t last_tick_counter_{0};
     bool class_registered_{false};
     bool tray_icon_active_{false};
     bool surface_pointer_inside_{false};

@@ -357,3 +357,12 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 历史推送限频 `kHistoryPushInterval = 30s`，且只发给设置桥；`on_request_config` 与排除程序变更后的广播不再重复导出/向所有桥推送历史；
   - 图标缓存容量从 64 提升到 256，覆盖实时应用集合。
 - **实机验证（全新进程、冷缓存）**：设置窗口出现 207ms，打开 2.5s 后宿主与设置窗口 `WM_NULL` 均为 **0ms**，日志无停顿记录；设置页直接回显当前 Top N=10 等配置（不再先显示默认值数秒）。
+
+## 第二十五轮 图标缓存持久化 + 后台预热 + 同名程序归并 — complete
+
+- **持久化图标缓存 (`collector_companion.cpp`, `platform/atomic_file.*`)**：
+  - 新增 `data/icon_cache.json`（`{schemaVersion, icons:{<lower path>: <data uri>}}`），启动时一次性载入内存；导出只读内存；新增图标标记 dirty，由预热线程分批与退出时原子落盘；
+  - 原子写入/读取抽取为 `host/platform/atomic_file.{h,cpp}`，历史存储与图标缓存共用同一实现。
+- **后台预热 (`product_host.cpp`)**：启动完成后由独立线程遍历历史与已连接程序的 executable 路径，仅对未缓存项调用 `SHGetFileInfo` 提取（每 16 个落盘一次），结束后强制刷新一次设置页历史；UI 线程全程不参与，退出时 `stop + join`。
+- **同名程序归并 (`traffic_history_store.cpp`)**：历史键从「完整路径」改为「可执行文件名」（`exe:<name>`），同一程序不同安装路径在加载/记录时即合并字节数；历史文件下次保存后自动完成迁移。
+- **测试与验证**：新增同名校验用例；全新进程冷缓存下设置窗口 202ms 出现、宿主/设置窗口响应 0–1ms，预热日志与 `icon_cache.json` 生成正常。

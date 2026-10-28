@@ -1918,11 +1918,77 @@ void Test2DPersistenceDeltaAndExclusionFiltering(TestContext& ctx) {
     std::filesystem::remove_all(temp_dir, ec);
 }
 
+void TestSameNameDifferentPathsMerge(TestContext& ctx) {
+    using nfm::host::history::TrafficHistoryStore;
+    using nfm::ipc::RankingApplication;
+    using nfm::ipc::RankingSnapshotMessage;
+
+    const auto temp_dir = std::filesystem::temp_directory_path() /
+                          ("nfm_history_merge_test_" + std::to_string(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+    const auto history_file = temp_dir / L"data" / L"traffic_history.json";
+
+    std::string current_date = "2026-10-21";
+    TrafficHistoryStore store(history_file, [&]() { return current_date; });
+    store.on_session_reset("session_1");
+    const std::vector<std::string> excluded{};
+    RankingSnapshotMessage snap{
+        .seq = 1U,
+        .monotonic_ms = 1000U,
+        .status = "Ready",
+        .applications =
+            {
+                RankingApplication{
+                    .id = "executable:C:\\Apps\\ChromeStable\\chrome.exe",
+                    .executable_path = "C:\\Apps\\ChromeStable\\chrome.exe",
+                    .display_name = "Google Chrome",
+                    .total_download_bytes = 1000U,
+                    .total_upload_bytes = 100U,
+                },
+                RankingApplication{
+                    .id = "executable:D:\\Portable\\Chrome\\chrome.exe",
+                    .executable_path = "D:\\Portable\\Chrome\\chrome.exe",
+                    .display_name = "chrome.exe",
+                    .total_download_bytes = 500U,
+                    .total_upload_bytes = 50U,
+                },
+                RankingApplication{
+                    .id = "executable:C:\\Tools\\curl.exe",
+                    .executable_path = "C:\\Tools\\curl.exe",
+                    .display_name = "curl.exe",
+                    .total_download_bytes = 10U,
+                    .total_upload_bytes = 20U,
+                },
+            },
+    };
+    ctx.Check(store.record_snapshot(snap, excluded), "record_snapshot records merge candidates");
+
+    const auto dto = store.export_dto(excluded, false);
+    ctx.Check(dto.days.size() == 1U, "single day exported");
+    if (!dto.days.empty()) {
+        ctx.Check(dto.days[0].applications.size() == 2U,
+                  "same executable name from different paths collapses into one history row");
+        bool found_chrome = false;
+        for (const auto& app : dto.days[0].applications) {
+            if (app.app_id == "exe:chrome.exe") {
+                found_chrome = true;
+                ctx.Check(app.download_bytes == 1500U && app.upload_bytes == 150U,
+                          "merged chrome.exe row sums both install paths");
+            }
+        }
+        ctx.Check(found_chrome, "merged row is keyed by executable name");
+    }
+    std::filesystem::remove_all(temp_dir, ec);
+}
+
 } // namespace
 
 int Run() {
     TestContext ctx;
     Test2DPersistenceDeltaAndExclusionFiltering(ctx);
+    TestSameNameDifferentPathsMerge(ctx);
     return ctx.failures();
 }
 } // namespace traffic_history_suite

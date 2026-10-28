@@ -132,6 +132,8 @@ bool ProductHost::initialize() {
     if (traffic_history_store_) {
         static_cast<void>(traffic_history_store_->load());
     }
+    lifecycle::load_executable_icon_cache(options_.config_file_path.parent_path() /
+                                          L"icon_cache.json");
 
     // Synchronize startup registry entry with authoritative config on launch
     const auto current_exe = platform::StartupRegistration::current_executable_path();
@@ -281,12 +283,8 @@ bool ProductHost::initialize() {
                         // Snapshots change several times per second; publishing the full history at
                         // that rate makes the settings renderer re-parse and re-render it
                         // constantly.
-                        if (!is_shutting_down_ && settings_surface_visible_ && settings_bridge_ &&
-                            traffic_history_store_ && history_push_cooldown_.count() <= 0) {
-                            history_push_cooldown_ = kHistoryPushInterval;
-                            settings_bridge_->post_traffic_history(
-                                traffic_history_store_->export_dto(
-                                    current_config_.ranking.excluded_programs));
+                        if (!is_shutting_down_ && settings_surface_visible_) {
+                            push_traffic_history_to_settings(false);
                         }
                     } catch (...) {
                     }
@@ -433,6 +431,12 @@ bool ProductHost::initialize() {
     }
 
     window_->create_tray_icon();
+    icon_warmup_thread_ = std::thread([this]() noexcept {
+        try {
+            warm_executable_icons();
+        } catch (...) {
+        }
+    });
     is_initialized_ = true;
     int wv_len =
         WideCharToMultiByte(CP_UTF8, 0, rt_info.version.data(),
@@ -458,6 +462,10 @@ void ProductHost::shutdown() {
         return;
     }
     is_shutting_down_ = true;
+    icon_warmup_stop_.store(true);
+    if (icon_warmup_thread_.joinable()) {
+        icon_warmup_thread_.join();
+    }
     if (app_updater_) {
         app_updater_->cancel_and_wait();
     }
@@ -467,6 +475,7 @@ void ProductHost::shutdown() {
     if (traffic_history_store_) {
         static_cast<void>(traffic_history_store_->save_if_dirty());
     }
+    static_cast<void>(lifecycle::save_executable_icon_cache_if_dirty());
     settings_bridge_.reset();
     settings_webview_.reset();
     if (settings_window_) {
@@ -1011,6 +1020,68 @@ void ProductHost::close_settings_window() {
     if (webview_) {
         webview_->set_visible(true);
         static_cast<void>(webview_->ensure_alive());
+    }
+}
+
+void ProductHost::push_traffic_history_to_settings(bool force) {
+    if (!traffic_history_store_ || !settings_bridge_) {
+        return;
+    }
+    if (!force && history_push_cooldown_.count() > 0) {
+        return;
+    }
+    history_push_cooldown_ = kHistoryPushInterval;
+    settings_bridge_->post_traffic_history(
+        traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
+}
+
+void ProductHost::warm_executable_icons() {
+    std::vector<std::string> paths;
+    if (traffic_history_store_) {
+        paths = traffic_history_store_->collect_executable_paths();
+    }
+    if (collector_companion_) {
+        for (const auto& app : collector_companion_->connected_applications().applications) {
+            if (!app.executable_path.empty()) {
+                paths.push_back(app.executable_path);
+            }
+        }
+    }
+    std::ranges::sort(paths);
+    const auto unique_end = std::ranges::unique(paths).begin();
+    paths.erase(unique_end, paths.end());
+
+    std::size_t extracted_total = 0;
+    std::size_t extracted_since_save = 0;
+    for (const auto& path : paths) {
+        if (icon_warmup_stop_.load()) {
+            return;
+        }
+        if (!lifecycle::cached_executable_icon_data_uri(path).empty()) {
+            continue;
+        }
+        if (!lifecycle::extract_executable_icon_data_uri(path).empty()) {
+            ++extracted_total;
+            ++extracted_since_save;
+        }
+        if (extracted_since_save >= 16U) {
+            static_cast<void>(lifecycle::save_executable_icon_cache_if_dirty());
+            extracted_since_save = 0;
+        }
+    }
+    static_cast<void>(lifecycle::save_executable_icon_cache_if_dirty());
+    if (!icon_warmup_stop_.load()) {
+        write_diagnostic_log(config::LogLevel::Info,
+                             "Icon cache warmed (" + std::to_string(extracted_total) + " new, " +
+                                 std::to_string(lifecycle::executable_icon_cache_size()) +
+                                 " cached)");
+    }
+    if (window_ != nullptr && !icon_warmup_stop_.load()) {
+        window_->post_ui_task([this]() noexcept {
+            if (!is_shutting_down_ && settings_surface_visible_) {
+                push_traffic_history_to_settings(true);
+            }
+        });
     }
 }
 

@@ -61,6 +61,9 @@ class TrafficHistoryStore {
     [[nodiscard]] bridge::TrafficHistoryDto export_dto(
         const std::vector<std::string>& excluded_programs, bool resolve_icons = true) const;
 
+    // Distinct executable paths present in the history (used to warm the icon cache off-thread).
+    [[nodiscard]] std::vector<std::string> collect_executable_paths() const;
+
     [[nodiscard]] bool is_dirty() const noexcept;
 
   private:

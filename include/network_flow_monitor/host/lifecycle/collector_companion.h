@@ -47,6 +47,12 @@ using DiagnosticCallback = std::function<void(bool is_error, std::string_view me
 // Cache-only lookup: never touches the shell or the filesystem, so callers on the UI thread can
 // fill icon keys without stalling on SHGetFileInfo.
 [[nodiscard]] std::string cached_executable_icon_data_uri(std::string_view utf8_path);
+
+// Persistent executable icon cache (stored next to the user config). Load once at startup, then
+// let the background warmer fill it; lookups stay cache-only and never touch the shell.
+void load_executable_icon_cache(const std::filesystem::path& file_path);
+[[nodiscard]] bool save_executable_icon_cache_if_dirty();
+[[nodiscard]] std::size_t executable_icon_cache_size();
 class CollectorCompanion : public ipc::IpcClientObserver {
   public:
     explicit CollectorCompanion(std::filesystem::path collector_executable_path = {});

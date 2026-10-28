@@ -105,6 +105,7 @@ add_library(
         host/history/traffic_history_store.cpp
         host/lifecycle/collector_companion.cpp
         host/platform/app_updater.cpp
+        host/platform/atomic_file.cpp
         host/platform/rotating_file_logger.cpp
         host/platform/startup_registration.cpp
         host/platform/webview2_environment.cpp

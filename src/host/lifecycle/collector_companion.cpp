@@ -1,5 +1,6 @@
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
 
+#include "network_flow_monitor/host/platform/atomic_file.h"
 #include "network_flow_monitor/ipc/security_policy.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -12,11 +13,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <shellapi.h>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <yyjson.h>
 namespace nfm::host::lifecycle {
 
 namespace {
@@ -169,10 +172,76 @@ std::unordered_map<std::string, std::string>& IconCache() {
     return icon_cache;
 }
 
+constexpr std::uint64_t kMaxIconCacheFileBytes = 8ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kMaxCachedIcons = 4096U;
+constexpr std::size_t kMaxIconDataUriBytes = 96ULL * 1024ULL;
+
+void AppendJsonEscapedString(std::string& out, std::string_view value) {
+    out.push_back('"');
+    for (const char c : value) {
+        switch (c) {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20U) {
+                constexpr char kHexDigits[] = "0123456789abcdef";
+                const auto byte = static_cast<unsigned>(static_cast<unsigned char>(c));
+                out += "\\u00";
+                out.push_back(kHexDigits[(byte >> 4U) & 0x0FU]);
+                out.push_back(kHexDigits[byte & 0x0FU]);
+            } else {
+                out.push_back(c);
+            }
+            break;
+        }
+    }
+    out.push_back('"');
+}
+
+struct IconCacheState {
+    std::filesystem::path file_path;
+    bool dirty{false};
+    std::uint64_t change_counter{0};
+};
+
+IconCacheState& CacheState() {
+    static IconCacheState state;
+    return state;
+}
+
+std::string NormalizeIconCacheKey(std::string_view input) {
+    std::string out;
+    out.reserve(input.size());
+    for (char c : input) {
+        if (c == '/') {
+            out.push_back('\\');
+        } else if (c >= 'A' && c <= 'Z') {
+            out.push_back(static_cast<char>(c - 'A' + 'a'));
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
 std::string LookupCachedIconDataUri(const std::string& utf8_path) {
+    const std::string key = NormalizeIconCacheKey(utf8_path);
     const std::scoped_lock lock(IconCacheMutex());
     auto& icon_cache = IconCache();
-    auto it = icon_cache.find(utf8_path);
+    auto it = icon_cache.find(key);
     if (it != icon_cache.end()) {
         return it->second;
     }
@@ -183,10 +252,11 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     if (utf8_path.empty() || utf8_path.starts_with("data:")) {
         return utf8_path;
     }
+    const std::string cache_key = NormalizeIconCacheKey(utf8_path);
     {
         const std::scoped_lock lock(IconCacheMutex());
         auto& icon_cache = IconCache();
-        auto it = icon_cache.find(utf8_path);
+        auto it = icon_cache.find(cache_key);
         if (it != icon_cache.end()) {
             return it->second;
         }
@@ -281,10 +351,13 @@ std::string ExtractExecutableIconDataUri(const std::string& utf8_path) {
     if (!result.empty()) {
         const std::scoped_lock lock(IconCacheMutex());
         auto& icon_cache = IconCache();
-        if (icon_cache.size() >= 256U) {
+        if (icon_cache.size() >= kMaxCachedIcons) {
             icon_cache.clear();
         }
-        icon_cache.emplace(utf8_path, result);
+        icon_cache.emplace(cache_key, result);
+        auto& state = CacheState();
+        state.dirty = true;
+        ++state.change_counter;
     }
     return result;
 }
@@ -346,6 +419,114 @@ std::string cached_executable_icon_data_uri(std::string_view utf8_path) {
         return {};
     }
     return LookupCachedIconDataUri(std::string{utf8_path});
+}
+
+void load_executable_icon_cache(const std::filesystem::path& file_path) {
+    if (file_path.empty()) {
+        return;
+    }
+    {
+        const std::scoped_lock lock(IconCacheMutex());
+        CacheState().file_path = file_path;
+    }
+    const auto json = platform::ReadFileUtf8(file_path, kMaxIconCacheFileBytes);
+    if (!json.has_value()) {
+        return;
+    }
+    yyjson_doc* doc = yyjson_read(json->data(), json->size(), 0);
+    if (doc == nullptr) {
+        return;
+    }
+    struct DocGuard {
+        explicit DocGuard(yyjson_doc* document) : doc(document) {}
+        DocGuard(const DocGuard&) = delete;
+        DocGuard& operator=(const DocGuard&) = delete;
+        DocGuard(DocGuard&&) = delete;
+        DocGuard& operator=(DocGuard&&) = delete;
+        ~DocGuard() {
+            if (doc != nullptr) {
+                yyjson_doc_free(doc);
+            }
+        }
+        yyjson_doc* doc;
+    } guard{doc};
+    yyjson_val* root = yyjson_doc_get_root(doc);
+    if (root == nullptr || !yyjson_is_obj(root)) {
+        return;
+    }
+    yyjson_val* icons = yyjson_obj_get(root, "icons");
+    if (icons == nullptr || !yyjson_is_obj(icons)) {
+        return;
+    }
+    const std::scoped_lock lock(IconCacheMutex());
+    auto& cache = IconCache();
+    yyjson_obj_iter iter;
+    yyjson_obj_iter_init(icons, &iter);
+    while (yyjson_val* key = yyjson_obj_iter_next(&iter)) {
+        if (cache.size() >= kMaxCachedIcons) {
+            break;
+        }
+        yyjson_val* value = yyjson_obj_iter_get_val(key);
+        if (!yyjson_is_str(key) || !yyjson_is_str(value)) {
+            continue;
+        }
+        const std::string_view key_sv{yyjson_get_str(key), yyjson_get_len(key)};
+        const std::string_view value_sv{yyjson_get_str(value), yyjson_get_len(value)};
+        if (key_sv.empty() || value_sv.size() > kMaxIconDataUriBytes ||
+            !value_sv.starts_with("data:image/")) {
+            continue;
+        }
+        cache.try_emplace(std::string{key_sv}, std::string{value_sv});
+    }
+    auto& state = CacheState();
+    state.dirty = false;
+    state.change_counter = 0;
+}
+
+bool save_executable_icon_cache_if_dirty() {
+    std::filesystem::path target;
+    std::unordered_map<std::string, std::string> snapshot;
+    std::uint64_t snapshot_counter = 0;
+    {
+        const std::scoped_lock lock(IconCacheMutex());
+        auto& state = CacheState();
+        if (!state.dirty || state.file_path.empty() || IconCache().empty()) {
+            return false;
+        }
+        target = state.file_path;
+        snapshot = IconCache();
+        snapshot_counter = state.change_counter;
+    }
+
+    std::string json;
+    json.reserve((snapshot.size() * 1536U) + 64U);
+    json += R"({"schemaVersion":1,"icons":{)";
+    bool first_entry = true;
+    for (const auto& [key, value] : snapshot) {
+        if (!first_entry) {
+            json.push_back(',');
+        }
+        first_entry = false;
+        AppendJsonEscapedString(json, key);
+        json.push_back(':');
+        AppendJsonEscapedString(json, value);
+    }
+    json += "}}";
+    const bool written = platform::WriteFileAtomically(target, json);
+    if (!written) {
+        return false;
+    }
+    const std::scoped_lock lock(IconCacheMutex());
+    auto& state = CacheState();
+    if (state.change_counter == snapshot_counter) {
+        state.dirty = false;
+    }
+    return true;
+}
+
+std::size_t executable_icon_cache_size() {
+    const std::scoped_lock lock(IconCacheMutex());
+    return IconCache().size();
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)

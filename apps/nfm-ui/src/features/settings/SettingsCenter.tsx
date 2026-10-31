@@ -132,7 +132,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   })
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusDto>({
     state: 'Idle',
-    currentVersion: '0.3.0',
+    currentVersion: '0.3.1',
     latestVersion: '',
     downloadProgressPercent: 0,
     errorMessage: '',
@@ -664,7 +664,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 control={
                   <div className="flex items-center gap-2">
                     <Badge variant="default" className="font-mono">
-                      v{updateStatus.currentVersion || '0.3.0'}
+                      v{updateStatus.currentVersion || '0.3.1'}
                     </Badge>
                     {updateStatus.state === 'UpToDate' && <Badge variant="success">{t.settings.updateUpToDate}</Badge>}
                     {updateStatus.state === 'UpdateAvailable' && updateStatus.latestVersion && (

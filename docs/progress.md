@@ -376,3 +376,18 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（版本一致性 `v0.3.0`、clang-format、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试）；`-Mode Full` 20/20 通过（clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
 - **便携发行包 (`tools/package.ps1`)**：`dist/NetworkFlowMonitor-0.3.0-win-x64.zip`（884352 字节，SHA256 `73D2E5FF136582F07A77DA773A44F9822E94DA05DCB3425D65233CBFD8FAA4A9`），归档内含 `NetworkFlowMonitor.exe` / `nfm-collector.exe`（文件版本 `0.3.0.0`）、`ui/`、`README.md`、`LICENSE`。
 - **发布流程**：提交版本升级与发布说明后推送 `v0.3.0` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。
+
+## 第二十七轮 v0.3.1 贴边胶囊隐形与唤醒五路根因修复及发布 — complete
+
+- **实机诊断结论**：
+  - 排查本机 `v0.3.0` 运行日志 `logs/nfm-host.log`（537 行）发现第 21 轮新增的 `Window presentation repaired` 触发次数为 `0`，证明胶囊隐形时外层宿主 `HWND` 仍处于 `Visible=true, Iconic=false, WS_EX_TOPMOST=true` 且 `GetWindowRect` 与缓存几何一致，仅靠点击托盘执行 `on_show_monitor()` 才能恢复。
+- **五路根因与修复 (`product_host.cpp`, `webview_controller.cpp`, `win32_window.cpp`, `surface_types.h`)**：
+  1. **WebView2 子窗口视口漂移与调用顺序修复 (`product_host.cpp`, `webview_controller.cpp`)**：`apply_coordinator_state()` 改为先调用 `window_->set_bounds()` 更新父窗口客户区，再调用 `webview_->resize()` 下发视口尺寸；`WebView2Controller::ensure_alive()` 与 `resize()` 补充基于本地 Win32 子窗口 `GetClientRect(child)` 和 `IsWindowVisible(child)` 的零跨进程 COM 校验，一旦子窗口尺寸与父窗口客户区不一致或不可见，立即重新下发 `put_Bounds` 与 `put_IsVisible(TRUE)`。
+  2. **同帧收缩完成吞掉表面状态广播修复 (`product_host.cpp`)**：将 `on_surface_clock_tick` 中的协调器状态变更判断独立为 `coordinator_state_changed`，当 `panel_shrink_bounds_remaining_`（240ms）或 `collapse_bounds_remaining_`（260ms）与 `dismiss_timer` / `auto_hide_timer` 在同一 tick 到期时，始终触发 `publish_surface_state()`，保证前端正常回到胶囊态。
+  3. **可见胶囊保持活跃内存与合成状态 (`product_host.cpp`, `webview_controller.cpp`)**：遵循 WebView2 SDK 契约，主窗口在 `CapsuleVisible` 与 `PanelVisible` 可见期间均保持正常活跃状态，仅在窗口隐藏（`TrayOnly` / `is_fullscreen_hidden` 或隐藏的设置预热窗口）时通过 `TrySuspend` / `Resume` 管理生命周期。
+  4. **看门狗显示器拓扑同步、DWM Cloak 检查与 Z 序重申 (`product_host.cpp`, `win32_window.h/.cpp`, `surface_types.h`)**：`ensure_window_presentation()` 每秒比对最新 `Win32Window::enumerate_monitors()`，捕获分辨率/DPI/工作区切换；`Win32Window::is_presented()` 补充 `DWMWA_CLOAKED == 0` 校验；`set_topmost(true, true)` 支持在修复时强制重申 `HWND_TOPMOST` Z 序。
+  5. **同屏全屏检测收敛为前台窗口几何判定 (`win32_window.cpp`)**：`is_foreground_fullscreen_on_same_monitor()` 严格以同一显示器上的前台窗口实际覆盖显示器矩形为准，消除高频 Shell 跨进程查询导致的 UI 线程周期性停顿，并保证从全屏应用切回桌面后自动隐藏胶囊正常响应悬停。
+- **回归测试 (`tests/host_tests.cpp`)**：新增 `CheckCollapseFinishedDoesNotSuppressSurfacePublish` 与置顶窗口 Z 序重申用例。
+- **v0.3.1 版本发布 (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `.github/release-note/v0.3.1.md`)**：
+  - 全仓版本号升级至 `0.3.1`，撰写中英双语发布说明 `.github/release-note/v0.3.1.md`。
+  - `tools/quality.ps1 -Mode Fast`（12/12）与 `-Mode Full`（20/20）全部通过；`tools/package.ps1 -Configuration Release` 生成便携归档 `dist/NetworkFlowMonitor-0.3.1-win-x64.zip`（885493 字节，SHA256 `37E5FF0D9683860D67953592E8AAB7A80839194936B414E16E72EE9B9EDEFA76`）。

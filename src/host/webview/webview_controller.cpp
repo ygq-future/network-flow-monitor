@@ -87,7 +87,6 @@ struct WebView2Controller::Impl {
     bool is_ready_{false};
     bool is_creating_{false};
     bool desired_visible_{true};
-    bool desired_low_memory_{false};
     bool is_suspended_{false};
     int last_width_px_{-1};
     int last_height_px_{-1};
@@ -115,15 +114,6 @@ struct WebView2Controller::Impl {
         if (webview_.Get() == nullptr) {
             return;
         }
-        ComPtr<ICoreWebView2_19> webview_v19;
-        if (SUCCEEDED(webview_.As(&webview_v19)) && webview_v19.Get() != nullptr) {
-            const COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL target_level =
-                (desired_low_memory_ || !desired_visible_)
-                    ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
-                    : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL;
-            static_cast<void>(webview_v19->put_MemoryUsageTargetLevel(target_level));
-        }
-
         ComPtr<ICoreWebView2_3> webview_v3;
         if (SUCCEEDED(webview_.As(&webview_v3)) && webview_v3.Get() != nullptr) {
             if (desired_visible_) {
@@ -325,18 +315,26 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                 }
                                 if (kind ==
                                     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
-                                    g_shared_env.Reset();
+                                    if (g_shared_env.Get() == impl_->environment_.Get()) {
+                                        g_shared_env.Reset();
+                                    }
                                     HWND hwnd = impl_->parent_hwnd_;
                                     auto assets = impl_->static_assets_dir_;
                                     impl_->reset_controller();
-                                    static_cast<void>(initialize(hwnd, assets));
+                                    if (impl_->desired_visible_) {
+                                        static_cast<void>(initialize(hwnd, assets));
+                                    }
                                 } else if (impl_->webview_.Get() != nullptr) {
                                     if (FAILED(impl_->webview_->Reload())) {
-                                        g_shared_env.Reset();
+                                        if (g_shared_env.Get() == impl_->environment_.Get()) {
+                                            g_shared_env.Reset();
+                                        }
                                         HWND hwnd = impl_->parent_hwnd_;
                                         auto assets = impl_->static_assets_dir_;
                                         impl_->reset_controller();
-                                        static_cast<void>(initialize(hwnd, assets));
+                                        if (impl_->desired_visible_) {
+                                            static_cast<void>(initialize(hwnd, assets));
+                                        }
                                     }
                                 }
                                 return S_OK;
@@ -405,7 +403,20 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
 
 void WebView2Controller::resize(int width_px, int height_px) {
     if (impl_->controller_.Get() != nullptr) {
-        if (impl_->last_width_px_ != width_px || impl_->last_height_px_ != height_px) {
+        bool child_mismatch = false;
+        if (impl_->parent_hwnd_ != nullptr) {
+            HWND child = GetWindow(impl_->parent_hwnd_, GW_CHILD);
+            if (child != nullptr && IsWindow(child) != FALSE) {
+                RECT child_rc{};
+                if (GetClientRect(child, &child_rc) != FALSE) {
+                    const int cw = child_rc.right - child_rc.left;
+                    const int ch = child_rc.bottom - child_rc.top;
+                    child_mismatch = (cw != width_px || ch != height_px);
+                }
+            }
+        }
+        if (impl_->last_width_px_ != width_px || impl_->last_height_px_ != height_px ||
+            child_mismatch) {
             impl_->last_width_px_ = width_px;
             impl_->last_height_px_ = height_px;
             RECT bounds{.left = 0, .top = 0, .right = width_px, .bottom = height_px};
@@ -436,8 +447,7 @@ void WebView2Controller::set_visible(bool visible) {
     }
 }
 
-void WebView2Controller::set_memory_target_low(bool low_memory) {
-    impl_->desired_low_memory_ = low_memory;
+void WebView2Controller::set_memory_target_low(bool /*low_memory*/) {
     impl_->apply_memory_and_suspension_state();
 }
 void WebView2Controller::navigate(std::wstring_view url) {
@@ -495,13 +505,23 @@ bool WebView2Controller::ensure_alive() {
     HWND child = GetWindow(impl_->parent_hwnd_, GW_CHILD);
     if (impl_->is_ready_ && impl_->controller_.Get() != nullptr &&
         impl_->webview_.Get() != nullptr && child != nullptr && IsWindow(child) != FALSE) {
-        // Reconcile against the size the controller was last asked to render. Polling get_Bounds
-        // here would park the UI thread on a browser-process round-trip every watchdog tick.
+        // Check both the cached controller size and the live Win32 child HWND client
+        // rect/visibility without making a synchronous cross-process get_Bounds COM call on the UI
+        // thread.
         RECT parent_rc{};
+        RECT child_rc{};
         if (GetClientRect(impl_->parent_hwnd_, &parent_rc) != FALSE) {
             const int w = parent_rc.right - parent_rc.left;
             const int h = parent_rc.bottom - parent_rc.top;
-            if (w > 0 && h > 0 && (impl_->last_width_px_ != w || impl_->last_height_px_ != h)) {
+            const bool has_child_rc = (GetClientRect(child, &child_rc) != FALSE);
+            const int cw = has_child_rc ? (child_rc.right - child_rc.left) : -1;
+            const int ch = has_child_rc ? (child_rc.bottom - child_rc.top) : -1;
+            const bool child_hidden = (impl_->desired_visible_ && IsWindowVisible(child) == FALSE);
+            if (w > 0 && h > 0 &&
+                (impl_->last_width_px_ != w || impl_->last_height_px_ != h || cw != w || ch != h ||
+                 child_hidden)) {
+                impl_->last_width_px_ = -1;
+                impl_->last_height_px_ = -1;
                 resize(w, h);
             }
         }

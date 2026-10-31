@@ -104,6 +104,14 @@ ProductHost::ProductHost(ProductHostOptions options) : options_(std::move(option
         .app_root_dir = exe_dir,
         .host_executable_path = exe_path,
     });
+    coordinator_ = std::make_unique<coordinator::DockCapsuleCoordinator>(
+        current_config_, platform::Win32Window::enumerate_monitors());
+    coordinator_->update_drag_threshold(platform::Win32Window::system_drag_threshold());
+    native_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
+        if (webview_ && webview_->is_ready()) {
+            webview_->post_web_message_json(json);
+        }
+    });
 }
 
 ProductHost::~ProductHost() {
@@ -714,14 +722,16 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
             panel_shrink_bounds_remaining_ -= elapsed;
         }
     }
-    if (coordinator_->state().presentation_state != before ||
-        coordinator_->state().is_topmost != was_topmost ||
-        coordinator_->state().is_auto_hidden != was_auto_hidden ||
-        coordinator_->state().is_fullscreen_hidden != was_fullscreen_hidden ||
-        coordinator_->state().is_click_through != was_click_through ||
-        coordinator_->state().is_pinned != was_pinned || was_iconic || collapse_finished) {
+    const bool coordinator_state_changed =
+        (coordinator_->state().presentation_state != before ||
+         coordinator_->state().is_topmost != was_topmost ||
+         coordinator_->state().is_auto_hidden != was_auto_hidden ||
+         coordinator_->state().is_fullscreen_hidden != was_fullscreen_hidden ||
+         coordinator_->state().is_click_through != was_click_through ||
+         coordinator_->state().is_pinned != was_pinned || was_iconic);
+    if (coordinator_state_changed || collapse_finished) {
         apply_coordinator_state();
-        if (!collapse_finished) {
+        if (coordinator_state_changed) {
             publish_surface_state();
         }
     }
@@ -1089,6 +1099,14 @@ void ProductHost::ensure_window_presentation() {
     if (!coordinator_ || !window_ || window_->hwnd() == nullptr) {
         return;
     }
+    bool monitors_changed = false;
+    if (!coordinator_->state().is_dragging) {
+        const auto live_monitors = platform::Win32Window::enumerate_monitors();
+        if (live_monitors != coordinator_->monitors()) {
+            coordinator_->update_monitors(live_monitors);
+            monitors_changed = true;
+        }
+    }
     const auto& state = coordinator_->state();
     if (state.presentation_state == coordinator::PresentationState::TrayOnly ||
         state.is_fullscreen_hidden) {
@@ -1104,6 +1122,8 @@ void ProductHost::ensure_window_presentation() {
         reason = "window hidden or minimized";
     } else if (state.is_topmost && !window_->is_topmost()) {
         reason = "topmost style lost";
+    } else if (monitors_changed) {
+        reason = "monitor geometry changed";
     } else if (has_applied_window_geometry_ && !state.is_dragging &&
                collapse_bounds_remaining_.count() == 0 &&
                panel_shrink_bounds_remaining_.count() == 0) {
@@ -1121,6 +1141,9 @@ void ProductHost::ensure_window_presentation() {
     }
 
     apply_coordinator_state();
+    if (state.is_topmost) {
+        window_->set_topmost(true, true);
+    }
     publish_surface_state();
     if (presentation_repair_log_cooldown_.count() == 0 ||
         reason != last_presentation_repair_reason_) {
@@ -1160,9 +1183,8 @@ void ProductHost::apply_coordinator_state() {
         window_->hide();
     } else {
         if (webview_) {
+            webview_->set_memory_target_low(false);
             webview_->set_visible(true);
-            webview_->set_memory_target_low(state.presentation_state ==
-                                            coordinator::PresentationState::CapsuleVisible);
         }
         if (last_applied_presentation_state_ == coordinator::PresentationState::PanelVisible &&
             state.presentation_state == coordinator::PresentationState::CapsuleVisible &&
@@ -1205,10 +1227,10 @@ void ProductHost::apply_coordinator_state() {
             (state.presentation_state == coordinator::PresentationState::PanelVisible &&
              panel_shrink_bounds_remaining_.count() > 0 && !state.is_dragging);
         if (!is_collapsing && !is_shrinking_panel) {
+            window_->set_bounds(window_x, window_y, window_w, window_h);
             if (webview_) {
                 webview_->resize(window_w, window_h);
             }
-            window_->set_bounds(window_x, window_y, window_w, window_h);
             applied_window_geometry_ = surface::WindowGeometry{
                 .x_px = window_x,
                 .y_px = window_y,

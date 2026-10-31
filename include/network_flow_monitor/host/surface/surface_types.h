@@ -22,7 +22,7 @@ struct MonitorArea {
     std::int32_t auto_hide_bottom_reservation_px{0};
     bool is_primary{true};
     std::uint32_t dpi{96};
-
+    bool operator==(const MonitorArea&) const = default;
     [[nodiscard]] std::int32_t width_px() const noexcept {
         return right_px - left_px;
     }

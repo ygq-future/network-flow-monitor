@@ -248,13 +248,14 @@ void Win32Window::clear_logical_hit_bounds() noexcept {
     has_logical_hit_bounds_ = false;
 }
 
-void Win32Window::set_topmost(bool topmost) {
+void Win32Window::set_topmost(bool topmost, bool force_z_order) {
     if (hwnd_ == nullptr) {
         return;
     }
     // The cached request alone cannot prove the window is still topmost: the style can be lost
     // externally, so the actual extended style participates in the decision.
-    if (topmost_initialized_ && last_topmost_ == topmost && is_topmost() == topmost) {
+    if (!force_z_order && topmost_initialized_ && last_topmost_ == topmost &&
+        is_topmost() == topmost) {
         return;
     }
     topmost_initialized_ = true;
@@ -602,11 +603,10 @@ bool Win32Window::is_foreground_fullscreen_on_same_monitor(HWND product_window) 
         return false;
     }
 
-    QUERY_USER_NOTIFICATION_STATE quns = QUNS_ACCEPTS_NOTIFICATIONS;
-    if (SUCCEEDED(SHQueryUserNotificationState(&quns)) && quns == QUNS_RUNNING_D3D_FULL_SCREEN) {
-        return true;
-    }
-
+    // Verify the foreground window on the same monitor actually covers the monitor bounds rather
+    // than querying global SHQueryUserNotificationState, which blocks the UI thread on Shell RPC
+    // every tick and false-positives on background D3D processes while a normal desktop window is
+    // active.
     MONITORINFO monitor_info{.cbSize = sizeof(MONITORINFO)};
     RECT foreground_rect{};
     if (GetMonitorInfoW(foreground_monitor, &monitor_info) == 0 ||
@@ -717,7 +717,15 @@ bool Win32Window::is_presented() const noexcept {
     if (hwnd_ == nullptr) {
         return false;
     }
-    return IsWindowVisible(hwnd_) != FALSE && IsIconic(hwnd_) == 0;
+    if (IsWindowVisible(hwnd_) == FALSE || IsIconic(hwnd_) != 0) {
+        return false;
+    }
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(hwnd_, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) &&
+        cloaked != 0) {
+        return false;
+    }
+    return true;
 }
 
 bool Win32Window::is_topmost() const noexcept {

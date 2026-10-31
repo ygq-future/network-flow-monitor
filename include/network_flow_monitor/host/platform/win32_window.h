@@ -122,7 +122,7 @@ class Win32Window {
     void set_bounds(int x, int y, int width, int height);
     void set_logical_hit_bounds(int x, int y, int width, int height) noexcept;
     void clear_logical_hit_bounds() noexcept;
-    void set_topmost(bool topmost);
+    void set_topmost(bool topmost, bool force_z_order = false);
     void set_click_through(bool click_through);
     void set_taskbar_visibility(bool app_window);
     void configure_surface_chrome(bool rounded_frame, bool dark_mode);

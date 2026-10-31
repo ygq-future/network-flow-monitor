@@ -986,7 +986,7 @@ void CheckWindowPresentationRecovery(TestContext& context) {
         .initial_width = 340,
         .initial_height = 64,
         .frameless = true,
-        .topmost = false,
+        .topmost = true,
         .tool_window = true,
         .transparent_backdrop = true,
     };
@@ -1018,7 +1018,73 @@ void CheckWindowPresentationRecovery(TestContext& context) {
     window.set_topmost(true);
     context.Check(window.is_topmost(), "set_topmost restores externally lost topmost style");
 
+    // Verify force_z_order brings the topmost window above a competing topmost window even when
+    // WS_EX_TOPMOST is already set on both windows.
+    WindowConfig rival_config = config;
+    rival_config.title = L"Network Flow Monitor Rival Topmost";
+    rival_config.class_name = L"NetworkFlowMonitor_RivalTopmostWindow";
+    Win32Window rival(rival_config);
+    if (rival.create(nullptr) && rival.hwnd() != nullptr) {
+        rival.set_topmost(true);
+        SetWindowPos(rival.hwnd(), HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        window.set_topmost(true, true);
+        bool window_above_rival = false;
+        for (HWND cur = GetWindow(rival.hwnd(), GW_HWNDPREV); cur != nullptr;
+             cur = GetWindow(cur, GW_HWNDPREV)) {
+            if (cur == window.hwnd()) {
+                window_above_rival = true;
+                break;
+            }
+        }
+        context.Check(window_above_rival,
+                      "set_topmost(true, true) raises Z-order above competing topmost window");
+        rival.close();
+    }
+
     window.close();
+}
+
+void CheckCollapseFinishedDoesNotSuppressSurfacePublish(TestContext& context) {
+    const auto temp_dir = std::filesystem::temp_directory_path() /
+                          ("nfm_collapse_publish_test_" + std::to_string(GetCurrentProcessId()));
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+
+    nfm::host::app::ProductHostOptions opts{
+        .static_assets_dir = temp_dir,
+        .config_file_path = temp_dir / "config.json",
+    };
+    nfm::host::app::ProductHost host(opts);
+    context.Check(host.coordinator() != nullptr, "headless ProductHost initializes coordinator");
+    if (host.coordinator() != nullptr) {
+        // 1. Open monitor panel -> last_published_surface_ becomes Panel
+        host.on_show_monitor();
+        context.Check(host.last_published_surface() == nfm::host::bridge::SurfaceKind::Panel,
+                      "on_show_monitor publishes Panel surface");
+
+        // 2. Start panel shrink bounds timer (240 ms) by shrinking panel height from 468 to 320
+        host.on_resize_panel(320);
+
+        // 3. Pointer leaves panel -> starts 500 ms default dismiss timer; advance 260 ms so dismiss
+        //    has 240 ms remaining, then trigger 240 ms panel_shrink_bounds_remaining_ at 280 DIP so
+        //    both timers have the exact same 240 ms remaining.
+        host.on_surface_pointer_leave();
+        host.on_surface_clock_tick(std::chrono::milliseconds{260});
+        host.on_resize_panel(280);
+        // 4. Advance 240 ms in a single tick: both dismiss_timer and panel_shrink_bounds_remaining_
+        //    expire on this tick (collapse_finished == true AND presentation_state transitions from
+        //    PanelVisible to CapsuleVisible). publish_surface_state() MUST still fire!
+        host.on_surface_clock_tick(std::chrono::milliseconds{240});
+        context.Check(host.coordinator()->state().presentation_state ==
+                          nfm::host::coordinator::PresentationState::CapsuleVisible,
+                      "coordinator transitioned to CapsuleVisible");
+        context.Check(host.last_published_surface() == nfm::host::bridge::SurfaceKind::Capsule,
+                      "surfaceChanged(Capsule) is published even when collapse_finished is true on "
+                      "the same tick");
+    }
+    std::filesystem::remove_all(temp_dir, ec);
 }
 
 void CheckTickElapsedConversion(TestContext& context) {
@@ -1050,6 +1116,7 @@ int Run() {
     CheckCollectorCompanionInjections(context);
     CheckWindowPresentationRecovery(context);
     CheckTickElapsedConversion(context);
+    CheckCollapseFinishedDoesNotSuppressSurfacePublish(context);
     return context.failures();
 }
 } // namespace host_lifecycle_suite

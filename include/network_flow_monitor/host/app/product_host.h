@@ -118,6 +118,9 @@ class ProductHost : public platform::IWindowEventListener,
     [[nodiscard]] history::TrafficHistoryStore* history_store() const noexcept {
         return traffic_history_store_.get();
     }
+    [[nodiscard]] bridge::SurfaceKind last_published_surface() const noexcept {
+        return last_published_surface_;
+    }
 
   private:
     void apply_coordinator_state();

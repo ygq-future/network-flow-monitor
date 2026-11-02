@@ -391,3 +391,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **v0.3.1 版本发布 (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `.github/release-note/v0.3.1.md`)**：
   - 全仓版本号升级至 `0.3.1`，撰写中英双语发布说明 `.github/release-note/v0.3.1.md`。
   - `tools/quality.ps1 -Mode Fast`（12/12）与 `-Mode Full`（20/20）全部通过；`tools/package.ps1 -Configuration Release` 生成便携归档 `dist/NetworkFlowMonitor-0.3.1-win-x64.zip`（885493 字节，SHA256 `37E5FF0D9683860D67953592E8AAB7A80839194936B414E16E72EE9B9EDEFA76`）。
+
+## 第二十八轮 贴边胶囊 Z 序下沉（保留 `WS_EX_TOPMOST` 标志位与 `Win+D` 瞬时闪现）根因定位与修复 — complete
+
+- **实机复现与根因证据 (`win32_window.cpp`, `product_host.cpp`)**：
+  - **现象特征完全吻合 Z 序遮挡**：用户反馈胶囊偶发消失后，第一次按 `Win+D`（显示桌面）仍不可见，第二次按 `Win+D`（还原窗口）会瞬间闪现胶囊随即再次消失，唯有手动点击托盘打开监控面板才能恢复，且正常显示时 `Win+D` 完全不影响胶囊；
+  - **根因一（`GW_OWNER` IME 链拖拽导致保留 `WS_EX_TOPMOST` 下沉，看门狗漏检）**：Windows 为宿主 UI 线程自动创建的隐藏顶层窗口 `Default IME`（`GW_OWNER = NetworkFlowMonitor_HostWindow`）及 `MSCTFIME UI` 位于 Band 1 Z 序最底部（`Progman` 之下）。当输入法/焦点切换在未携带 `SWP_NOOWNERZORDER` 的情况下重排被拥有窗口时，Windows 会将宿主窗口连带拖入非置顶窗口（如 Chrome / Windows Terminal）之下、`Progman` 之上，但宿主窗口的 `GetWindowLongPtrW(GWL_EXSTYLE) & WS_EX_TOPMOST` 位仍保持为 `true`（`0x000800A8`）。因此 `Win32Window::is_topmost()` 始终返回 `true`，1 秒看门狗完全不触发，日志亦无 `Window presentation repaired` 记录；
+  - **`Win+D` 两次按键的逐帧物理机制（实机 15ms 像素采样复现）**：当宿主窗口处于「普通窗口之下、`Progman` 之上」时，平时被最大化/靠右窗口遮挡；第一次按 `Win+D` 显示桌面时，Explorer 将桌面窗口 `Progman` 提至非置顶 Z 序最顶层（宿主窗口之上），桌面壁纸继续遮挡胶囊；第二次按 `Win+D` 还原窗口时，Explorer 先将 `Progman` 压回 Z 序最底层（宿主窗口之下），再对普通窗口执行约 150ms 的还原动画——在 `Progman` 已下沉而普通窗口尚未铺满屏幕的 `120ms~135ms` 间隙，胶囊瞬间显露 1~2 帧，随后立即被还原的普通窗口再次覆盖；
+  - **根因二（缺少 `SWP_NOOWNERZORDER` 导致后台进程置顶自愈失效）**：实机验证表明，当宿主窗口被压到 `Progman` 及其拥有的 `Default IME` 窗口之下且宿主处于后台时，不带 `SWP_NOOWNERZORDER` 的 `SetWindowPos(hwnd_, HWND_TOPMOST, ..., SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)` 虽返回 `TRUE`，但因 owner-group Z 序约束无法将宿主窗口提回 `HWND_TOPMOST`，唯有附加 `SWP_NOOWNERZORDER`（或点击托盘触发 `SetForegroundWindow`）才能成功恢复。
+- **修复 (`src/host/platform/win32_window.cpp`, `tests/host_tests.cpp`)**：
+  - `Win32Window::is_topmost()` 除校验 `WS_EX_TOPMOST` 扩展样式位外，对可见窗口沿 `GW_HWNDPREV` 向上遍历前序可见、未最小化且未 Cloak 的顶层窗口：一旦发现前序存在任何非置顶窗口（说明宿主窗口已下沉至普通窗口或 `Progman` 之下），或存在与宿主窗口矩形相交的非系统托盘置顶窗口，立即返回 `false` 触发 1 秒看门狗自愈；
+  - `Win32Window::set_topmost()`、`set_bounds()`、`set_click_through()`、`set_taskbar_visibility()`、`configure_surface_chrome()` 及表面时钟鼠标穿透切换中的全部 `SetWindowPos` 调用统一附加 `SWP_NOOWNERZORDER`，彻底切断 `Default IME` / `MSCTFIME UI` 拥有者链对宿主窗口 Z 序的干扰，并确保后台置顶修复 100% 生效；
+  - `tests/host_tests.cpp` 扩展 `CheckWindowPresentationRecovery`，新增模拟拥有者子窗口（`NFM_OwnedHelper`）不带 `SWP_NOOWNERZORDER` 下沉至 `HWND_BOTTOM` 拖累宿主窗口后，通过 `is_topmost()` 检测并由带 `SWP_NOOWNERZORDER` 的 `set_topmost(true)` 恢复置顶的回归测试。

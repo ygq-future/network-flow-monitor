@@ -218,7 +218,7 @@ void Win32Window::set_bounds(int x, int y, int width, int height) {
     if (IsIconic(hwnd_) != 0) {
         ShowWindow(hwnd_, SW_RESTORE);
     }
-    UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
+    UINT flags = SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
     // Compare against the live window rect (not a cached request) so that bounds changed by the
     // shell, DPI transitions, or display topology updates are always reconciled back.
     RECT current{};
@@ -252,8 +252,9 @@ void Win32Window::set_topmost(bool topmost, bool force_z_order) {
     if (hwnd_ == nullptr) {
         return;
     }
-    // The cached request alone cannot prove the window is still topmost: the style can be lost
-    // externally, so the actual extended style participates in the decision.
+    // The cached request alone cannot prove the window is still topmost: the extended style can be
+    // lost externally or the window can be reordered behind non-topmost/occluding windows via owner
+    // Z-order chains, so is_topmost() inspects both WS_EX_TOPMOST and live Z-order.
     if (!force_z_order && topmost_initialized_ && last_topmost_ == topmost &&
         is_topmost() == topmost) {
         return;
@@ -261,7 +262,7 @@ void Win32Window::set_topmost(bool topmost, bool force_z_order) {
     topmost_initialized_ = true;
     last_topmost_ = topmost;
     SetWindowPos(hwnd_, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
 void Win32Window::begin_interactive_drag() noexcept {
@@ -333,7 +334,8 @@ void Win32Window::set_click_through(bool click_through) {
     }
     SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, ex_style);
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED);
 }
 
 void Win32Window::set_taskbar_visibility(bool app_window) {
@@ -351,7 +353,8 @@ void Win32Window::set_taskbar_visibility(bool app_window) {
     }
     SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, ex_style);
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED);
 }
 
 void Win32Window::configure_surface_chrome(bool rounded_frame, bool dark_mode) {
@@ -380,7 +383,8 @@ void Win32Window::configure_surface_chrome(bool rounded_frame, bool dark_mode) {
     DwmSetWindowAttribute(hwnd_, kDwmwaSystemBackdropType, &backdrop_type, sizeof(backdrop_type));
 
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED);
 }
 
 bool Win32Window::is_system_dark_mode() noexcept {
@@ -732,7 +736,56 @@ bool Win32Window::is_topmost() const noexcept {
     if (hwnd_ == nullptr) {
         return false;
     }
-    return (GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & static_cast<LONG_PTR>(WS_EX_TOPMOST)) != 0;
+    if ((GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & static_cast<LONG_PTR>(WS_EX_TOPMOST)) == 0) {
+        return false;
+    }
+    if (IsWindowVisible(hwnd_) == FALSE) {
+        return true;
+    }
+    RECT self_rect{};
+    const bool has_self_rect = (GetWindowRect(hwnd_, &self_rect) != FALSE);
+
+    // In Windows 11, an owned Default IME / MSCTFIME UI window reordering without SWP_NOOWNERZORDER
+    // can drag its owner HWND behind non-topmost windows (Chrome, Windows Terminal, etc.) while
+    // leaving WS_EX_TOPMOST set on GWL_EXSTYLE. Another topmost window can also rise above and
+    // overlap our surface. Walk preceding Z-order siblings to verify real topmost placement.
+    int steps = 0;
+    for (HWND prev = GetWindow(hwnd_, GW_HWNDPREV); prev != nullptr && steps < 256;
+         prev = GetWindow(prev, GW_HWNDPREV), ++steps) {
+        if (IsWindowVisible(prev) == FALSE || IsIconic(prev) != 0) {
+            continue;
+        }
+        DWORD cloaked = 0;
+        if (SUCCEEDED(DwmGetWindowAttribute(prev, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) &&
+            cloaked != 0) {
+            continue;
+        }
+        const LONG_PTR prev_ex_style = GetWindowLongPtrW(prev, GWL_EXSTYLE);
+        if ((prev_ex_style & static_cast<LONG_PTR>(WS_EX_TOPMOST)) == 0) {
+            return false;
+        }
+        if (!has_self_rect) {
+            continue;
+        }
+        RECT prev_rect{};
+        RECT intersection{};
+        if (GetWindowRect(prev, &prev_rect) == FALSE ||
+            IntersectRect(&intersection, &self_rect, &prev_rect) == FALSE) {
+            continue;
+        }
+        std::array<wchar_t, 64> class_name{};
+        if (GetClassNameW(prev, class_name.data(), static_cast<int>(class_name.size())) > 0) {
+            const std::wstring_view cls{class_name.data()};
+            if (cls == L"Shell_TrayWnd" || cls == L"Shell_SecondaryTrayWnd" ||
+                cls == L"TopLevelWindowForOverflowXamlIsland" ||
+                cls == L"Xaml_WindowedPopupClass" || cls == L"XamlExplorerHostIslandWindow" ||
+                cls == L"tooltips_class32") {
+                continue;
+            }
+        }
+        return false;
+    }
+    return true;
 }
 
 bool Win32Window::get_bounds(RECT* bounds) const noexcept {
@@ -952,8 +1005,8 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
                             }
                             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
                             SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
-                                             SWP_FRAMECHANGED);
+                                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                                             SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
                         }
                     }
                     {

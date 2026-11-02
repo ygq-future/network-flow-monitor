@@ -1019,15 +1019,18 @@ void CheckWindowPresentationRecovery(TestContext& context) {
     context.Check(window.is_topmost(), "set_topmost restores externally lost topmost style");
 
     // Verify force_z_order brings the topmost window above a competing topmost window even when
-    // WS_EX_TOPMOST is already set on both windows.
+    // WS_EX_TOPMOST is already set on both windows, and that is_topmost() detects overlapping
+    // topmost windows as well as owner-chain Z-order burial behind non-topmost windows while
+    // WS_EX_TOPMOST remains set on GWL_EXSTYLE.
     WindowConfig rival_config = config;
     rival_config.title = L"Network Flow Monitor Rival Topmost";
     rival_config.class_name = L"NetworkFlowMonitor_RivalTopmostWindow";
     Win32Window rival(rival_config);
     if (rival.create(nullptr) && rival.hwnd() != nullptr) {
+        rival.set_bounds(100, 120, 340, 64);
         rival.set_topmost(true);
         SetWindowPos(rival.hwnd(), HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         window.set_topmost(true, true);
         bool window_above_rival = false;
         for (HWND cur = GetWindow(rival.hwnd(), GW_HWNDPREV); cur != nullptr;
@@ -1039,6 +1042,35 @@ void CheckWindowPresentationRecovery(TestContext& context) {
         }
         context.Check(window_above_rival,
                       "set_topmost(true, true) raises Z-order above competing topmost window");
+
+        // Simulate an owned helper window (like Windows' per-thread Default IME / MSCTFIME UI)
+        // whose reordering without SWP_NOOWNERZORDER drags the owner behind a non-topmost window
+        // while leaving WS_EX_TOPMOST set on the owner's GWL_EXSTYLE.
+        HWND non_topmost =
+            CreateWindowExW(WS_EX_TOOLWINDOW, L"Static", L"NFM_NonTopmostAnchor", WS_POPUP, 100,
+                            120, 340, 64, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        HWND owned_helper =
+            CreateWindowExW(WS_EX_TOOLWINDOW, L"Static", L"NFM_OwnedHelper", WS_POPUP, 0, 0, 1, 1,
+                            window.hwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (non_topmost != nullptr && owned_helper != nullptr) {
+            SetWindowPos(non_topmost, HWND_TOP, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            SetWindowPos(owned_helper, HWND_BOTTOM, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            context.Check(!window.is_topmost(),
+                          "reordering owned helper to HWND_BOTTOM without SWP_NOOWNERZORDER "
+                          "demotes owner window");
+            window.set_topmost(true);
+            context.Check(window.is_topmost(),
+                          "set_topmost with SWP_NOOWNERZORDER recovers owner window from bottom of "
+                          "Z-order even when owned helper is at HWND_BOTTOM");
+        }
+        if (owned_helper != nullptr) {
+            DestroyWindow(owned_helper);
+        }
+        if (non_topmost != nullptr) {
+            DestroyWindow(non_topmost);
+        }
         rival.close();
     }
 

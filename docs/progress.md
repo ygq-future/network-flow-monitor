@@ -403,3 +403,13 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `Win32Window::is_topmost()` 除校验 `WS_EX_TOPMOST` 扩展样式位外，对可见窗口沿 `GW_HWNDPREV` 向上遍历前序可见、未最小化且未 Cloak 的顶层窗口：一旦发现前序存在任何非置顶窗口（说明宿主窗口已下沉至普通窗口或 `Progman` 之下），或存在与宿主窗口矩形相交的非系统托盘置顶窗口，立即返回 `false` 触发 1 秒看门狗自愈；
   - `Win32Window::set_topmost()`、`set_bounds()`、`set_click_through()`、`set_taskbar_visibility()`、`configure_surface_chrome()` 及表面时钟鼠标穿透切换中的全部 `SetWindowPos` 调用统一附加 `SWP_NOOWNERZORDER`，彻底切断 `Default IME` / `MSCTFIME UI` 拥有者链对宿主窗口 Z 序的干扰，并确保后台置顶修复 100% 生效；
   - `tests/host_tests.cpp` 扩展 `CheckWindowPresentationRecovery`，新增模拟拥有者子窗口（`NFM_OwnedHelper`）不带 `SWP_NOOWNERZORDER` 下沉至 `HWND_BOTTOM` 拖累宿主窗口后，通过 `is_topmost()` 检测并由带 `SWP_NOOWNERZORDER` 的 `set_topmost(true)` 恢复置顶的回归测试。
+
+## 第二十九轮 v0.3.2 贴边胶囊 Z 序下沉修复发布与质量门禁验收 — complete
+
+- **全仓版本号同步升级至 `0.3.2` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 同步升级 CMake 工程版本、前端包清单、Windows 资源 `FILEVERSION`/`PRODUCTVERSION`（`0,3,2,0` / `"0.3.2"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.3.2.md`)**：
+  - 汇总第 28 轮「`is_topmost()` 实时 Z 序校验」与「全部 `SetWindowPos` 附加 `SWP_NOOWNERZORDER`」修复，并记录连续多日实机观察无胶囊消失的稳定性结论。
+- **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（版本一致性 `v0.3.2`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试）；`-Mode Full` 20/20 通过（clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
+- **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.2-win-x64.zip`（886028 字节，SHA256 `33C4E2774D58CD6109B8336AAA3E6AAD078B717A02EFE6B2F408E04AB38D9A61`），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.2.0`。
+- **发布流程**：提交版本升级与发布说明后推送 `v0.3.2` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。

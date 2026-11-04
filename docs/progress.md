@@ -452,3 +452,13 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `BridgeContext.tsx` 納入 `tick.seq` 比较，确保每个 250ms Tick 都能驱动胶囊平滑衰减直至归零。
   - `DockCapsule.tsx` 按 `tick.seq` 对上下行速率应用非对称 EMA 平滑，在 Collector 断开或停止时立即清零。
 - **测试验证 (`rateMapping.test.ts`, `DockCapsule.test.tsx`)**：补充单 Tick 脉冲抑制与多 Tick 连续柔顺衰减单测，`tools/quality.ps1 -Mode Fast` 13/13 通过。
+
+## 第三十四轮 v0.3.4 胶囊非对称 EMA 平滑与全仓零诊断质量门禁发布 — complete
+
+- **全仓版本号同步升级至 `0.3.4` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 同步升级 CMake 工程版本、前端包清单、Windows 资源 `FILEVERSION`/`PRODUCTVERSION`（`0,3,4,0` / `"0.3.4"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.3.4.md`)**：
+  - 汇总第 32 轮「LSP (`clangd 23`) 与 `clang-tidy` 全仓零诊断对齐、Git Hooks 与 Commit 规范门禁」与第 33 轮「贴边胶囊非对称 EMA 流量平滑与柔顺回落阻尼」。
+- **质量门禁**：`tools/quality.ps1 -Mode Full` 20/20 通过（版本一致性 `v0.3.4`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
+- **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.4-win-x64.zip`（886416 字节，SHA256 `8A0122C05C43B89359038D3952C66BBDDA47F7A0D822400CDCFCB1FA5107766E`）。
+- **发布流程**：提交版本升级与发布说明后推送 `v0.3.4` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。

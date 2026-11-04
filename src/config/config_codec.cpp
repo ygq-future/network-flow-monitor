@@ -733,12 +733,9 @@ bool AddRanking(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig&
     if (excluded == nullptr) {
         return false;
     }
-    for (const auto& item : config.ranking.excluded_programs) {
-        if (!yyjson_mut_arr_add_strn(document, excluded, item.data(), item.size())) {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(config.ranking.excluded_programs, [&](const auto& item) {
+        return yyjson_mut_arr_add_strn(document, excluded, item.data(), item.size());
+    });
 }
 
 bool AddDisplay(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig& config) noexcept {

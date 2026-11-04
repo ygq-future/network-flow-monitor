@@ -13,27 +13,33 @@ Checks: >
   readability-*,
   -bugprone-empty-catch,
   -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-do-while,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-avoid-const-or-ref-data-members,
   -cppcoreguidelines-owning-memory,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-pro-type-const-cast,
   -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-pro-type-vararg,
   -misc-const-correctness,
   -misc-include-cleaner,
+  -misc-use-internal-linkage,
+  -modernize-avoid-c-arrays,
+  -modernize-raw-string-literal,
+  -modernize-return-braced-init-list,
+  -modernize-use-designated-initializers,
+  -modernize-use-string-view,
   -modernize-use-trailing-return-type,
   -readability-function-cognitive-complexity,
   -readability-identifier-length,
-  -readability-magic-numbers
-WarningsAsErrors: >
-  bugprone-*,
-  clang-analyzer-*,
-  concurrency-*,
-  performance-*,
-  portability-*
+  -readability-magic-numbers,
+  -readability-named-parameter,
+  -readability-trailing-comma
+WarningsAsErrors: '*'
 HeaderFilterRegex: '^((src|include|tests)[\\/]|.*[\\/]network-flow-monitor[\\/](src|include|tests)[\\/])'
 ExcludeHeaderFilterRegex: '^[A-Za-z]:[\\/](Program Files|Program Files \(x86\))[\\/](Windows Kits|Microsoft Visual Studio)[\\/]'
 FormatStyle: file

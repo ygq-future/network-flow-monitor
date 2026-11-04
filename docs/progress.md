@@ -430,3 +430,15 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **质量门禁**：`tools/quality.ps1 -Mode Full` 20/20 通过（版本一致性 `v0.3.3`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
 - **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.3-win-x64.zip`（886060 字节，SHA256 `D803A43F6BE782E76BCF91C8C4E99F609797F059EDA9599CD5D13DBB21B8B91D`）。
 - **发布流程**：提交版本升级与发布说明后推送 `v0.3.3` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。
+
+## 第三十二轮 LSP (`clangd`) 诊断对齐与 `project-quality` 全量质量门禁加固 — complete
+
+- **根因诊断**：
+  1. **编辑器 `clangd` 报错根因**：CMake 将 `compile_commands.json` 生成在 `build/windows-x64-*` 子目录，且 `windows-x64-debug` / `windows-x64-release` 启用了 MSVC 专属预编译头参数（`/Yu`、`/Fp`、`/FI...cmake_pch.hxx`）及 `/Zc:preprocessor`、`/external:anglebrackets`；仓库根目录此前缺少 `.clangd`，导致编辑器 `clangd` 回退为无 `-Iinclude` 的裸文件解析（报 `collector_runtime.h file not found` 及 `std::wstring_view` / `nfm` 级联未声明错误），同时指出 `src/app/collector_main.cpp` 中 `<span >` 头文件未使用。
+  2. **`clang-tidy` 门禁漏报根因**：`.clang-tidy` 此前仅将 5 个前缀设为 `WarningsAsErrors`，其余 `readability-*`、`modernize-*`、`misc-*`、`cppcoreguidelines-*` 仅输出 warning 而不返回非 0 退出码；同时 `cmake/StaticAnalysis.cmake` 仅在传入 `ENABLE_EXCEPTIONS` 时附加 `--extra-arg=/EHsc`，导致 `nfm_config`、`nfm_ranking`、`nfm_tests` 缺失 `/EHsc`。
+- **修复与质量契约加固**：
+  - 新增根级 `.clangd`：指向无 PCH 的 `build/windows-x64-tidy` 编译数据库，剔除 MSVC 专属预编译头与驱动参数并启用 `UnusedIncludes: Strict`；`tools/quality.ps1 -Mode Fast` 自动确保 `build/windows-x64-tidy/compile_commands.json` 生成。
+  - `cmake/StaticAnalysis.cmake` 统一为所有目标向 `clang-tidy` 注入 `--extra-arg=/EHsc` 与 `--extra-arg=-Wno-unused-command-line-argument`；`.clang-tidy` 升级为 `WarningsAsErrors: '*'`。
+  - 清理 `src/` 与 `tests/` 全部 C++ `clang-tidy` / `clangd` 诊断（移除 `collector_main.cpp` 未使用的 `<span>`，修复 `RankingEngine` 构造、`ipc_server`、`traffic_history_store`、`collector_companion`、`startup_registration`、`win32_window`、`webview_controller` 及测试套件中的全部异常边界与代码规范诊断），实现全仓 55 个 C++ 编译单元 0 警告、0 错误。
+  - `tools/quality.ps1` 新增 `-Mode Commit`（支持 `-CommitMsgFile`、`-CommitMessage`、`-CommitRange` Conventional Commits 校验），并在 `C++ Debug build`、`clang-tidy`、`MSVC analyze` 阶段同时校验退出码与输出 0 警告/0 诊断。
+  - 新增 `.githooks/pre-commit`、`commit-msg`、`pre-push` 并配置本地 `core.hooksPath = .githooks`；`.github/workflows/quality-and-publish.yml` 接入提交范围校验；`apps/nfm-ui/.prettierrc` 显式声明 Tailwind v4 `tailwindStylesheet: "./src/app/index.css"`；同步更新 `docs/development.md` 与 `AGENTS.md`。

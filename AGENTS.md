@@ -71,11 +71,16 @@ Collector 不包含 UI。React 不直接调用 Win32、命名管道、文件系�
 - 所有用户可见文本使用 locale key，所有主题相关颜色使用语义 token。
 - 禁止使用已弃用的配置（如 tsconfig 的 `baseUrl`、`ignoreDeprecations`）或 API，禁止复制过时模板；该策略由 Fast 门的 Deprecation policy check 强制。
 
-## 质量门
+## 质量门与编码完成规则 (Quality Gate & Coding-Completion Rule)
 
-统一入口是 `tools/quality.ps1`，Fast/Full 的检查项以 `docs/development.md` 为准。
+统一入口是 `tools/quality.ps1`，完整契约与能力矩阵记录在 `docs/development.md`。Fast/Full 必须 headless：不显示 HWND/WebView、无 UAC、无人工交互、无 Vite server。
 
-Fast/Full 必须 headless：不显示 HWND/WebView、无 UAC、无人工交互、无 Vite server。
+- **单一权威命令**：
+  - 日常快速门禁：`powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Fast`
+  - 完整发布/静态分析门禁：`powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full`
+  - 提交信息校验：`powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Commit -CommitMessage "<type>(<scope>): <summary>"`
+- **Agent 编码完成规则**：
+  > 在开发迭代期间，针对修改范围运行窄检查（如单个 C++ 测试套件或前端单测），不要在每次编辑后重复运行完整门禁。在交付前的最终工作树上运行一次完整默认质量门禁 `powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full`（若仅提交且 `pre-push`/`pre-commit` 已挂载，避免在紧邻 hook 触发前重复空跑）。若门禁失败，修复失败阶段、单独复验该阶段，并在最后重跑一次完整门禁。必须修复新引入的所有诊断（含警告、LSP 诊断和弃用 API 引用）。禁止通过禁用规则、随意添加抑制注解、删除测试或 `--no-verify` 绕过门禁。当生成提交信息时，使用 `tools/quality.ps1 -Mode Commit` 校验实际提交信息。
 
 ## 完成与交付
 

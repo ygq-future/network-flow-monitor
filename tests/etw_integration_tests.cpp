@@ -344,7 +344,7 @@ TrafficResult RunUdpLoopback(IpFamily ip_family, std::size_t repetitions) noexce
             .bytes_each_direction = static_cast<std::uint64_t>(kPayloadSize) * repetitions * 2U};
 }
 
-std::optional<ExpectedTraffic> RunTrafficMatrix(std::size_t repetitions) noexcept {
+std::optional<ExpectedTraffic> RunTrafficMatrix(std::size_t repetitions) {
     const auto tcp4 = RunTcpLoopback(IpFamily::V4, repetitions);
     const auto tcp6 = RunTcpLoopback(IpFamily::V6, repetitions);
     const auto udp4 = RunUdpLoopback(IpFamily::V4, repetitions);
@@ -391,7 +391,7 @@ bool HasApplicationDelta(const SnapshotTransition transition,
     });
 }
 
-std::optional<std::string> CurrentApplicationId() noexcept {
+std::optional<std::string> CurrentApplicationId() {
     FILETIME now{};
     GetSystemTimeAsFileTime(&now);
     const auto observed_at = nfm::process::FileTimeToTraceTimePoint(now);
@@ -506,7 +506,7 @@ bool RunDeElevatedAccessDeniedProcess() {
     }
 
     alignas(DWORD) std::array<std::byte, SECURITY_MAX_SID_SIZE> administrators_sid{};
-    DWORD administrators_sid_size = static_cast<DWORD>(administrators_sid.size());
+    auto administrators_sid_size = static_cast<DWORD>(administrators_sid.size());
     if (CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, administrators_sid.data(),
                            &administrators_sid_size) == FALSE) {
         std::cerr << "CreateWellKnownSid(Administrators) failed: " << GetLastError() << '\n';

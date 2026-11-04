@@ -102,9 +102,9 @@ bool WriteFileAtomically(const std::filesystem::path& target, std::string_view c
         auto candidate_name = target.filename().native();
         candidate_name += L".tmp.";
         candidate_name += std::to_wstring(GetCurrentProcessId());
-        candidate_name += L".";
+        candidate_name += L'.';
         candidate_name += std::to_wstring(GetTickCount64());
-        candidate_name += L".";
+        candidate_name += L'.';
         candidate_name += std::to_wstring(attempt);
         auto candidate = target.parent_path() / candidate_name;
         UniqueHandle h{CreateFileW(candidate.c_str(), GENERIC_WRITE, 0U, nullptr, CREATE_NEW,

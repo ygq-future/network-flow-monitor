@@ -35,7 +35,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Validate Commit Messages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            $range = '${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}'
+          } elseif ('${{ github.event.before }}' -ne '' -and '${{ github.event.before }}' -ne '0000000000000000000000000000000000000000') {
+            $range = '${{ github.event.before }}..${{ github.sha }}'
+          } else {
+            $range = 'HEAD~1..HEAD'
+          }
+          powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Commit -CommitRange $range
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:

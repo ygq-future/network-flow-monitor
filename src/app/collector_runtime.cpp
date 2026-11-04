@@ -72,7 +72,7 @@ class KernelHandle final {
 [[nodiscard]] KernelHandle OpenStopEvent(std::wstring_view name, std::uint32_t& error) noexcept {
     try {
         const std::wstring owned_name{name};
-        const auto event = ::OpenEventW(SYNCHRONIZE, FALSE, owned_name.c_str());
+        auto* const event = ::OpenEventW(SYNCHRONIZE, FALSE, owned_name.c_str());
         if (event == nullptr) {
             error = ::GetLastError();
         } else {

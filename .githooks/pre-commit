@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/tools/quality.ps1" -Mode Fast

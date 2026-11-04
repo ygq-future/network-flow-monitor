@@ -54,12 +54,9 @@ bool IsValidDateYmd(std::string_view date) noexcept {
     if (date.size() != 10U || date[4] != '-' || date[7] != '-') {
         return false;
     }
-    for (std::size_t idx : {0U, 1U, 2U, 3U, 5U, 6U, 8U, 9U}) {
-        if (date[idx] < '0' || date[idx] > '9') {
-            return false;
-        }
-    }
-    return true;
+    constexpr std::array<std::size_t, 8> kDigitIndices{0U, 1U, 2U, 3U, 5U, 6U, 8U, 9U};
+    return std::ranges::all_of(
+        kDigitIndices, [date](std::size_t idx) { return date[idx] >= '0' && date[idx] <= '9'; });
 }
 
 class ScopedJsonDoc {
@@ -141,7 +138,7 @@ std::string normalize_history_app_key(std::string_view app_id, std::string_view 
                 break;
             }
         }
-        name = lifecycle::extract_executable_filename(std::string{id});
+        name = lifecycle::extract_executable_filename(id);
     }
     if (name.empty()) {
         return {};
@@ -272,8 +269,13 @@ bool TrafficHistoryStore::load() {
                 continue;
             }
             if (exe_name.empty()) {
-                exe_name = lifecycle::extract_executable_filename(
-                    !exe_path.empty() ? exe_path : (!display_name.empty() ? display_name : app_id));
+                std::string_view fallback_source = app_id;
+                if (!exe_path.empty()) {
+                    fallback_source = exe_path;
+                } else if (!display_name.empty()) {
+                    fallback_source = display_name;
+                }
+                exe_name = lifecycle::extract_executable_filename(fallback_source);
             }
             if (display_name.empty()) {
                 display_name = !exe_name.empty() ? exe_name : norm_key;
@@ -478,9 +480,13 @@ bool TrafficHistoryStore::record_snapshot(const ipc::RankingSnapshotMessage& sna
             continue;
         }
 
-        std::string exe_name = lifecycle::extract_executable_filename(
-            !app.executable_path.empty() ? app.executable_path
-                                         : (!app.display_name.empty() ? app.display_name : app.id));
+        std::string_view fallback_source = app.id;
+        if (!app.executable_path.empty()) {
+            fallback_source = app.executable_path;
+        } else if (!app.display_name.empty()) {
+            fallback_source = app.display_name;
+        }
+        std::string exe_name = lifecycle::extract_executable_filename(fallback_source);
         if (exe_name.empty()) {
             exe_name = app.display_name.empty() ? norm_key : app.display_name;
         }

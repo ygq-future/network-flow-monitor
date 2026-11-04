@@ -6,7 +6,6 @@
 
 #include <memory>
 #include <shellapi.h>
-#include <span>
 #include <string_view>
 #include <vector>
 

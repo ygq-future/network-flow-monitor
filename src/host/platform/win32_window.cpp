@@ -81,7 +81,7 @@ std::chrono::milliseconds tick_elapsed_from_counter_delta(
         return std::chrono::milliseconds{0};
     }
     // Bound the raw delta before scaling so the millisecond conversion cannot overflow.
-    const std::int64_t max_ticks = (max_elapsed.count() * counter_frequency) / 1000 + 1;
+    const std::int64_t max_ticks = ((max_elapsed.count() * counter_frequency) / 1000) + 1;
     const std::int64_t clamped_ticks = std::min(delta_ticks, max_ticks);
     const std::int64_t elapsed_ms =
         ((clamped_ticks * 1000) + (counter_frequency / 2)) / counter_frequency;
@@ -725,11 +725,8 @@ bool Win32Window::is_presented() const noexcept {
         return false;
     }
     DWORD cloaked = 0;
-    if (SUCCEEDED(DwmGetWindowAttribute(hwnd_, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) &&
-        cloaked != 0) {
-        return false;
-    }
-    return true;
+    return !SUCCEEDED(DwmGetWindowAttribute(hwnd_, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) ||
+           cloaked == 0;
 }
 
 bool Win32Window::is_topmost() const noexcept {

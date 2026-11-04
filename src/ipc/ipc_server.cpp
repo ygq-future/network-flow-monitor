@@ -367,14 +367,14 @@ class IpcServer::Impl final {
         }
     }
 
-    void SignalSession(Session& session) noexcept {
+    static void SignalSession(Session& session) noexcept {
         if (session.wake_event.valid()) {
             static_cast<void>(SetEvent(session.wake_event.get()));
         }
     }
 
     [[nodiscard]] PipeIoResult WaitForRead(Session& session, std::span<std::byte> destination,
-                                           DWORD timeout_ms) noexcept {
+                                           DWORD timeout_ms) const noexcept {
         auto result = session.connection->BeginReadExact(destination);
         if (!result.pending) {
             return result;
@@ -414,7 +414,7 @@ class IpcServer::Impl final {
     }
 
     [[nodiscard]] PipeIoResult WaitForWrite(Session& session,
-                                            std::span<const std::byte> source) noexcept {
+                                            std::span<const std::byte> source) const noexcept {
         auto result = session.connection->BeginWriteAll(source);
         if (!result.pending) {
             return result;
@@ -802,7 +802,7 @@ class IpcServer::Impl final {
                     const auto active = std::ranges::count_if(sessions, [](const auto& item) {
                         return item != nullptr && !item->finished.load();
                     });
-                    if (active >= kMaximumIpcClients) {
+                    if (std::cmp_greater_equal(active, kMaximumIpcClients)) {
                         busy = true;
                     } else {
                         std::uint32_t event_error{};

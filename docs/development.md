@@ -24,6 +24,10 @@ powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Fast
 
 # Full gate (Fast + clang-tidy + MSVC /analyze + Release build/tests + CPack ZIP)
 powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full
+
+# Commit message & range validation (Conventional Commits)
+powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Commit -CommitMessage "fix(host): example summary"
+powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Commit -CommitRange "HEAD~1..HEAD"
 ```
 
 #### Gate Modes
@@ -31,19 +35,50 @@ powershell -ExecutionPolicy Bypass -File tools/quality.ps1 -Mode Full
   1. Deprecation policy verification (rejects deprecated TS/CMake options and blanket suppressions).
   2. Version consistency check across `CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, and `.github/release-note/v<version>.md`.
   3. `clang-format --dry-run --Werror` across all C/C++ headers, sources, and tests.
-  4. C++ Debug x64 build (`/W4 /WX /permissive- /sdl`).
-  5. C++ automated headless test suites (`ctest --output-on-failure -LE requires-admin`).
-  6. Frontend `bun install --frozen-lockfile`, Prettier check, ESLint (`--max-warnings 0` including `@typescript-eslint/no-deprecated`), `tsc --noEmit`, Vitest suite, and Vite production build.
+  4. Frontend `bun install --frozen-lockfile`, Prettier check (`tailwindStylesheet: ./src/app/index.css`), ESLint (`--max-warnings 0` including `@typescript-eslint/no-deprecated`), `tsc --noEmit`, Vitest suite, and Vite production build.
+  5. C++ Debug x64 configure + LSP compilation database generation (`build/windows-x64-tidy/compile_commands.json` consumed by `.clangd` without MSVC PCH flags).
+  6. C++ Debug x64 build (`/W4 /WX /permissive- /sdl`, 0 warnings).
+  7. C++ automated headless test suites (`ctest --output-on-failure -LE requires-admin`).
 - **Full Mode**:
   - Runs everything in **Fast Mode**, plus:
-  - `clang-tidy` & Clang Static Analyzer (0 diagnostics).
-  - MSVC `/analyze` static analysis (0 warnings).
+  - `clang-tidy` & Clang Static Analyzer (`WarningsAsErrors: '*'`, 0 diagnostics enforced on exit code and output).
+  - MSVC `/analyze` static analysis (0 warnings enforced on exit code and output).
   - C++ Release x64 build and test suites.
   - CPack portable ZIP archive generation.
+- **Commit Mode**:
+  - Validates commit message files (`-CommitMsgFile`), literal messages (`-CommitMessage`), or commit ranges (`-CommitRange`) against Conventional Commits (`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`).
 
-### 2. Direct CMake & Frontend Commands
+### 2. Capability Matrix & Diagnostic Parity
+
+| Capability | Provider / Configuration | Command / Task | Scope | Enforcement Phase / Severity | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Formatting / format check** | `clang-format` + Prettier (`prettier-plugin-tailwindcss`, `tailwindStylesheet`) | `tools/quality.ps1 -Mode Fast` | `src/`, `include/`, `tests/`, `apps/nfm-ui/` | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Syntax / compile** | MSVC C++20 (`cl.exe`) + Vite / Rollup | `tools/quality.ps1 -Mode Fast` | All C++ targets & React UI | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Type check** | MSVC C++20 + `tsc --noEmit` (`strict: true`) | `tools/quality.ps1 -Mode Fast` | `src/`, `include/`, `tests/`, `apps/nfm-ui/src/` | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Lint & LSP parity** | `.clangd` + `.clang-tidy` (`WarningsAsErrors: '*'`) + ESLint Flat Config (`--max-warnings 0`) | `tools/quality.ps1 -Mode Full` | All first-party C++ TUs & TS/TSX | Pre-push / CI (`Full`) / Error (0 warnings/diagnostics) | Verified |
+| **Compiler warnings** | MSVC `/W4 /WX /permissive- /sdl` | `tools/quality.ps1 -Mode Fast` | All first-party C++ targets | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Deprecated / obsolete API** | Deprecation policy + MSVC `/W4 /WX` + `@typescript-eslint/no-deprecated` | `tools/quality.ps1 -Mode Fast` | Configs, C++, TS/TSX | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Static analysis** | `clang-tidy` (`clang-analyzer-*`, `bugprone-*`, `concurrency-*`) + MSVC `/analyze` | `tools/quality.ps1 -Mode Full` | All first-party C++ targets | Pre-push / CI (`Full`) / Error | Verified |
+| **Unused / unreachable code** | `.clangd` (`UnusedIncludes: Strict`), `misc-unused-*`, TS `noUnusedLocals`/`noUnusedParameters`, ESLint `no-unused-vars` | `tools/quality.ps1 -Mode Fast` / `Full` | C++ & TS/TSX | Pre-commit (`Fast`) & `Full` / Error | Verified |
+| **Tests** | CTest (`nfm_tests`, 8 headless suites) + Vitest (10 suites) | `tools/quality.ps1 -Mode Fast` | Debug & Release C++, React UI | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Build validation** | CMake Release x64 + Vite production bundle + CPack ZIP | `tools/quality.ps1 -Mode Full` | `NetworkFlowMonitor.exe`, `nfm-collector.exe`, `ui/` | Pre-push / CI (`Full`) / Error | Verified |
+| **Dependency / manifest / config** | `bun install --frozen-lockfile`, vendored `yyjson 0.12.0`, CMake presets | `tools/quality.ps1 -Mode Fast` | Root & `apps/nfm-ui/` | Pre-commit (`Fast`) & CI (`Full`) / Error | Verified |
+| **Application version consistency** | `CMakeLists.txt` SSOT (`0.3.3`) vs `package.json`, `.rc`, `.github/release-note/v<ver>.md`, Git tag | `tools/quality.ps1 -Mode Fast` + CI `meta` | All manifests & release notes | Pre-commit (`Fast`) & CI Release / Error | Verified |
+| **Commit message validation** | Conventional Commits validator in `tools/quality.ps1 -Mode Commit` | `tools/quality.ps1 -Mode Commit` | `commit-msg` hook & CI commit range | `commit-msg` hook & CI / Error | Verified |
+| **Git hooks** | `.githooks/pre-commit` (`Fast`), `commit-msg` (`Commit`), `pre-push` (`Full`) | `git config --local core.hooksPath .githooks` | Local repository | Local Git lifecycle | Verified |
+| **CI Quality Gate** | `.github/workflows/quality-and-publish.yml` | `tools/quality.ps1 -Mode Full -Clean` | Windows x64 full matrix & release | Push, PR, Release tag | Verified |
+
+#### Diagnostic Limits & Baseline Policy
+- **Zero Historical Debt Baseline**: The repository maintains 0 accepted warnings and 0 static-analysis suppressions in baseline. All newly introduced compiler, linter, or static-analyzer diagnostics block completion.
+- **LSP (`clangd`) Compilation Database**: `.clangd` points to `build/windows-x64-tidy/compile_commands.json` (which disables MSVC `/Yu`/`/Fp`/`/FI` precompiled headers that `clangd` cannot parse) and strips MSVC-only driver flags (`/Zc:preprocessor`, `/external:anglebrackets`, `/sdl`, `/RTC1`). Running `tools/quality.ps1 -Mode Fast` automatically generates this compilation database on a fresh clone.
+- **Admin-Only Integration Suites**: `collector.etw_integration` and `ipc.integration` require an elevated token (`requires-admin` CTest label) and are verified via `tools/portable-acceptance.ps1` on target hosts.
+
+### 3. Direct CMake, Frontend & Git Hook Commands
 
 ```powershell
+# Activate versioned Git hooks on a fresh clone
+git config --local core.hooksPath .githooks
+
 # C++ Debug build & tests
 cmake --preset windows-x64-debug
 cmake --build --preset windows-x64-debug

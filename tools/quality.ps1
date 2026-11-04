@@ -24,10 +24,13 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('Format', 'Fast', 'Full')][string]$Mode = 'Fast',
+    [ValidateSet('Format', 'Fast', 'Full', 'Commit')][string]$Mode = 'Fast',
     [ValidateRange(1, 64)][int]$Jobs = [Math]::Min(12, [Environment]::ProcessorCount),
     [switch]$Clean,
-    [switch]$VerboseOutput
+    [switch]$VerboseOutput,
+    [string]$CommitMsgFile = '',
+    [string]$CommitMessage = '',
+    [string]$CommitRange = ''
 )
 
 Set-StrictMode -Version Latest
@@ -38,9 +41,39 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer
 $frontendRoot = Join-Path $projectRoot 'apps\nfm-ui'
 $frontendManifest = Join-Path $frontendRoot 'package.json'
 
+function Test-ConventionalCommitMessage {
+    param([string]$Message, [string]$SourceLabel = 'commit message')
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        throw "Empty $SourceLabel."
+    }
+    $lines = @($Message -split "\r?\n" | Where-Object { $_ -notmatch '^\s*#' })
+    while ($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($lines[0])) {
+        $lines = @($lines | Select-Object -Skip 1)
+    }
+    if ($lines.Count -eq 0) {
+        throw "Empty $SourceLabel after stripping comments."
+    }
+    $subject = $lines[0].Trim()
+    if ($subject -match '^(Merge\b|Revert\s+")') {
+        return $subject
+    }
+    $pattern = '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9_.,/-]+\))?!?: [^\s].*$'
+    if ($subject -notmatch $pattern) {
+        throw ("Invalid {0}: '{1}'. Expected Conventional Commits format '<type>(<scope>): <summary>' (types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert)." -f $SourceLabel, $subject)
+    }
+    if ($subject.Length -gt 100) {
+        throw ("Invalid {0}: subject exceeds 100 characters ({1}): '{2}'" -f $SourceLabel, $subject.Length, $subject)
+    }
+    if ($lines.Count -gt 1 -and -not [string]::IsNullOrWhiteSpace($lines[1])) {
+        throw ("Invalid {0}: second line must be blank separating subject and body." -f $SourceLabel)
+    }
+    return $subject
+}
+
 $vsEnvCacheFile = Join-Path $projectRoot 'build\.vsenv-x64.json'
 $loadedFromCache = $false
-if (Test-Path -LiteralPath $vsEnvCacheFile) {
+if ($Mode -ne 'Commit' -and (Test-Path -LiteralPath $vsEnvCacheFile)) {
     try {
         $cached = Get-Content -LiteralPath $vsEnvCacheFile -Raw | ConvertFrom-Json
         if ((Test-Path -LiteralPath $cached.cmake) -and (Test-Path -LiteralPath $cached.ninja) -and (Test-Path -LiteralPath $cached.clangFormat)) {
@@ -59,7 +92,7 @@ if (Test-Path -LiteralPath $vsEnvCacheFile) {
     }
 }
 
-if (-not $loadedFromCache) {
+if (-not $loadedFromCache -and $Mode -ne 'Commit') {
     if (-not (Test-Path -LiteralPath $vswhere)) {
         throw "Visual Studio Installer was not found at $vswhere"
     }
@@ -102,13 +135,15 @@ if (-not $loadedFromCache) {
 }
 $env:VSLANG = '1033'
 
-$requiredTools = @($cmake, $ninja, $clangFormat)
-if ($Mode -eq 'Full') {
-    $requiredTools += @($cpack, $clangTidy)
-}
-foreach ($tool in $requiredTools) {
-    if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool)) {
-        throw "Required build tool was not found: $tool"
+if ($Mode -ne 'Commit') {
+    $requiredTools = @($cmake, $ninja, $clangFormat, $clangTidy)
+    if ($Mode -eq 'Full') {
+        $requiredTools += @($cpack)
+    }
+    foreach ($tool in $requiredTools) {
+        if ([string]::IsNullOrWhiteSpace($tool) -or -not (Test-Path -LiteralPath $tool)) {
+            throw "Required build tool was not found: $tool"
+        }
     }
 }
 $sourceFiles = @(Get-ChildItem -Path (Join-Path $projectRoot 'src'), (Join-Path $projectRoot 'include'), (Join-Path $projectRoot 'tests') -Recurse -File |
@@ -287,6 +322,54 @@ function Invoke-GateStep {
 
 Write-Host "Quality gate: $Mode"
 Write-Host ''
+
+# ------------------------------------------------------------------------------
+# 0. Commit Message / Range Validation Mode
+# ------------------------------------------------------------------------------
+if ($Mode -eq 'Commit') {
+    Invoke-GateStep -Name 'Commit message convention' -Action {
+        $validatedCount = 0
+        if (-not [string]::IsNullOrWhiteSpace($CommitMsgFile)) {
+            if (-not (Test-Path -LiteralPath $CommitMsgFile)) {
+                throw "Commit message file not found: $CommitMsgFile"
+            }
+            $rawMsg = Get-Content -LiteralPath $CommitMsgFile -Raw -Encoding UTF8
+            Test-ConventionalCommitMessage -Message $rawMsg -SourceLabel $CommitMsgFile | Out-Null
+            $validatedCount++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($CommitMessage)) {
+            Test-ConventionalCommitMessage -Message $CommitMessage -SourceLabel 'CommitMessage' | Out-Null
+            $validatedCount++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($CommitRange)) {
+            $shas = @(& git rev-list $CommitRange 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+                throw "git rev-list failed for range '$CommitRange': $($shas -join ' ')"
+            }
+            foreach ($sha in $shas) {
+                $cleanSha = $sha.ToString().Trim()
+                if ([string]::IsNullOrWhiteSpace($cleanSha)) { continue }
+                $msg = (& git log -1 --format=%B $cleanSha) -join "`n"
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Failed to read commit $cleanSha"
+                }
+                Test-ConventionalCommitMessage -Message $msg -SourceLabel "commit $($cleanSha.Substring(0, [Math]::Min(7, $cleanSha.Length)))" | Out-Null
+                $validatedCount++
+            }
+        }
+        if ($validatedCount -eq 0) {
+            throw 'Specify -CommitMsgFile, -CommitMessage, or -CommitRange when running -Mode Commit.'
+        }
+        return "$validatedCount checked"
+    } -ParseDetail {
+        param($lines)
+        $arr = @($lines)
+        if ($arr.Length -gt 0) { return $arr[-1] }
+        return ''
+    }
+
+    Write-SummaryAndExit -GateMode $Mode -ExitCode 0
+}
 
 # ------------------------------------------------------------------------------
 # 1. Format Mode
@@ -543,6 +626,18 @@ Invoke-GateStep -Name 'C++ Debug configure' -Action {
     }
     return 0
 }
+# Phase B.5: C++ clang-tidy compile database (ensures .clangd / LSP always has a fresh non-PCH compilation database)
+$tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
+$tidyNinja = Join-Path $tidyBuild 'build.ninja'
+$tidyCache = Join-Path $tidyBuild 'CMakeCache.txt'
+$tidyCompileCommands = Join-Path $tidyBuild 'compile_commands.json'
+Invoke-GateStep -Name 'C++ LSP compile_commands' -Action {
+    if ($Clean -or -not (Test-Path -LiteralPath $tidyNinja) -or -not (Test-Path -LiteralPath $tidyCache) -or -not (Test-Path -LiteralPath $tidyCompileCommands)) {
+        & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
+        return $LASTEXITCODE
+    }
+    return 0
+}
 
 # Phase C: C++ Debug build (incremental by default, --clean-first if $Clean)
 $debugBuildArgs = @('--build', '--preset', 'windows-x64-debug', '--parallel', $Jobs.ToString())
@@ -550,9 +645,16 @@ if ($Clean) {
     $debugBuildArgs += '--clean-first'
 }
 Invoke-GateStep -Name 'C++ Debug build' -Action {
-    & $cmake @debugBuildArgs
-}
-
+    $out = & $cmake @debugBuildArgs 2>&1
+    $rc = $LASTEXITCODE
+    if ($null -ne $out) { Write-Output $out }
+    if ($rc -ne 0) { return $rc }
+    $warnLines = @($out | Where-Object { $_ -ne $null -and $_.ToString() -match '(?::\s*warning\b|warning\s+C\d+:)' })
+    if ($warnLines.Count -gt 0) {
+        throw ("Compiler warnings detected ({0}):`n{1}" -f $warnLines.Count, ($warnLines -join "`n"))
+    }
+    return 0
+} -ParseDetail { '0 warnings' }
 # Phase D: C++ automated tests (headless, non-interactive, exclude admin)
 Invoke-GateStep -Name 'C++ tests' -Action {
     & $cmake -E chdir 'build/windows-x64-debug' ctest --output-on-failure -LE 'requires-admin' --parallel $Jobs
@@ -583,21 +685,17 @@ if ($Clean) {
 }
 
 # Phase 11: clang-tidy & Clang Static Analyzer
-$tidyBuild = Join-Path $projectRoot 'build\windows-x64-tidy'
-$tidyNinja = Join-Path $tidyBuild 'build.ninja'
-$tidyCache = Join-Path $tidyBuild 'CMakeCache.txt'
-Invoke-GateStep -Name 'Configure clang-tidy' -Action {
-    if (-not (Test-Path -LiteralPath $tidyNinja) -or -not (Test-Path -LiteralPath $tidyCache)) {
-        & $cmake -S $projectRoot -B $tidyBuild -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DNFM_ENABLE_CLANG_TIDY=ON "-DNFM_CLANG_TIDY_EXECUTABLE=$clangTidy" "-DCMAKE_MAKE_PROGRAM=$ninja"
-        return $LASTEXITCODE
+Invoke-GateStep -Name 'clang-tidy' -Action {
+    $out = & $cmake (@('--build', $tidyBuild) + $fullBuildArgs) 2>&1
+    $rc = $LASTEXITCODE
+    if ($null -ne $out) { Write-Output $out }
+    if ($rc -ne 0) { return $rc }
+    $diagLines = @($out | Where-Object { $_ -ne $null -and $_.ToString() -match ':\d+:\d+:\s*(?:warning|error):' })
+    if ($diagLines.Count -gt 0) {
+        throw ("clang-tidy reported {0} diagnostic(s):`n{1}" -f $diagLines.Count, ($diagLines -join "`n"))
     }
     return 0
-}
-
-Invoke-GateStep -Name 'clang-tidy' -Action {
-    & $cmake (@('--build', $tidyBuild) + $fullBuildArgs)
 } -ParseDetail { '0 diagnostics' }
-
 # Phase 12: MSVC static analysis
 $analyzeBuild = Join-Path $projectRoot 'build\windows-x64-analyze'
 $analyzeNinja = Join-Path $analyzeBuild 'build.ninja'
@@ -611,7 +709,15 @@ Invoke-GateStep -Name 'Configure MSVC analyze' -Action {
 }
 
 Invoke-GateStep -Name 'MSVC analyze' -Action {
-    & $cmake (@('--build', $analyzeBuild) + $fullBuildArgs)
+    $out = & $cmake (@('--build', $analyzeBuild) + $fullBuildArgs) 2>&1
+    $rc = $LASTEXITCODE
+    if ($null -ne $out) { Write-Output $out }
+    if ($rc -ne 0) { return $rc }
+    $warnLines = @($out | Where-Object { $_ -ne $null -and $_.ToString() -match '(?::\s*warning\b|warning\s+C\d+:)' })
+    if ($warnLines.Count -gt 0) {
+        throw ("MSVC /analyze reported {0} warning(s):`n{1}" -f $warnLines.Count, ($warnLines -join "`n"))
+    }
+    return 0
 } -ParseDetail { '0 warnings' }
 
 # Phase 13: C++ Release configure & build

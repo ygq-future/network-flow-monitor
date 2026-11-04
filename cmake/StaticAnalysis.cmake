@@ -5,8 +5,6 @@ option(NFM_ENABLE_MSVC_ANALYZE "Run MSVC code analysis while compiling first-par
 set(NFM_CLANG_TIDY_EXECUTABLE "" CACHE FILEPATH "Absolute path to clang-tidy.exe")
 
 function(nfm_enable_static_analysis target_name)
-    cmake_parse_arguments(NFM_ANALYSIS "ENABLE_EXCEPTIONS" "" "" ${ARGN})
-
     if(NFM_ENABLE_CLANG_TIDY)
         if(NOT EXISTS "${NFM_CLANG_TIDY_EXECUTABLE}")
             message(FATAL_ERROR "NFM_CLANG_TIDY_EXECUTABLE must point to clang-tidy.exe")
@@ -20,10 +18,9 @@ function(nfm_enable_static_analysis target_name)
             # Use DirectXMath's supported scalar path for analysis; production MSVC builds
             # retain their normal intrinsic implementation.
             "--extra-arg=/D_XM_NO_INTRINSICS_"
+            "--extra-arg=/EHsc"
+            "--extra-arg=-Wno-unused-command-line-argument"
         )
-        if(NFM_ANALYSIS_ENABLE_EXCEPTIONS)
-            list(APPEND tidy_command "--extra-arg=/EHsc")
-        endif()
         set_property(TARGET ${target_name} PROPERTY CXX_CLANG_TIDY "${tidy_command}")
     endif()
 

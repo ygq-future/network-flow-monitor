@@ -544,10 +544,10 @@ bool is_application_excluded(std::string_view app_id, std::string_view executabl
     const std::string exe_stem = StripExeExtension(exe_filename);
     const std::string display_stem = StripExeExtension(norm_display);
 
-    for (const auto& raw_rule : excluded_programs) {
+    return std::ranges::any_of(excluded_programs, [&](const auto& raw_rule) {
         const std::string rule = NormalizeRuleToken(raw_rule);
         if (rule.empty()) {
-            continue;
+            return false;
         }
         const std::string rule_filename = NormalizeRuleToken(extract_executable_filename(rule));
         const std::string rule_stem = StripExeExtension(rule_filename);
@@ -559,12 +559,9 @@ bool is_application_excluded(std::string_view app_id, std::string_view executabl
         if (!exe_filename.empty() && (rule == exe_filename || rule_filename == exe_filename)) {
             return true;
         }
-        if (!rule_stem.empty() && ((!exe_stem.empty() && rule_stem == exe_stem) ||
-                                   (!display_stem.empty() && rule_stem == display_stem))) {
-            return true;
-        }
-    }
-    return false;
+        return !rule_stem.empty() && ((!exe_stem.empty() && rule_stem == exe_stem) ||
+                                      (!display_stem.empty() && rule_stem == display_stem));
+    });
 }
 
 CollectorCompanion::CollectorCompanion(std::filesystem::path collector_executable_path)

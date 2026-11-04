@@ -22,7 +22,7 @@ constexpr std::size_t kMaximumStopEventNameLength = 260U;
         if (c < L'0' || c > L'9') {
             return 0;
         }
-        pid = pid * 10 + static_cast<std::uint32_t>(c - L'0');
+        pid = (pid * 10U) + static_cast<std::uint32_t>(c - L'0');
     }
     return pid;
 }

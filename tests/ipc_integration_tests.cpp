@@ -29,8 +29,6 @@ namespace {
 using namespace std::chrono_literals;
 using nfm::ipc::AuthorizedPrincipal;
 using nfm::ipc::CollectorEndpointMode;
-using nfm::ipc::DecodeHelloAck;
-using nfm::ipc::DecodeTrafficTick;
 using nfm::ipc::EncodeHello;
 using nfm::ipc::FrameParseStatus;
 using nfm::ipc::HelloAckMessage;
@@ -39,7 +37,6 @@ using nfm::ipc::IpcClient;
 using nfm::ipc::IpcClientObserver;
 using nfm::ipc::IpcClientState;
 using nfm::ipc::IpcServer;
-using nfm::ipc::MessageType;
 using nfm::ipc::NamedPipeConnection;
 using nfm::ipc::PipeIoResult;
 using nfm::ipc::PipeTransportFactory;
@@ -93,6 +90,8 @@ class LocalSecurityDescriptor final {
     }
     LocalSecurityDescriptor(const LocalSecurityDescriptor&) = delete;
     LocalSecurityDescriptor& operator=(const LocalSecurityDescriptor&) = delete;
+    LocalSecurityDescriptor(LocalSecurityDescriptor&&) = delete;
+    LocalSecurityDescriptor& operator=(LocalSecurityDescriptor&&) = delete;
 
   private:
     PSECURITY_DESCRIPTOR descriptor_{};
@@ -108,18 +107,6 @@ struct TestContext {
         }
     }
 };
-
-std::vector<std::byte> CopySid(PSID sid) {
-    if (sid == nullptr || IsValidSid(sid) == FALSE) {
-        return {};
-    }
-    const auto length = GetLengthSid(sid);
-    std::vector<std::byte> result(length);
-    if (::CopySid(length, result.data(), sid) == FALSE) {
-        return {};
-    }
-    return result;
-}
 
 AuthorizedPrincipal PortablePrincipal() {
     const auto sid = nfm::test::CurrentLogonSid();
@@ -310,7 +297,7 @@ bool CheckLiveDacl(TestContext& context, HANDLE pipe,
     }
 
     std::vector<std::byte> world_sid(SECURITY_MAX_SID_SIZE);
-    DWORD world_size = static_cast<DWORD>(world_sid.size());
+    auto world_size = static_cast<DWORD>(world_sid.size());
     context.Check(CreateWellKnownSid(WinWorldSid, nullptr, world_sid.data(), &world_size) != FALSE,
                   "world SID is available");
     bool authorized_found = false;
@@ -424,20 +411,17 @@ void CheckIntegration(TestContext& context) {
     // Server restart / reconnect test
     const auto backoff_index = static_cast<std::size_t>(IpcClientState::Backoff);
     context.Check(server.Stop().ok(), "server stops for reconnect test");
-    context.Check(first_observer.WaitFor(
-                      [&first_observer, backoff_index] {
-                          return first_observer.state_counts.at(backoff_index) >= 1U;
-                      },
-                      5s),
-                  "client observes server disconnect and enters backoff");
+    context.Check(
+        first_observer.WaitFor(
+            [&first_observer] { return first_observer.state_counts.at(backoff_index) >= 1U; }, 5s),
+        "client observes server disconnect and enters backoff");
     context.Check(server.Start().ok(), "server restarts for reconnect test");
     const auto streaming_index = static_cast<std::size_t>(IpcClientState::Streaming);
-    context.Check(first_observer.WaitFor(
-                      [&first_observer, streaming_index] {
-                          return first_observer.state_counts.at(streaming_index) >= 2U;
-                      },
-                      5s),
-                  "client reconnects and completes a fresh handshake");
+    context.Check(
+        first_observer.WaitFor(
+            [&first_observer] { return first_observer.state_counts.at(streaming_index) >= 2U; },
+            5s),
+        "client reconnects and completes a fresh handshake");
 
     const TrafficTickMessage tick3{
         .seq = 3U,

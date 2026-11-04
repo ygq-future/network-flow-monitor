@@ -53,7 +53,6 @@ using nfm::collector::EtwProviderClass;
 using nfm::collector::IpVersion;
 using nfm::collector::NetworkDecodeError;
 using nfm::collector::NetworkDecodeStatus;
-using nfm::collector::NetworkEventRecordView;
 using nfm::collector::NetworkProtocol;
 using nfm::process::TraceDuration;
 using nfm::process::TraceTimePoint;
@@ -660,17 +659,21 @@ class FakeEtwApi final : public nfm::collector::EtwApi {
   public:
     ULONG StartController(PTRACEHANDLE handle, LPCWSTR name,
                           PEVENT_TRACE_PROPERTIES properties) noexcept override {
-        ++start_calls;
-        captured_name = name != nullptr ? name : L"";
-        captured_properties = *properties;
-        const auto* logger_name = reinterpret_cast<const wchar_t*>(
-            reinterpret_cast<const std::byte*>(properties) + properties->LoggerNameOffset);
-        embedded_name = logger_name;
-        const ULONG status = start_calls == 1U ? first_start_status : retry_start_status;
-        if (status == ERROR_SUCCESS) {
-            *handle = controller_value;
+        try {
+            ++start_calls;
+            captured_name = name != nullptr ? name : L"";
+            captured_properties = *properties;
+            const auto* logger_name = reinterpret_cast<const wchar_t*>(
+                reinterpret_cast<const std::byte*>(properties) + properties->LoggerNameOffset);
+            embedded_name = logger_name;
+            const ULONG status = start_calls == 1U ? first_start_status : retry_start_status;
+            if (status == ERROR_SUCCESS) {
+                *handle = controller_value;
+            }
+            return status;
+        } catch (...) {
+            return ERROR_NOT_ENOUGH_MEMORY;
         }
-        return status;
     }
 
     TRACEHANDLE OpenConsumer(PEVENT_TRACE_LOGFILEW logfile) noexcept override {
@@ -746,13 +749,13 @@ class FakeEtwApi final : public nfm::collector::EtwApi {
     ULONG close_status{ERROR_SUCCESS};
     bool invoke_event_callback{};
     bool invoke_buffer_callback{};
-    std::atomic_uint32_t start_calls{};
-    std::atomic_uint32_t open_calls{};
-    std::atomic_uint32_t process_calls{};
-    std::atomic_uint32_t stop_calls{};
-    std::atomic_uint32_t flush_calls{};
-    std::atomic_uint32_t query_calls{};
-    std::atomic_uint32_t close_calls{};
+    std::atomic_uint32_t start_calls;
+    std::atomic_uint32_t open_calls;
+    std::atomic_uint32_t process_calls;
+    std::atomic_uint32_t stop_calls;
+    std::atomic_uint32_t flush_calls;
+    std::atomic_uint32_t query_calls;
+    std::atomic_uint32_t close_calls;
     std::wstring captured_name;
     std::wstring embedded_name;
     EVENT_TRACE_PROPERTIES captured_properties{};
@@ -780,13 +783,14 @@ void CheckConfigurationLifecycleAndStatistics(TestContext& context) {
                       api.embedded_name == nfm::collector::WindowsEtwSessionName(),
                   "fixed name stored in property buffer");
     const auto& properties = api.captured_properties;
-    context.Check(
-        properties.Wnode.BufferSize ==
-                sizeof(EVENT_TRACE_PROPERTIES) +
-                    (std::wcslen(nfm::collector::WindowsEtwSessionName()) + 1U) * sizeof(wchar_t) &&
-            properties.Wnode.ClientContext == 1U &&
-            IsEqualGUID(properties.Wnode.Guid, nfm::collector::WindowsEtwSessionId()) != FALSE,
-        "property buffer size, QPC clock, and session GUID configured");
+    context.Check(properties.Wnode.BufferSize ==
+                          sizeof(EVENT_TRACE_PROPERTIES) +
+                              ((std::wcslen(nfm::collector::WindowsEtwSessionName()) + 1U) *
+                               sizeof(wchar_t)) &&
+                      properties.Wnode.ClientContext == 1U &&
+                      IsEqualGUID(properties.Wnode.Guid, nfm::collector::WindowsEtwSessionId()) !=
+                          FALSE,
+                  "property buffer size, QPC clock, and session GUID configured");
     context.Check((properties.LogFileMode & EVENT_TRACE_SYSTEM_LOGGER_MODE) != 0U &&
                       (properties.LogFileMode & EVENT_TRACE_REAL_TIME_MODE) != 0U &&
                       properties.BufferSize == 64U && properties.FlushTimer == 1U &&
@@ -984,7 +988,7 @@ class FakeProcessProbe final : public nfm::collector::ProcessProbe {
             return {.data = {.application_user_model_id = "Family!Merged"}};
         }
         if (request.instance.pid == 300U) {
-            const auto application =
+            const auto* const application =
                 request.instance.generation == 1U ? "Family!Old" : "Family!New";
             return {.data = {.application_user_model_id = application}};
         }
@@ -1005,7 +1009,6 @@ using nfm::collector::CollectorCoreTestAccess;
 using nfm::collector::CollectorErrorDomain;
 using nfm::collector::CollectorErrorStage;
 using nfm::collector::CollectorState;
-using nfm::collector::EtwSessionStatistics;
 using nfm::collector::IpVersion;
 using nfm::collector::NetworkProtocol;
 using nfm::collector::NetworkTrafficEvent;
@@ -1349,13 +1352,13 @@ class FakeEtwApi final : public EtwApi {
     ULONG query_status{ERROR_SUCCESS};
     ULONG stop_status{ERROR_SUCCESS};
     ULONG close_status{ERROR_SUCCESS};
-    std::atomic_uint32_t start_calls{};
-    std::atomic_uint32_t open_calls{};
-    std::atomic_uint32_t process_calls{};
-    std::atomic_uint32_t flush_calls{};
-    std::atomic_uint32_t query_calls{};
-    std::atomic_uint32_t stop_calls{};
-    std::atomic_uint32_t close_calls{};
+    std::atomic_uint32_t start_calls;
+    std::atomic_uint32_t open_calls;
+    std::atomic_uint32_t process_calls;
+    std::atomic_uint32_t flush_calls;
+    std::atomic_uint32_t query_calls;
+    std::atomic_uint32_t stop_calls;
+    std::atomic_uint32_t close_calls;
 };
 
 class FakeWait final : public HostWait {

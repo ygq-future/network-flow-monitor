@@ -550,14 +550,18 @@ class TestDirectory {
         path_.clear();
     }
 
-    ~TestDirectory() {
-        std::error_code error;
-        std::filesystem::remove_all(path_, error);
+    ~TestDirectory() noexcept {
+        try {
+            std::error_code error;
+            std::filesystem::remove_all(path_, error);
+        } catch (...) {
+        }
     }
 
     TestDirectory(const TestDirectory&) = delete;
     TestDirectory& operator=(const TestDirectory&) = delete;
-
+    TestDirectory(TestDirectory&&) = delete;
+    TestDirectory& operator=(TestDirectory&&) = delete;
     [[nodiscard]] const std::filesystem::path& path() const noexcept {
         return path_;
     }
@@ -578,6 +582,8 @@ class UniqueHandle {
 
     UniqueHandle(const UniqueHandle&) = delete;
     UniqueHandle& operator=(const UniqueHandle&) = delete;
+    UniqueHandle(UniqueHandle&&) = delete;
+    UniqueHandle& operator=(UniqueHandle&&) = delete;
 
     [[nodiscard]] bool valid() const noexcept {
         return handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE;
@@ -663,7 +669,7 @@ void CheckLoading(TestContext& context, const TestDirectory& directory) {
                   "development replacement removes obsolete concepts");
 
     const auto oversized = directory.path() / L"oversized.json";
-    const std::string oversized_text(1024U * 1024U + 1U, 'x');
+    const std::string oversized_text((1024U * 1024U) + 1U, 'x');
     context.Check(WriteAll(oversized, oversized_text), "prepare oversized file");
     const auto oversized_result =
         nfm::config::LoadConfigFile(oversized, nfm::config::ConfigDocumentKind::User);

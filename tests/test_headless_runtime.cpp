@@ -90,43 +90,47 @@ constexpr std::array<SuiteEntry, 10> kSuites = {{
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc == 2) {
-        const std::string_view arg{argv[1]};
-        if (arg == "--probe-child") {
-            return nfm_suite_process_tests(argc, argv);
-        }
-        if (arg == "--child" || arg == "--expect-access-denied") {
-            return nfm_suite_etw_integration_tests(argc, argv);
-        }
-        for (const auto& suite : kSuites) {
-            if (suite.name == arg) {
-                if (suite.run_no_args != nullptr) {
-                    return suite.run_no_args();
+    try {
+        if (argc == 2) {
+            const std::string_view arg{argv[1]};
+            if (arg == "--probe-child") {
+                return nfm_suite_process_tests(argc, argv);
+            }
+            if (arg == "--child" || arg == "--expect-access-denied") {
+                return nfm_suite_etw_integration_tests(argc, argv);
+            }
+            for (const auto& suite : kSuites) {
+                if (suite.name == arg) {
+                    if (suite.run_no_args != nullptr) {
+                        return suite.run_no_args();
+                    }
+                    std::array<char*, 1> single_arg{argv[0]};
+                    return suite.run_with_args(1, single_arg.data());
                 }
+            }
+            std::cerr << "Unknown test suite: " << arg << '\n';
+            return 1;
+        }
+
+        int failed_suites = 0;
+        for (const auto& suite : kSuites) {
+            if (suite.requires_admin) {
+                continue;
+            }
+            int rc = 0;
+            if (suite.run_no_args != nullptr) {
+                rc = suite.run_no_args();
+            } else {
                 std::array<char*, 1> single_arg{argv[0]};
-                return suite.run_with_args(1, single_arg.data());
+                rc = suite.run_with_args(1, single_arg.data());
+            }
+            if (rc != 0) {
+                std::cerr << "[FAIL] " << suite.name << '\n';
+                ++failed_suites;
             }
         }
-        std::cerr << "Unknown test suite: " << arg << '\n';
+        return failed_suites;
+    } catch (...) {
         return 1;
     }
-
-    int failed_suites = 0;
-    for (const auto& suite : kSuites) {
-        if (suite.requires_admin) {
-            continue;
-        }
-        int rc = 0;
-        if (suite.run_no_args != nullptr) {
-            rc = suite.run_no_args();
-        } else {
-            std::array<char*, 1> single_arg{argv[0]};
-            rc = suite.run_with_args(1, single_arg.data());
-        }
-        if (rc != 0) {
-            std::cerr << "[FAIL] " << suite.name << '\n';
-            ++failed_suites;
-        }
-    }
-    return failed_suites;
 }

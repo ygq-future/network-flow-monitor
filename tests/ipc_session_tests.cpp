@@ -179,18 +179,6 @@ struct TestContext {
     }
 };
 
-std::vector<std::byte> CopySid(PSID sid) {
-    if (sid == nullptr || IsValidSid(sid) == FALSE) {
-        return {};
-    }
-    const auto length = GetLengthSid(sid);
-    std::vector<std::byte> result(length);
-    if (::CopySid(length, result.data(), sid) == FALSE) {
-        return {};
-    }
-    return result;
-}
-
 AuthorizedPrincipal PortablePrincipal() {
     const auto sid = nfm::test::CurrentLogonSid();
     return {
@@ -460,8 +448,11 @@ class Observer final : public IpcClientObserver {
         ++state_changes;
     }
     void HelloAckReceived(HelloAckMessage ack) noexcept override {
-        last_ack = ack;
-        ++acks;
+        try {
+            last_ack = std::move(ack);
+            ++acks;
+        } catch (...) {
+        }
     }
     void TrafficTickReceived(TrafficTickMessage tick) noexcept override {
         last_tick = tick;
@@ -525,9 +516,7 @@ using nfm::ipc::CaptureResult;
 using nfm::ipc::CollectorCapture;
 using nfm::ipc::CollectorEndpointMode;
 using nfm::ipc::DecodeCollectorStatus;
-using nfm::ipc::DecodeHelloAck;
 using nfm::ipc::DecodeRankingSnapshot;
-using nfm::ipc::DecodeTrafficTick;
 using nfm::ipc::EncodeHello;
 using nfm::ipc::HelloMessage;
 using nfm::ipc::IpcServer;
@@ -623,22 +612,27 @@ AuthorizedPrincipal Principal() {
 class FakeProvider final : public SnapshotProvider {
   public:
     CaptureResult Capture() noexcept override {
-        ++calls;
-        if (failure != CaptureError::None) {
-            return {.error = failure, .capture = CollectorCapture{.health = {}, .counters = {}}};
+        try {
+            ++calls;
+            if (failure != CaptureError::None) {
+                return {.error = failure,
+                        .capture = CollectorCapture{.health = {}, .counters = {}}};
+            }
+            CounterSnapshot snapshot;
+            snapshot.captured_at = capture_time;
+            const auto ul =
+                custom_upload.has_value() ? *custom_upload : static_cast<std::uint64_t>(calls);
+            const auto dl =
+                custom_download.has_value() ? *custom_download : static_cast<std::uint64_t>(calls);
+            snapshot.applications.push_back(ApplicationCounters{
+                .id = "app.test",
+                .metadata = {.display_name = "Test", .icon_key = "path/test.exe"},
+                .upload_bytes = ul,
+                .download_bytes = dl});
+            return {.capture = CollectorCapture{.health = {}, .counters = std::move(snapshot)}};
+        } catch (...) {
+            return {.error = CaptureError::CollectorFailed, .capture = {}};
         }
-        CounterSnapshot snapshot;
-        snapshot.captured_at = capture_time;
-        const auto ul =
-            custom_upload.has_value() ? *custom_upload : static_cast<std::uint64_t>(calls);
-        const auto dl =
-            custom_download.has_value() ? *custom_download : static_cast<std::uint64_t>(calls);
-        snapshot.applications.push_back(
-            ApplicationCounters{.id = "app.test",
-                                .metadata = {.display_name = "Test", .icon_key = "path/test.exe"},
-                                .upload_bytes = ul,
-                                .download_bytes = dl});
-        return {.capture = CollectorCapture{.health = {}, .counters = std::move(snapshot)}};
     }
 
     int calls{};

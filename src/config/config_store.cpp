@@ -107,11 +107,11 @@ std::filesystem::path TemporarySiblingPath(const std::filesystem::path& target,
     auto name = target.filename().native();
     name += L".tmp.";
     name += std::to_wstring(GetCurrentProcessId());
-    name += L".";
+    name += L'.';
     name += std::to_wstring(GetCurrentThreadId());
-    name += L".";
+    name += L'.';
     name += std::to_wstring(GetTickCount64());
-    name += L".";
+    name += L'.';
     name += std::to_wstring(attempt);
     return target.parent_path() / name;
 }

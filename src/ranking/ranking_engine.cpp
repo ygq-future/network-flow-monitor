@@ -80,7 +80,7 @@ bool RankingResult::accepted() const noexcept {
     return error == RankingError::None;
 }
 
-RankingEngine::RankingEngine(ConstructionToken token, RankingOptions options) noexcept
+RankingEngine::RankingEngine(ConstructionToken token, RankingOptions options)
     : options_{options}, retention_window_{options.window} {
     static_cast<void>(token);
 }

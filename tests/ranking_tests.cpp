@@ -314,7 +314,6 @@ using nfm::ranking::CounterSnapshot;
 using nfm::ranking::RankingEngine;
 using nfm::ranking::RankingError;
 using nfm::ranking::RankingOptions;
-using nfm::ranking::RankingSnapshot;
 using nfm::ranking::RankingStatus;
 
 ApplicationCounters Application(std::string id, ByteCounts bytes) {

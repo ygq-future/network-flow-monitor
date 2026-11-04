@@ -1,0 +1,21 @@
+CompileFlags:
+  CompilationDatabase: build/windows-x64-tidy
+  Remove:
+    - /Zc:preprocessor
+    - /external:anglebrackets
+    - /external:W0
+    - -external:W0
+    - /Yu*
+    - /Fp*
+    - /FI*
+    - /Fd*
+    - /FS
+    - /sdl
+    - /RTC1
+  Add:
+    - /D_XM_NO_INTRINSICS_
+    - /EHsc
+    - -Wno-missing-designated-field-initializers
+
+Diagnostics:
+  UnusedIncludes: Strict

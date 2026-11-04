@@ -69,10 +69,12 @@ void UnsubclassWebViewChildren(HWND parent_hwnd) {
         0);
 }
 
+ComPtr<ICoreWebView2Environment>& SharedEnvironment() {
+    static ComPtr<ICoreWebView2Environment> shared_env;
+    return shared_env;
+}
+
 } // namespace
-
-static ComPtr<ICoreWebView2Environment> g_shared_env;
-
 struct WebView2Controller::Impl {
     HWND parent_hwnd_{nullptr};
     std::filesystem::path static_assets_dir_;
@@ -184,7 +186,7 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                 [this](HRESULT ctrl_hr, ICoreWebView2Controller* ctrl) -> HRESULT {
                     impl_->is_creating_ = false;
                     if (FAILED(ctrl_hr) || ctrl == nullptr) {
-                        g_shared_env.Reset();
+                        SharedEnvironment().Reset();
                         return ctrl_hr;
                     }
                     impl_->controller_ = ctrl;
@@ -315,8 +317,8 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                 }
                                 if (kind ==
                                     COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
-                                    if (g_shared_env.Get() == impl_->environment_.Get()) {
-                                        g_shared_env.Reset();
+                                    if (SharedEnvironment().Get() == impl_->environment_.Get()) {
+                                        SharedEnvironment().Reset();
                                     }
                                     HWND hwnd = impl_->parent_hwnd_;
                                     auto assets = impl_->static_assets_dir_;
@@ -326,8 +328,9 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                                     }
                                 } else if (impl_->webview_.Get() != nullptr) {
                                     if (FAILED(impl_->webview_->Reload())) {
-                                        if (g_shared_env.Get() == impl_->environment_.Get()) {
-                                            g_shared_env.Reset();
+                                        if (SharedEnvironment().Get() ==
+                                            impl_->environment_.Get()) {
+                                            SharedEnvironment().Reset();
                                         }
                                         HWND hwnd = impl_->parent_hwnd_;
                                         auto assets = impl_->static_assets_dir_;
@@ -371,12 +374,12 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                 .Get());
     };
 
-    if (g_shared_env.Get() != nullptr) {
-        HRESULT ctrl_hr = create_controller_with_env(g_shared_env.Get());
+    if (SharedEnvironment().Get() != nullptr) {
+        HRESULT ctrl_hr = create_controller_with_env(SharedEnvironment().Get());
         if (SUCCEEDED(ctrl_hr)) {
             return true;
         }
-        g_shared_env.Reset();
+        SharedEnvironment().Reset();
         impl_->is_creating_ = true;
     }
 
@@ -390,7 +393,7 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
                     impl_->is_creating_ = false;
                     return env_hr;
                 }
-                g_shared_env = env;
+                SharedEnvironment() = env;
                 return create_controller_with_env(env);
             })
             .Get());

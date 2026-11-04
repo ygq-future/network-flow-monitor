@@ -77,6 +77,8 @@ class ScopedRegKey {
     }
     ScopedRegKey(const ScopedRegKey&) = delete;
     ScopedRegKey& operator=(const ScopedRegKey&) = delete;
+    ScopedRegKey(ScopedRegKey&&) = delete;
+    ScopedRegKey& operator=(ScopedRegKey&&) = delete;
 
     [[nodiscard]] HKEY get() const noexcept {
         return key_;

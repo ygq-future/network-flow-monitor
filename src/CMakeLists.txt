@@ -28,7 +28,7 @@ add_library(
 target_include_directories(nfm_process PUBLIC "${PROJECT_SOURCE_DIR}/include")
 nfm_configure_target(nfm_process)
 nfm_enable_shared_pch(nfm_process)
-nfm_enable_static_analysis(nfm_process ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_process)
 
 add_library(
     nfm_ranking
@@ -57,7 +57,7 @@ target_include_directories(nfm_collector PUBLIC "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(nfm_collector PUBLIC nfm_process nfm_ranking PRIVATE Advapi32 Tdh Netapi32)
 nfm_configure_target(nfm_collector)
 nfm_enable_shared_pch(nfm_collector)
-nfm_enable_static_analysis(nfm_collector ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_collector)
 
 add_library(
     nfm_ipc
@@ -75,14 +75,14 @@ target_include_directories(nfm_ipc PUBLIC "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(nfm_ipc PUBLIC nfm_ranking PRIVATE nfm_config nfm_yyjson Advapi32)
 nfm_configure_target(nfm_ipc)
 nfm_enable_shared_pch(nfm_ipc)
-nfm_enable_static_analysis(nfm_ipc ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_ipc)
 
 add_library(nfm_runtime STATIC app/runtime_mode.cpp app/collector_runtime.cpp)
 target_include_directories(nfm_runtime PUBLIC "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(nfm_runtime PUBLIC nfm_collector nfm_ipc)
 nfm_configure_target(nfm_runtime)
 nfm_enable_shared_pch(nfm_runtime)
-nfm_enable_static_analysis(nfm_runtime ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_runtime)
 
 add_executable(
     nfm_collector_executable
@@ -92,7 +92,7 @@ add_executable(
 set_target_properties(nfm_collector_executable PROPERTIES OUTPUT_NAME "nfm-collector")
 nfm_configure_target(nfm_collector_executable)
 nfm_enable_shared_pch(nfm_collector_executable)
-nfm_enable_static_analysis(nfm_collector_executable ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_collector_executable)
 target_link_libraries(nfm_collector_executable PRIVATE nfm_runtime Shell32)
 
 add_library(
@@ -138,7 +138,7 @@ target_link_libraries(
 )
 nfm_configure_target(nfm_host)
 nfm_enable_shared_pch(nfm_host)
-nfm_enable_static_analysis(nfm_host ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_host)
 
 add_executable(
     nfm_host_executable
@@ -149,7 +149,7 @@ add_executable(
 set_target_properties(nfm_host_executable PROPERTIES OUTPUT_NAME "NetworkFlowMonitor")
 nfm_configure_target(nfm_host_executable)
 nfm_enable_shared_pch(nfm_host_executable)
-nfm_enable_static_analysis(nfm_host_executable ENABLE_EXCEPTIONS)
+nfm_enable_static_analysis(nfm_host_executable)
 target_link_libraries(nfm_host_executable PRIVATE nfm_host Shell32 Ole32 Comctl32 Dwmapi)
 
 add_custom_command(

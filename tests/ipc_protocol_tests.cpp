@@ -306,36 +306,13 @@ void CheckJsonMessageEncoders(TestContext& context) {
                   "ShutdownRequest round trips with exact fields");
 }
 
-std::vector<std::byte> HexToBytes(std::string_view hex) {
-    std::vector<std::byte> bytes;
-    bytes.reserve(hex.size() / 2U);
-    for (std::size_t i = 0U; i + 1U < hex.size(); i += 2U) {
-        const auto high = hex.at(i);
-        const auto low = hex.at(i + 1U);
-        auto HexVal = [](char c) -> std::uint8_t {
-            if (c >= '0' && c <= '9') {
-                return static_cast<std::uint8_t>(c - '0');
-            }
-            if (c >= 'a' && c <= 'f') {
-                return static_cast<std::uint8_t>(c - 'a' + 10);
-            }
-            if (c >= 'A' && c <= 'F') {
-                return static_cast<std::uint8_t>(c - 'A' + 10);
-            }
-            return 0U;
-        };
-        bytes.push_back(static_cast<std::byte>((HexVal(high) << 4U) | HexVal(low)));
-    }
-    return bytes;
-}
-
 void CheckFixturesLoadedAndValidated(TestContext& context) {
     std::filesystem::path fixture_path;
     auto current = std::filesystem::current_path();
     for (int depth = 0; depth < 6; ++depth) {
         auto candidate = current / "tests" / "fixtures" / "framing_vectors.json";
         if (std::filesystem::exists(candidate)) {
-            fixture_path = candidate;
+            fixture_path = std::move(candidate);
             break;
         }
         if (current.has_parent_path() && current != current.parent_path()) {
@@ -590,12 +567,17 @@ class FakeSecurityApi final : public PipeSecurityApi {
     }
     bool QueryThreadIdentity(QueriedClientIdentity& output,
                              std::uint32_t& error) noexcept override {
-        ++query_calls;
-        error = source_error;
-        if (query_result) {
-            output = identity;
+        try {
+            ++query_calls;
+            error = source_error;
+            if (query_result) {
+                output = identity;
+            }
+            return query_result;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
         }
-        return query_result;
     }
     bool Revert(std::uint32_t& error) noexcept override {
         ++revert_calls;
@@ -719,62 +701,90 @@ IoAction FailedIo(DWORD error) noexcept {
 class FakePipeTransportApi final : public PipeTransportApi {
   public:
     HANDLE CreateManualResetEvent(bool inherit_handle, std::uint32_t& error) noexcept override {
-        event_inherit_values.push_back(inherit_handle);
-        error = event_error;
-        if (event_error != ERROR_SUCCESS) {
+        try {
+            event_inherit_values.push_back(inherit_handle);
+            error = event_error;
+            if (event_error != ERROR_SUCCESS) {
+                return nullptr;
+            }
+            auto* const event = event_storage.at(event_count).data();
+            ++event_count;
+            return event;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
             return nullptr;
         }
-        auto* const event = event_storage.at(event_count).data();
-        ++event_count;
-        return event;
     }
 
     bool ResetManualEvent(HANDLE event, std::uint32_t& error) noexcept override {
-        reset_events.push_back(event);
-        error = reset_error;
-        return reset_error == ERROR_SUCCESS;
+        try {
+            reset_events.push_back(event);
+            error = reset_error;
+            return reset_error == ERROR_SUCCESS;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
+        }
     }
 
     void CloseKernelHandle(HANDLE handle) noexcept override {
-        closed_handles.push_back(handle);
+        try {
+            closed_handles.push_back(handle);
+        } catch (...) {
+        }
     }
 
     HANDLE CreateServerPipe(const ServerPipeOpenRequest& request,
                             std::uint32_t& error) noexcept override {
-        ++create_server_calls;
-        server_name = request.name != nullptr ? request.name : L"";
-        server_open_mode = request.open_mode;
-        server_pipe_mode = request.pipe_mode;
-        server_maximum_instances = request.maximum_instances;
-        server_security_valid = request.security != nullptr &&
-                                request.security->nLength == sizeof(SECURITY_ATTRIBUTES) &&
-                                request.security->lpSecurityDescriptor != nullptr;
-        error = create_server_error;
-        return create_server_error == ERROR_SUCCESS ? server_pipe_storage.data()
-                                                    : INVALID_HANDLE_VALUE;
+        try {
+            ++create_server_calls;
+            server_name = request.name != nullptr ? request.name : L"";
+            server_open_mode = request.open_mode;
+            server_pipe_mode = request.pipe_mode;
+            server_maximum_instances = request.maximum_instances;
+            server_security_valid = request.security != nullptr &&
+                                    request.security->nLength == sizeof(SECURITY_ATTRIBUTES) &&
+                                    request.security->lpSecurityDescriptor != nullptr;
+            error = create_server_error;
+            return create_server_error == ERROR_SUCCESS ? server_pipe_storage.data()
+                                                        : INVALID_HANDLE_VALUE;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return INVALID_HANDLE_VALUE;
+        }
     }
 
     HANDLE OpenClientPipe(const ClientPipeOpenRequest& request,
                           std::uint32_t& error) noexcept override {
-        ++open_client_calls;
-        client_name = request.name != nullptr ? request.name : L"";
-        client_desired_access = request.desired_access;
-        client_share_mode = request.share_mode;
-        client_security = request.security;
-        client_creation_disposition = request.creation_disposition;
-        client_flags_and_attributes = request.flags_and_attributes;
-        const auto action = Take(open_client_actions, {});
-        error = action.error;
-        return action.succeeds ? client_pipe_storage.data() : INVALID_HANDLE_VALUE;
+        try {
+            ++open_client_calls;
+            client_name = request.name != nullptr ? request.name : L"";
+            client_desired_access = request.desired_access;
+            client_share_mode = request.share_mode;
+            client_security = request.security;
+            client_creation_disposition = request.creation_disposition;
+            client_flags_and_attributes = request.flags_and_attributes;
+            const auto action = Take(open_client_actions, {});
+            error = action.error;
+            return action.succeeds ? client_pipe_storage.data() : INVALID_HANDLE_VALUE;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return INVALID_HANDLE_VALUE;
+        }
     }
 
     bool WaitForPipe(LPCWSTR name, DWORD timeout_ms, std::uint32_t& error) noexcept override {
-        ++wait_calls;
-        waited_name = name != nullptr ? name : L"";
-        wait_timeout_ms = timeout_ms;
-        const auto action = Take(wait_actions, {});
-        error = action.error;
-        return action.succeeds;
+        try {
+            ++wait_calls;
+            waited_name = name != nullptr ? name : L"";
+            wait_timeout_ms = timeout_ms;
+            const auto action = Take(wait_actions, {});
+            error = action.error;
+            return action.succeeds;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
+        }
     }
 
     bool Connect(HANDLE pipe, OVERLAPPED* operation, std::uint32_t& error) noexcept override {
@@ -784,45 +794,70 @@ class FakePipeTransportApi final : public PipeTransportApi {
     }
 
     PipeApiCallResult Read(const PipeReadRequest& request) noexcept override {
-        read_pipe = request.pipe;
-        read_destinations.push_back(request.destination);
-        read_lengths.push_back(request.length);
-        read_overlapped = request.operation;
-        const auto action = Take(read_actions, {});
-        return {
-            .succeeded = action.succeeds, .error = action.error, .transferred = action.transferred};
+        try {
+            read_pipe = request.pipe;
+            read_destinations.push_back(request.destination);
+            read_lengths.push_back(request.length);
+            read_overlapped = request.operation;
+            const auto action = Take(read_actions, {});
+            return {.succeeded = action.succeeds,
+                    .error = action.error,
+                    .transferred = action.transferred};
+        } catch (...) {
+            return {.succeeded = false, .error = ERROR_NOT_ENOUGH_MEMORY, .transferred = 0U};
+        }
     }
 
     PipeApiCallResult Write(const PipeWriteRequest& request) noexcept override {
-        write_pipe = request.pipe;
-        write_sources.push_back(request.source);
-        write_lengths.push_back(request.length);
-        write_overlapped = request.operation;
-        const auto action = Take(write_actions, {});
-        return {
-            .succeeded = action.succeeds, .error = action.error, .transferred = action.transferred};
+        try {
+            write_pipe = request.pipe;
+            write_sources.push_back(request.source);
+            write_lengths.push_back(request.length);
+            write_overlapped = request.operation;
+            const auto action = Take(write_actions, {});
+            return {.succeeded = action.succeeds,
+                    .error = action.error,
+                    .transferred = action.transferred};
+        } catch (...) {
+            return {.succeeded = false, .error = ERROR_NOT_ENOUGH_MEMORY, .transferred = 0U};
+        }
     }
 
     bool GetOperationResult(HANDLE pipe, OVERLAPPED* operation, DWORD& transferred, bool wait,
                             std::uint32_t& error) noexcept override {
-        result_pipes.push_back(pipe);
-        result_operations.push_back(operation);
-        result_wait_values.push_back(wait);
-        return Apply(Take(completion_actions, {}), &transferred, error);
+        try {
+            result_pipes.push_back(pipe);
+            result_operations.push_back(operation);
+            result_wait_values.push_back(wait);
+            return Apply(Take(completion_actions, {}), &transferred, error);
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
+        }
     }
 
     bool Cancel(HANDLE pipe, OVERLAPPED* operation, std::uint32_t& error) noexcept override {
-        cancel_pipes.push_back(pipe);
-        cancel_operations.push_back(operation);
-        const auto action = Take(cancel_actions, {});
-        error = action.error;
-        return action.succeeds;
+        try {
+            cancel_pipes.push_back(pipe);
+            cancel_operations.push_back(operation);
+            const auto action = Take(cancel_actions, {});
+            error = action.error;
+            return action.succeeds;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
+        }
     }
 
     bool Disconnect(HANDLE pipe, std::uint32_t& error) noexcept override {
-        disconnected_handles.push_back(pipe);
-        error = disconnect_error;
-        return disconnect_error == ERROR_SUCCESS;
+        try {
+            disconnected_handles.push_back(pipe);
+            error = disconnect_error;
+            return disconnect_error == ERROR_SUCCESS;
+        } catch (...) {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            return false;
+        }
     }
 
     static IoAction Take(std::deque<IoAction>& actions, IoAction fallback) noexcept {

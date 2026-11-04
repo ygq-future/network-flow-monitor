@@ -29,10 +29,6 @@ PEVENT_TRACE_PROPERTIES Properties(std::vector<std::byte>& buffer) noexcept {
     return reinterpret_cast<PEVENT_TRACE_PROPERTIES>(buffer.data());
 }
 
-const EVENT_TRACE_PROPERTIES* Properties(const std::vector<std::byte>& buffer) noexcept {
-    return reinterpret_cast<const EVENT_TRACE_PROPERTIES*>(buffer.data());
-}
-
 WindowsEtwSessionError ClassifyStartError(ULONG status) noexcept {
     if (status == ERROR_ALREADY_EXISTS) {
         return WindowsEtwSessionError::AlreadyExists;

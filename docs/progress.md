@@ -420,3 +420,13 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **修复**：`is_topmost()` 豁免 `#32768` 弹出菜单窗口；`ensure_window_presentation()` 在 `is_context_menu_open` 期间直接跳过修复，菜单关闭后恢复 1 秒巡检。
 - **回归测试 (`host_tests.cpp`)**：`CheckWindowPresentationRecovery` 新增真实 `TrackPopupMenu` 弹出菜单覆盖可见宿主窗口的用例，菜单显示期间采样 `is_topmost()`；移除豁免后该用例失败，恢复后通过。
 - **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（C++ 8 组测试、前端 10 个测试套件）。
+
+## 第三十一轮 v0.3.3 右键菜单覆盖修复与胶囊速率曲线平稳化发布 — complete
+
+- **全仓版本号同步升级至 `0.3.3` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`)**：
+  - 同步升级 CMake 工程版本、前端包清单、Windows 资源 `FILEVERSION`/`PRODUCTVERSION`（`0,3,3,0` / `"0.3.3"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.3.3.md`)**：
+  - 汇总第 30 轮「右键菜单不再被监控面板覆盖」修复与「胶囊速率曲线以 `10 KB/s` 为底噪、2 次幂对数映射」的体验改进。
+- **质量门禁**：`tools/quality.ps1 -Mode Full` 20/20 通过（版本一致性 `v0.3.3`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
+- **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.3-win-x64.zip`（886060 字节，SHA256 `D803A43F6BE782E76BCF91C8C4E99F609797F059EDA9599CD5D13DBB21B8B91D`）。
+- **发布流程**：提交版本升级与发布说明后推送 `v0.3.3` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。

@@ -442,3 +442,13 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 清理 `src/` 与 `tests/` 全部 C++ `clang-tidy` / `clangd` 诊断（移除 `collector_main.cpp` 未使用的 `<span>`，修复 `RankingEngine` 构造、`ipc_server`、`traffic_history_store`、`collector_companion`、`startup_registration`、`win32_window`、`webview_controller` 及测试套件中的全部异常边界与代码规范诊断），实现全仓 55 个 C++ 编译单元 0 警告、0 错误。
   - `tools/quality.ps1` 新增 `-Mode Commit`（支持 `-CommitMsgFile`、`-CommitMessage`、`-CommitRange` Conventional Commits 校验），并在 `C++ Debug build`、`clang-tidy`、`MSVC analyze` 阶段同时校验退出码与输出 0 警告/0 诊断。
   - 新增 `.githooks/pre-commit`、`commit-msg`、`pre-push` 并配置本地 `core.hooksPath = .githooks`；`.github/workflows/quality-and-publish.yml` 接入提交范围校验；`apps/nfm-ui/.prettierrc` 显式声明 Tailwind v4 `tailwindStylesheet: "./src/app/index.css"`；同步更新 `docs/development.md` 与 `AGENTS.md`。
+
+## 第三十三轮 贴边胶囊非对称 EMA 平滑与柔顺回落阻尼 — complete
+
+- **现象与根因 (`DockCapsule.tsx`, `rateMapping.ts`, `BridgeContext.tsx`)**：
+  - 贴边胶囊直接消费 250ms 采样的 `trafficTick`，当后台网络或内核 ETW 缓冲区在单个 250ms Tick 内突发刷出一批数据包、下一 Tick 立即归零时，瞬时速率被 $\times 4$ 放大后紧接着归零，且 `BridgeContext` 此前在连续相同数值的 `0` Tick 上跳过了状态更新，导致胶囊进度条出现「瞬间猛涨又瞬间砸回 0」的抽搐感。
+- **修复 (`rateMapping.ts`, `DockCapsule.tsx`, `BridgeContext.tsx`)**：
+  - 在 `rateMapping.ts` 新增 `smoothCapsuleRate` 非对称指数移动平均（Attack $\alpha = 0.42$，Release $\alpha = 0.28$，空闲归零阈值 `512 B/s`），并将上升过渡调整为 `300ms`、回落过渡延长至 `650ms cubic-bezier(0.22, 1, 0.36, 1)`。
+  - `BridgeContext.tsx` 納入 `tick.seq` 比较，确保每个 250ms Tick 都能驱动胶囊平滑衰减直至归零。
+  - `DockCapsule.tsx` 按 `tick.seq` 对上下行速率应用非对称 EMA 平滑，在 Collector 断开或停止时立即清零。
+- **测试验证 (`rateMapping.test.ts`, `DockCapsule.test.tsx`)**：补充单 Tick 脉冲抑制与多 Tick 连续柔顺衰减单测，`tools/quality.ps1 -Mode Fast` 13/13 通过。

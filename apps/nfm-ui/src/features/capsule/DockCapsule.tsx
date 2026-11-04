@@ -7,6 +7,7 @@ import {
   getRateTransition,
   MAX_REFERENCE_RATE_BYTES_PER_SEC,
   RateTransitionConfig,
+  smoothCapsuleRate,
 } from './rateMapping'
 
 export type CapsuleTransitionPhase = 'capsule-idle' | 'expanding-to-panel' | 'collapsing-to-capsule'
@@ -57,15 +58,23 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
   const surface = useSurface()
   const config = useAppConfig()
   const peakCeilingRef = useRef<number>(10 * 1024 * 1024)
+  const smoothedDownloadRef = useRef<number>(0)
+  const smoothedUploadRef = useRef<number>(0)
+  const lastProcessedSeqRef = useRef<number>(-1)
 
   const connected = status.etwSessionActive && status.state !== 'Stopped' && status.state !== 'Failed'
-  const download = connected ? tick.downloadBytesPerSec : 0
-  const upload = connected ? tick.uploadBytesPerSec : 0
 
   if (!connected) {
     peakCeilingRef.current = 10 * 1024 * 1024
-  } else {
-    const currentPeak = Math.max(download, upload)
+    smoothedDownloadRef.current = 0
+    smoothedUploadRef.current = 0
+    lastProcessedSeqRef.current = -1
+  } else if (tick.seq !== lastProcessedSeqRef.current) {
+    lastProcessedSeqRef.current = tick.seq
+    smoothedDownloadRef.current = smoothCapsuleRate(smoothedDownloadRef.current, tick.downloadBytesPerSec)
+    smoothedUploadRef.current = smoothCapsuleRate(smoothedUploadRef.current, tick.uploadBytesPerSec)
+
+    const currentPeak = Math.max(smoothedDownloadRef.current, smoothedUploadRef.current)
     if (currentPeak > peakCeilingRef.current) {
       peakCeilingRef.current = Math.min(MAX_REFERENCE_RATE_BYTES_PER_SEC, currentPeak * 1.5)
     } else {
@@ -73,12 +82,14 @@ export const DockCapsule: React.FC<DockCapsuleProps> = ({ transitionPhase = 'cap
     }
   }
 
+  const download = connected ? smoothedDownloadRef.current : 0
+  const upload = connected ? smoothedUploadRef.current : 0
+
   const widthDip = config.capsule.widthDip
   const heightDip = config.capsule.heightDip
   const roundingDip = Math.min(config.capsule.effectiveEndRoundingDip, widthDip / 2)
   const downloadFill = useAnimatedFill(download, prefersReducedMotion, peakCeilingRef.current)
   const uploadFill = useAnimatedFill(upload, prefersReducedMotion, peakCeilingRef.current)
-
   const isDark = resolvedTheme === 'Dark'
   const downBaseHex = config.capsule.downloadColorHex || '#38bdf8'
   const upBaseHex = config.capsule.uploadColorHex || '#2dd4bf'

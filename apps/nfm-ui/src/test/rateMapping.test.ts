@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   calculateRateFillPercent,
   getRateTransition,
+  smoothCapsuleRate,
   MAX_REFERENCE_RATE_BYTES_PER_SEC,
   BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC,
   MIN_VISIBLE_FILL_PERCENT,
@@ -34,15 +35,28 @@ describe('rateMapping', () => {
   })
 
   it('provides asymmetric transitions for rising vs falling rates', () => {
-    // Rate increasing: 250ms cubic ease-out
+    // Rate increasing: 300ms cubic ease-out
     const rising = getRateTransition(1000, 5000, false)
-    expect(rising.durationMs).toBe(250)
+    expect(rising.durationMs).toBe(300)
     expect(rising.easing).toBe('cubic-bezier(0.33, 1, 0.68, 1)')
 
-    // Rate decreasing: 450ms quadratic ease-out
+    // Rate decreasing: 650ms gentle release ease-out
     const falling = getRateTransition(5000, 1000, false)
-    expect(falling.durationMs).toBe(450)
-    expect(falling.easing).toBe('cubic-bezier(0.25, 1, 0.5, 1)')
+    expect(falling.durationMs).toBe(650)
+    expect(falling.easing).toBe('cubic-bezier(0.22, 1, 0.36, 1)')
+  })
+
+  it('dampens single-tick spikes and releases smoothly with asymmetric EMA', () => {
+    const spikeRate = 2 * 1024 * 1024
+    const afterSpike = smoothCapsuleRate(0, spikeRate)
+    expect(afterSpike).toBeLessThan(spikeRate * 0.5)
+
+    const afterFirstDecay = smoothCapsuleRate(afterSpike, 0)
+    expect(afterFirstDecay).toBeGreaterThan(afterSpike * 0.65)
+    expect(afterFirstDecay).toBeLessThan(afterSpike)
+
+    // Snaps cleanly to 0 once decayed below idle threshold
+    expect(smoothCapsuleRate(600, 0)).toBe(0)
   })
 
   it('respects prefers-reduced-motion with instant transitions (0ms)', () => {

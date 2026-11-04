@@ -66,7 +66,9 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
   useEffect(() => {
     const unsubTick = bridge.on<TrafficTickDto>('trafficTick', data => {
       setTrafficTick(prev =>
-        prev.downloadBytesPerSec === data.downloadBytesPerSec && prev.uploadBytesPerSec === data.uploadBytesPerSec
+        prev.seq === data.seq &&
+        prev.downloadBytesPerSec === data.downloadBytesPerSec &&
+        prev.uploadBytesPerSec === data.uploadBytesPerSec
           ? prev
           : data,
       )

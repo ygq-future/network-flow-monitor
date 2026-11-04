@@ -7,7 +7,27 @@ export const MAX_REFERENCE_RATE_BYTES_PER_SEC = 100 * 1024 * 1024 // 100 MB/s
 export const MIN_VISIBLE_FILL_PERCENT = 3
 export const BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC = 10 * 1024 // 10 KB/s
 const RATE_CURVE_EXPONENT = 2
+export const CAPSULE_ATTACK_ALPHA = 0.42
+export const CAPSULE_RELEASE_ALPHA = 0.28
+export const CAPSULE_IDLE_SNAP_BYTES_PER_SEC = 512
 
+/**
+ * Asymmetric exponential moving average (EMA) filter for 250 ms capsule ticks.
+ * Dampens single-tick kernel/ETW burst spikes on attack while releasing gently
+ * like a VU meter when traffic subsides.
+ */
+export function smoothCapsuleRate(previousSmoothedRate: number, rawSampleRate: number): number {
+  const prev = Number.isFinite(previousSmoothedRate) && previousSmoothedRate > 0 ? previousSmoothedRate : 0
+  const sample = Number.isFinite(rawSampleRate) && rawSampleRate > 0 ? rawSampleRate : 0
+
+  const alpha = sample >= prev ? CAPSULE_ATTACK_ALPHA : CAPSULE_RELEASE_ALPHA
+  const next = prev + alpha * (sample - prev)
+
+  if (sample === 0 && next < CAPSULE_IDLE_SNAP_BYTES_PER_SEC) {
+    return 0
+  }
+  return next
+}
 /**
  * Maps throughput rate (bytes/sec) to fill percentage [0, 100].
  * Rates up to 10 KB/s share the first MIN_VISIBLE_FILL_PERCENT linearly, so
@@ -55,16 +75,16 @@ export function getRateTransition(
   }
 
   if (targetValue >= currentVisualValue) {
-    // Rate increasing: 250 ms cubic ease-out
+    // Rate increasing: 300 ms cubic ease-out
     return {
-      durationMs: 250,
+      durationMs: 300,
       easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
     }
   }
 
-  // Rate decreasing: 450 ms quadratic ease-out
+  // Rate decreasing: 650 ms gentle release ease-out
   return {
-    durationMs: 450,
-    easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    durationMs: 650,
+    easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
   }
 }

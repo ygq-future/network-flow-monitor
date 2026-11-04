@@ -83,4 +83,56 @@ describe('DockCapsule', () => {
     expect(downloadFill.style.height).toBe('0%')
     expect(uploadFill.style.height).toBe('0%')
   })
+
+  it('dampens a single-tick burst spike and decays gradually across subsequent zero ticks', () => {
+    const bridge = new MockBridge(false)
+    renderCapsule(bridge)
+
+    act(() => {
+      bridge.emit('collectorStatus', {
+        monotonicMs: 1000,
+        etwSessionActive: true,
+        droppedPackets: 0,
+        activePids: 8,
+        state: 'Running',
+      })
+      bridge.emit('trafficTick', {
+        seq: 1,
+        monotonicMs: 1000,
+        downloadBytesPerSec: 2 * 1024 * 1024,
+        uploadBytesPerSec: 0,
+      })
+    })
+
+    const downloadFill = screen.getByTestId('download-fill')
+    const spikeHeight = parseFloat(downloadFill.style.height)
+    expect(spikeHeight).toBeGreaterThan(0)
+    expect(spikeHeight).toBeLessThan(25)
+
+    act(() => {
+      bridge.emit('trafficTick', {
+        seq: 2,
+        monotonicMs: 1250,
+        downloadBytesPerSec: 0,
+        uploadBytesPerSec: 0,
+      })
+    })
+
+    const firstDecayHeight = parseFloat(downloadFill.style.height)
+    expect(firstDecayHeight).toBeGreaterThan(0)
+    expect(firstDecayHeight).toBeLessThan(spikeHeight)
+
+    act(() => {
+      bridge.emit('trafficTick', {
+        seq: 3,
+        monotonicMs: 1500,
+        downloadBytesPerSec: 0,
+        uploadBytesPerSec: 0,
+      })
+    })
+
+    const secondDecayHeight = parseFloat(downloadFill.style.height)
+    expect(secondDecayHeight).toBeGreaterThan(0)
+    expect(secondDecayHeight).toBeLessThan(firstDecayHeight)
+  })
 })

@@ -776,10 +776,12 @@ bool Win32Window::is_topmost() const noexcept {
         std::array<wchar_t, 64> class_name{};
         if (GetClassNameW(prev, class_name.data(), static_cast<int>(class_name.size())) > 0) {
             const std::wstring_view cls{class_name.data()};
+            // Popup menus (#32768) are transient system-owned topmost windows; winning the Z-order
+            // back from them would cover the menu the user is interacting with.
             if (cls == L"Shell_TrayWnd" || cls == L"Shell_SecondaryTrayWnd" ||
                 cls == L"TopLevelWindowForOverflowXamlIsland" ||
                 cls == L"Xaml_WindowedPopupClass" || cls == L"XamlExplorerHostIslandWindow" ||
-                cls == L"tooltips_class32") {
+                cls == L"tooltips_class32" || cls == L"#32768") {
                 continue;
             }
         }

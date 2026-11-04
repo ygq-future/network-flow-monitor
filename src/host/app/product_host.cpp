@@ -1113,6 +1113,11 @@ void ProductHost::ensure_window_presentation() {
         has_applied_window_geometry_ = false;
         return;
     }
+    // TrackPopupMenu pumps the surface clock while the popup is on screen; reasserting the
+    // topmost Z-order here would raise the panel above the menu being shown.
+    if (state.is_context_menu_open) {
+        return;
+    }
 
     // The coordinator only pushes state on transitions, so an HWND hidden, minimized, moved or
     // de-topmosted by the shell, a fullscreen application, a DPI/display switch or a remote-desktop

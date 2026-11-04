@@ -413,3 +413,10 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（版本一致性 `v0.3.2`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试）；`-Mode Full` 20/20 通过（clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
 - **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.2-win-x64.zip`（886028 字节，SHA256 `33C4E2774D58CD6109B8336AAA3E6AAD078B717A02EFE6B2F408E04AB38D9A61`），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.2.0`。
 - **发布流程**：提交版本升级与发布说明后推送 `v0.3.2` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。
+
+## 第三十轮 监控面板右键菜单被面板覆盖修复 — complete
+
+- **现象与根因 (`win32_window.cpp`, `product_host.cpp`)**：右键菜单由 `TrackPopupMenu` 模态弹出，期间 8 ms 表面时钟仍在分发，1 秒看门狗 `ensure_window_presentation()` 继续运行；v0.3.2 的 `is_topmost()` 会把任何与宿主矩形相交的置顶窗口判为「置顶丢失」，而系统菜单窗口类 `#32768` 不在豁免名单内，看门狗随即 `set_topmost(true, true)` 把面板重新顶到菜单之上。340 DIP 宽的监控面板必然与菜单相交，胶囊仅 10 DIP 宽因此基本不受影响。
+- **修复**：`is_topmost()` 豁免 `#32768` 弹出菜单窗口；`ensure_window_presentation()` 在 `is_context_menu_open` 期间直接跳过修复，菜单关闭后恢复 1 秒巡检。
+- **回归测试 (`host_tests.cpp`)**：`CheckWindowPresentationRecovery` 新增真实 `TrackPopupMenu` 弹出菜单覆盖可见宿主窗口的用例，菜单显示期间采样 `is_topmost()`；移除豁免后该用例失败，恢复后通过。
+- **质量门禁**：`tools/quality.ps1 -Mode Fast` 12/12 通过（C++ 8 组测试、前端 10 个测试套件）。

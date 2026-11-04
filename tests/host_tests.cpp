@@ -975,6 +975,41 @@ void CheckCollectorCompanionInjections(TestContext& context) {
                   "stop zeroes traffic tick and broadcasts Stopped status");
 }
 
+struct PopupMenuProbe {
+    const nfm::host::platform::Win32Window* window{nullptr};
+    bool menu_window_found{false};
+    bool host_topmost_during_menu{false};
+};
+
+constexpr wchar_t kPopupMenuProbeProp[] = L"nfm_popup_menu_probe";
+constexpr UINT_PTR kPopupMenuProbeTimerId = 0x7001;
+constexpr UINT kPopupMenuProbeDelayMs = 150;
+
+VOID CALLBACK PopupMenuProbeTimer(HWND owner, UINT, UINT_PTR timer_id, DWORD) {
+    KillTimer(owner, timer_id);
+    auto* probe = static_cast<PopupMenuProbe*>(GetPropW(owner, kPopupMenuProbeProp));
+    if (probe != nullptr && probe->window != nullptr) {
+        probe->menu_window_found = FindWindowW(L"#32768", nullptr) != nullptr;
+        probe->host_topmost_during_menu = probe->window->is_topmost();
+    }
+    EndMenu();
+}
+
+// Shows a real popup menu owned by `owner` and samples the host's topmost state while the menu
+// window is on screen.
+void ShowPopupMenuAndProbe(HWND owner, int x, int y, PopupMenuProbe& probe) {
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) {
+        return;
+    }
+    AppendMenuW(menu, MF_STRING, 1, L"Probe");
+    SetPropW(owner, kPopupMenuProbeProp, &probe);
+    SetTimer(owner, kPopupMenuProbeTimerId, kPopupMenuProbeDelayMs, PopupMenuProbeTimer);
+    TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY, x, y, 0, owner, nullptr);
+    RemovePropW(owner, kPopupMenuProbeProp);
+    DestroyMenu(menu);
+}
+
 void CheckWindowPresentationRecovery(TestContext& context) {
     using namespace nfm::host::platform;
 
@@ -1042,6 +1077,18 @@ void CheckWindowPresentationRecovery(TestContext& context) {
         }
         context.Check(window_above_rival,
                       "set_topmost(true, true) raises Z-order above competing topmost window");
+
+        // A real popup menu (class #32768) raised above the visible host over its rectangle must
+        // not make is_topmost() report loss, otherwise the watchdog re-raises the host over the
+        // menu.
+        window.show(SW_SHOWNOACTIVATE);
+        window.set_topmost(true, true);
+        PopupMenuProbe menu_probe{.window = &window};
+        ShowPopupMenuAndProbe(rival.hwnd(), 110, 130, menu_probe);
+        window.show(SW_HIDE);
+        context.Check(menu_probe.menu_window_found, "popup menu window is on screen during probe");
+        context.Check(menu_probe.host_topmost_during_menu,
+                      "is_topmost ignores an overlapping popup menu above the host");
 
         // Simulate an owned helper window (like Windows' per-thread Default IME / MSCTFIME UI)
         // whose reordering without SWP_NOOWNERZORDER drags the owner behind a non-topmost window

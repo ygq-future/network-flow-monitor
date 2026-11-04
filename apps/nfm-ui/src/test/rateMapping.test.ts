@@ -3,6 +3,7 @@ import {
   calculateRateFillPercent,
   getRateTransition,
   MAX_REFERENCE_RATE_BYTES_PER_SEC,
+  BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC,
   MIN_VISIBLE_FILL_PERCENT,
 } from '../features/capsule/rateMapping'
 
@@ -15,13 +16,21 @@ describe('rateMapping', () => {
   })
 
   it('maps positive rates logarithmically', () => {
-    const lowRate = calculateRateFillPercent(1024) // 1 KB/s
+    const lowRate = calculateRateFillPercent(BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC)
     const midRate = calculateRateFillPercent(1024 * 1024) // 1 MB/s
     const maxRate = calculateRateFillPercent(MAX_REFERENCE_RATE_BYTES_PER_SEC) // 100 MB/s
 
-    expect(lowRate).toBeGreaterThanOrEqual(MIN_VISIBLE_FILL_PERCENT)
+    expect(lowRate).toBeCloseTo(MIN_VISIBLE_FILL_PERCENT, 5)
     expect(midRate).toBeGreaterThan(lowRate)
     expect(maxRate).toBeCloseTo(100, 1)
+  })
+
+  it('keeps background and hundreds-of-KB rates in the lower part of the range', () => {
+    const tenMbCeiling = 10 * 1024 * 1024
+    expect(calculateRateFillPercent(1024, tenMbCeiling)).toBeLessThan(MIN_VISIBLE_FILL_PERCENT)
+    expect(calculateRateFillPercent(300 * 1024, tenMbCeiling)).toBeLessThan(30)
+    expect(calculateRateFillPercent(1024 * 1024, tenMbCeiling)).toBeLessThan(50)
+    expect(calculateRateFillPercent(tenMbCeiling, tenMbCeiling)).toBeCloseTo(100, 5)
   })
 
   it('provides asymmetric transitions for rising vs falling rates', () => {

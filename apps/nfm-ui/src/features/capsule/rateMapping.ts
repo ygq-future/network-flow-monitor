@@ -5,13 +5,16 @@ export interface RateTransitionConfig {
 
 export const MAX_REFERENCE_RATE_BYTES_PER_SEC = 100 * 1024 * 1024 // 100 MB/s
 export const MIN_VISIBLE_FILL_PERCENT = 3
-export const BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC = 512 // 0.5 KB/s
+export const BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC = 10 * 1024 // 10 KB/s
+const RATE_CURVE_EXPONENT = 2
 
 /**
- * Maps throughput rate (bytes/sec) smoothly to fill percentage [0, 100].
- * Uses a gentle log-power curve anchored at 512 B/s so low background rates
- * (10–50 KB/s) stay calm (~12–22%) while high-bandwidth bursts (10–100 MB/s)
- * expand across the full range. Supports an optional adaptive ceiling.
+ * Maps throughput rate (bytes/sec) to fill percentage [0, 100].
+ * Rates up to 10 KB/s share the first MIN_VISIBLE_FILL_PERCENT linearly, so
+ * background chatter stays near-idle. Above that the log-scaled position
+ * between the floor and the ceiling is squared, which keeps hundreds of KB/s
+ * in the lower third (300 KB/s ≈ 26%) while 10 MB/s and above fill the range.
+ * The ceiling adapts upward for bursts beyond 10 MB/s.
  */
 export function calculateRateFillPercent(
   bytesPerSec: number,
@@ -30,7 +33,7 @@ export function calculateRateFillPercent(
   const logCeiling = Math.log10(ceiling)
   const logRate = Math.log10(bytesPerSec)
   const normalized = Math.min(1, Math.max(0, (logRate - logFloor) / (logCeiling - logFloor)))
-  const curved = Math.pow(normalized, 1.35)
+  const curved = Math.pow(normalized, RATE_CURVE_EXPONENT)
 
   return MIN_VISIBLE_FILL_PERCENT + curved * (100 - MIN_VISIBLE_FILL_PERCENT)
 }

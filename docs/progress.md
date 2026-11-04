@@ -91,7 +91,7 @@ Product Host and frontend implementation remain Ticket 01 work.
 
 ## 第二轮实机交互与视觉打磨 — complete
 
-- **流量速率曲线平滑与自适应上限 (`rateMapping.ts` & `DockCapsule.tsx`)**：以 `512 B/s` 为感知底噪锚点并引入 1.35 次幂对数曲线与自适应峰值上限，使轻量流量平稳保持在 ~12%–20% 区间。
+- **流量速率曲线与自适应上限 (`rateMapping.ts` & `DockCapsule.tsx`)**：以 `10 KB/s` 为感知底噪锚点，对数位置做 2 次幂映射并配合自适应峰值上限（下限 10 MB/s、上限 100 MB/s）；上限 10 MB/s 时 300 KB/s 约占半区 26%、1 MB/s 约 46%、10 MB/s 满格，背景小流量保持近乎静止。
 - **胶囊可自定义双色速度渐变 (`DockCapsule.tsx`, `SettingsCenter.tsx`)**：提供 5 组精选双色预设与自定义上下行颜色选择器，胶囊填充随速率平滑呈现渐变过渡。
 - **高帧率丝滑拖拽与边缘细线自动隐藏 (`win32_window.cpp`, `dock_capsule_coordinator.cpp`, `DockCapsule.tsx`)**：提升主窗口光标追踪采样频率并保持抓握偏移；开启自动隐藏后保留 16 DIP 窗口命中区，胶囊向屏幕边缘平移收缩为 4px 边缘指示条，鼠标靠近即刻滑出唤醒。
 - **胶囊与面板缩放过渡动画 (`BasicMonitorPanel.tsx`)**：根据停靠方向（`left center` / `right center`）配置弹性缩放与透明度过渡（`cubic-bezier(0.22, 1, 0.36, 1)`）。

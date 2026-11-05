@@ -108,9 +108,7 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
         const auto monotonic_ms = MonotonicMs(now, instance_started_at_);
         const auto capture_result = provider_->Capture();
         if (capture_result.error != CaptureError::None) {
-            previous_total_download_.reset();
-            previous_total_upload_.reset();
-            previous_sample_time_.reset();
+            rate_samples_.clear();
             if (tick_due) {
                 const TrafficTickMessage zero_tick{
                     .seq = ++tick_sequence_,
@@ -152,17 +150,27 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
         std::uint64_t download_rate = 0U;
         std::uint64_t upload_rate = 0U;
 
-        if (previous_sample_time_.has_value() && now > *previous_sample_time_ &&
-            previous_total_download_.has_value() && previous_total_upload_.has_value()) {
+        rate_samples_.push_back(RateSample{
+            .captured_at = now,
+            .total_download = total_download,
+            .total_upload = total_upload,
+        });
+        while (rate_samples_.size() > 2U &&
+               rate_samples_[1].captured_at + kRankingSnapshotInterval <= now) {
+            rate_samples_.pop_front();
+        }
+
+        if (rate_samples_.size() >= 2U && now > rate_samples_.front().captured_at) {
+            const auto& baseline = rate_samples_.front();
             const auto elapsed_us =
-                std::chrono::duration_cast<std::chrono::microseconds>(now - *previous_sample_time_)
+                std::chrono::duration_cast<std::chrono::microseconds>(now - baseline.captured_at)
                     .count();
             if (elapsed_us > 0) {
-                const auto delta_download = total_download >= *previous_total_download_
-                                                ? total_download - *previous_total_download_
+                const auto delta_download = total_download >= baseline.total_download
+                                                ? total_download - baseline.total_download
                                                 : 0U;
-                const auto delta_upload = total_upload >= *previous_total_upload_
-                                              ? total_upload - *previous_total_upload_
+                const auto delta_upload = total_upload >= baseline.total_upload
+                                              ? total_upload - baseline.total_upload
                                               : 0U;
                 const double elapsed_seconds = static_cast<double>(elapsed_us) / 1'000'000.0;
                 download_rate = static_cast<std::uint64_t>(static_cast<double>(delta_download) /
@@ -171,10 +179,6 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                     static_cast<std::uint64_t>(static_cast<double>(delta_upload) / elapsed_seconds);
             }
         }
-
-        previous_total_download_ = total_download;
-        previous_total_upload_ = total_upload;
-        previous_sample_time_ = now;
 
         ranking::RankingResult ranking_result;
         if (ranking_engine_) {

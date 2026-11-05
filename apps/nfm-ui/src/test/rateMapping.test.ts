@@ -26,11 +26,13 @@ describe('rateMapping', () => {
     expect(maxRate).toBeCloseTo(100, 1)
   })
 
-  it('keeps background and hundreds-of-KB rates in the lower part of the range', () => {
+  it('keeps hundreds-of-KB rates low and places 1 MB/s at roughly one-third of a 10 MB/s ceiling', () => {
     const tenMbCeiling = 10 * 1024 * 1024
     expect(calculateRateFillPercent(1024, tenMbCeiling)).toBeLessThan(MIN_VISIBLE_FILL_PERCENT)
-    expect(calculateRateFillPercent(300 * 1024, tenMbCeiling)).toBeLessThan(30)
-    expect(calculateRateFillPercent(1024 * 1024, tenMbCeiling)).toBeLessThan(50)
+    expect(calculateRateFillPercent(300 * 1024, tenMbCeiling)).toBeLessThan(20)
+    const oneMbPercent = calculateRateFillPercent(1024 * 1024, tenMbCeiling)
+    expect(oneMbPercent).toBeGreaterThan(30)
+    expect(oneMbPercent).toBeLessThan(35)
     expect(calculateRateFillPercent(tenMbCeiling, tenMbCeiling)).toBeCloseTo(100, 5)
   })
 

@@ -472,3 +472,12 @@ Product Host and frontend implementation remain Ticket 01 work.
   - **交互联动 (`ProductHost`)**：左键点击网速文字直接切换 340 DIP 监控面板的展开与收起（并在 `on_surface_outside_click` 中豁免任务栏网速窗区域防止外部点击冲突），右键点击弹出原生上下文菜单。
 - **测试与质量门禁 (`tests/config_tests.cpp`, `tests/host_tests.cpp`, `SettingsCenter.test.tsx`)**：
   - 新增 `display.show_taskbar_speed` 配置编解码单测、`taskbar_speed_window_suite` 速率格式化与 Win10/Win11 左右相对坐标布局单测，以及前端设置开关交互单测。
+
+## 第三十六轮 贴边胶囊速率曲线三级幂次校准与 1 秒滚动窗口脉冲抑制 — complete
+
+- **现象与根因 (`rateMapping.ts`, `snapshot_publisher.cpp`)**：
+  - 贴边胶囊对数速率映射此前采用 2 次幂曲线（`RATE_CURVE_EXPONENT = 2`），在默认 `10 MB/s` 上限下，`1 MB/s` 静态占据半区的 `46.1%`；同时 `SnapshotPublisher` 的 4 Hz `TrafficTick` 直接用相邻 250ms 样本差分计算瞬时速率，当 1 秒内的内核 ETW 数据包集中在单个 250ms Tick 刷出时，瞬时速率被 $\times 4$ 放大至 `3~4 MB/s`，叠加较快的上升系数（`CAPSULE_ATTACK_ALPHA = 0.42`）与慢释放动画，导致任务栏显示约 `1 MB/s` 时胶囊半区视觉填充已达约 `80%`。
+- **修复 (`rateMapping.ts`, `snapshot_publisher.h`, `snapshot_publisher.cpp`)**：
+  - 将 `rateMapping.ts` 的 `RATE_CURVE_EXPONENT` 提升为 `3`（对数三次方映射），使默认 `10 MB/s` 上限下 `300 KB/s` 约占半区 `14.3%`、**`1 MB/s` 精准落在半区的约三分之一（`31.8%`）**、`3 MB/s` 约占 `57.2%`、`5 MB/s` 约占 `73.0%`、`10 MB/s` 占满 `100%`；同时将 `CAPSULE_ATTACK_ALPHA` 下调至 `0.28` 与释放阻尼对称。
+  - 将 `SnapshotPublisher::RunDue` 的 `TrafficTick` 速率计算改为基于保留 1 秒历史样本队列（`rate_samples_`）的滚动窗口均值，保持 4 Hz (250ms) 高频推送的同时消除单 Tick 微突发导致的 $\times 4$ 速率虚高，使胶囊与任务栏/监控面板的速率口径一致。
+- **测试验证 (`rateMapping.test.ts`, `ipc_session_tests.cpp`)**：更新 `1 MB/s` 对应约三分之一填充比例的断言，并新增 250ms 突发流量在 1 秒滚动窗口下平滑均值化的 IPC 集成单测。

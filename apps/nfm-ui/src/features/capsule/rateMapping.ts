@@ -6,8 +6,8 @@ export interface RateTransitionConfig {
 export const MAX_REFERENCE_RATE_BYTES_PER_SEC = 100 * 1024 * 1024 // 100 MB/s
 export const MIN_VISIBLE_FILL_PERCENT = 3
 export const BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC = 10 * 1024 // 10 KB/s
-const RATE_CURVE_EXPONENT = 2
-export const CAPSULE_ATTACK_ALPHA = 0.42
+const RATE_CURVE_EXPONENT = 3
+export const CAPSULE_ATTACK_ALPHA = 0.28
 export const CAPSULE_RELEASE_ALPHA = 0.28
 export const CAPSULE_IDLE_SNAP_BYTES_PER_SEC = 512
 
@@ -32,8 +32,9 @@ export function smoothCapsuleRate(previousSmoothedRate: number, rawSampleRate: n
  * Maps throughput rate (bytes/sec) to fill percentage [0, 100].
  * Rates up to 10 KB/s share the first MIN_VISIBLE_FILL_PERCENT linearly, so
  * background chatter stays near-idle. Above that the log-scaled position
- * between the floor and the ceiling is squared, which keeps hundreds of KB/s
- * in the lower third (300 KB/s ≈ 26%) while 10 MB/s and above fill the range.
+ * between the floor and the ceiling is cubed, which keeps hundreds of KB/s
+ * in the lower sixth (300 KB/s ≈ 14%) and places 1 MB/s at ~32% (roughly 1/3)
+ * while 10 MB/s and above fill the range.
  * The ceiling adapts upward for bursts beyond 10 MB/s.
  */
 export function calculateRateFillPercent(

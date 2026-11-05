@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -103,9 +104,12 @@ class SnapshotPublisher final : public ClientSessionObserver {
     std::unordered_map<std::uint64_t, HelloMessage> connected_clients_;
     std::optional<std::chrono::steady_clock::time_point> last_tick_run_;
     std::optional<std::chrono::steady_clock::time_point> last_snapshot_run_;
-    std::optional<std::uint64_t> previous_total_download_;
-    std::optional<std::uint64_t> previous_total_upload_;
-    std::optional<std::chrono::steady_clock::time_point> previous_sample_time_;
+    struct RateSample {
+        std::chrono::steady_clock::time_point captured_at;
+        std::uint64_t total_download{};
+        std::uint64_t total_upload{};
+    };
+    std::deque<RateSample> rate_samples_;
     std::uint64_t tick_sequence_{};
     std::uint64_t snapshot_sequence_{};
     PublisherError pending_error_{PublisherError::None};

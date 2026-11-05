@@ -517,6 +517,7 @@ using nfm::ipc::CollectorCapture;
 using nfm::ipc::CollectorEndpointMode;
 using nfm::ipc::DecodeCollectorStatus;
 using nfm::ipc::DecodeRankingSnapshot;
+using nfm::ipc::DecodeTrafficTick;
 using nfm::ipc::EncodeHello;
 using nfm::ipc::HelloMessage;
 using nfm::ipc::IpcServer;
@@ -764,13 +765,20 @@ void CheckRankingAndCollectorStatusPublishing(TestContext& context) {
     // Advance by 1000ms: upload increases by 1,000,000 bytes, download increases by 2,000,000 bytes
     const auto t1 = t0 + 1000ms;
     provider.capture_time = t1;
-    provider.custom_upload = 1'000'000U;
-    provider.custom_download = 2'000'000U;
+    provider.custom_upload = 1'000'001U;
+    provider.custom_download = 2'000'001U;
     context.Check(publisher.RunDue(t1).ok(), "t1 RunDue succeeds");
 
     // Expect TrafficTick
     context.Check(ReadWire(client, wire), "client receives t1 TrafficTick");
-
+    parsed = nfm::ipc::TryDecodeFrame(wire);
+    if (parsed.frame.has_value()) {
+        const auto tick = DecodeTrafficTick(parsed.frame->payload);
+        context.Check(tick.ok() && tick.message.has_value() &&
+                          tick.message->download_bytes_per_sec == 2'000'000U &&
+                          tick.message->upload_bytes_per_sec == 1'000'000U,
+                      "t1 TrafficTick reports 1s rate");
+    }
     // Expect RankingSnapshot (Ready status, calculated rate)
     context.Check(ReadWire(client, wire), "client receives t1 RankingSnapshot");
     parsed = nfm::ipc::TryDecodeFrame(wire);
@@ -799,6 +807,27 @@ void CheckRankingAndCollectorStatusPublishing(TestContext& context) {
     // Expect CollectorStatus
     context.Check(ReadWire(client, wire), "client receives t1 CollectorStatus");
 
+    // Feed 3 idle 250ms ticks so the 1s rolling window covers [t1, t1+750ms], then a 1,000,000-byte
+    // burst at t1+1000ms
+    for (int step = 1; step <= 3; ++step) {
+        const auto step_time = t1 + std::chrono::milliseconds{250 * step};
+        provider.capture_time = step_time;
+        context.Check(publisher.RunDue(step_time).ok(), "intermediate 250ms RunDue succeeds");
+        context.Check(ReadWire(client, wire), "client drains intermediate TrafficTick");
+    }
+
+    provider.capture_time = t1 + 1000ms;
+    provider.custom_download = 3'000'001U;
+    context.Check(publisher.RunDue(t1 + 1000ms).ok(), "t1+1000ms RunDue succeeds");
+    context.Check(ReadWire(client, wire), "client receives t1+1000ms TrafficTick");
+    parsed = nfm::ipc::TryDecodeFrame(wire);
+    if (parsed.frame.has_value()) {
+        const auto tick = DecodeTrafficTick(parsed.frame->payload);
+        context.Check(
+            tick.ok() && tick.message.has_value() &&
+                tick.message->download_bytes_per_sec == 1'000'000U,
+            "250ms burst is averaged across the retained 1s rolling window instead of 4x spike");
+    }
     context.Check(server.Stop().ok(), "ranking/status test server stops");
     static_cast<void>(client.CancelAndDrain());
 }

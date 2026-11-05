@@ -561,6 +561,7 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_obj_add_bool(doc.get(), gen, "uiAtLogin", config.startup.ui_at_login);
     yyjson_mut_obj_add_str(doc.get(), gen, "speedUnit",
                            to_speed_unit_str(config.display.speed_unit));
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarSpeed", config.display.show_taskbar_speed);
 
     // appearance
     yyjson_mut_val* app = yyjson_mut_obj(doc.get());

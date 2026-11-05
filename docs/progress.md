@@ -462,3 +462,13 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **质量门禁**：`tools/quality.ps1 -Mode Full` 20/20 通过（版本一致性 `v0.3.4`、clang-format 106 文件、Prettier、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、Release 构建与 8 组测试、CPack 打包）。
 - **便携发行包 (`tools/package.ps1 -Configuration Release`)**：`dist/NetworkFlowMonitor-0.3.4-win-x64.zip`（886416 字节，SHA256 `8A0122C05C43B89359038D3952C66BBDDA47F7A0D822400CDCFCB1FA5107766E`）。
 - **发布流程**：提交版本升级与发布说明后推送 `v0.3.4` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。
+
+## 第三十五轮 原生任务栏实时网速窗口 (`TaskbarSpeedWindow`) 实现 — complete
+
+- **需求与设计边界**：
+  - 提供极简、透明融合任务栏背景、跟随主题黑白文字配色的任务栏实时网速展示，仅在设置中心「通用」页暴露单个开关 `display.show_taskbar_speed`（`Show Taskbar Speed / 显示任务栏网速`）。
+  - **原生任务栏父子挂载 (`SetParent` + 相对坐标，与任务栏浑然一体)**：采用与 TrafficMonitor 一致的 `WS_POPUP` + `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`（不设置独立 `WS_EX_TOPMOST`），通过 `SetParent` 挂载到 Win11 的 `Shell_TrayWnd`（或 Win10 的 `ReBarWindow32`，并在 Win10 下自动缩减 `MSTaskSwWClass` 宽度以留出右侧空位，关闭时还原）。窗口坐标完全使用相对于任务栏左上角的局部坐标，因此无论是任务栏自动隐藏滑出/滑入、F11 全屏被遮挡，还是在全屏下按 `Win` 键随开始菜单浮出，均由系统 DWM 与任务栏合成层原生联动，无任何“原地突兀显隐”感。
+  - **ClearType 锐利字体与三栏固定锚点防跳动 (`paint_window`)**：采样任务栏真实背景色 (`GetPixel` + `SetLayeredWindowAttributes(..., LWA_COLORKEY)`) 作为双缓冲画布底色，使 9pt `微软雅黑` (`DEFAULT_QUALITY`) 获得完整的 ClearType 亚像素抗锯齿锐度；采用「左对齐箭头前缀 (`↑:`/`↓:`) + 右对齐数值列 + 左对齐单位列 (`KB/s`/`MB/s`)」固定三栏坐标消除数字位数变化引起的单位跳动；与监控面板共享相同的 1 Hz `RankingSnapshotDto` 滑动窗口总速率数据源。
+  - **交互联动 (`ProductHost`)**：左键点击网速文字直接切换 340 DIP 监控面板的展开与收起（并在 `on_surface_outside_click` 中豁免任务栏网速窗区域防止外部点击冲突），右键点击弹出原生上下文菜单。
+- **测试与质量门禁 (`tests/config_tests.cpp`, `tests/host_tests.cpp`, `SettingsCenter.test.tsx`)**：
+  - 新增 `display.show_taskbar_speed` 配置编解码单测、`taskbar_speed_window_suite` 速率格式化与 Win10/Win11 左右相对坐标布局单测，以及前端设置开关交互单测。

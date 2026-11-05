@@ -120,6 +120,7 @@ export interface ConfigSchemaDto {
 export interface GeneralConfigDto {
   uiAtLogin: boolean
   speedUnit: 'auto' | 'bytes' | 'bits'
+  showTaskbarSpeed?: boolean
 }
 
 export interface AppearanceConfigDto {

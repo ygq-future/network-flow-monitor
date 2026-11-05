@@ -106,6 +106,7 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
     general: {
       uiAtLogin: false,
       speedUnit: 'auto',
+      showTaskbarSpeed: false,
     },
     appearance: {
       theme: 'system',
@@ -390,6 +391,12 @@ export class MockBridge extends NativeBridge {
       cfg.general.uiAtLogin = Boolean(value)
     } else if (key === 'display.speed_unit' || key === 'general.speedUnit' || key === 'speedUnit') {
       cfg.general.speedUnit = value as 'auto' | 'bytes' | 'bits'
+    } else if (
+      key === 'display.show_taskbar_speed' ||
+      key === 'general.showTaskbarSpeed' ||
+      key === 'showTaskbarSpeed'
+    ) {
+      cfg.general.showTaskbarSpeed = Boolean(value)
     } else if (key === 'appearance.theme' || key === 'theme') {
       cfg.appearance.theme = value as 'system' | 'light' | 'dark'
     } else if (key === 'appearance.language' || key === 'language') {

@@ -249,6 +249,12 @@ bool ProductHost::initialize() {
                         !coordinator_->state().is_fullscreen_hidden) {
                         native_bridge_->post_traffic_tick(tick);
                     }
+                    if (taskbar_speed_window_ && !latest_ranking_snapshot_.has_value()) {
+                        taskbar_speed_window_->update_rates(platform::TaskbarRatePair{
+                            .download_bytes_per_sec = tick.download_bytes_per_sec,
+                            .upload_bytes_per_sec = tick.upload_bytes_per_sec,
+                        });
+                    }
                 } catch (...) {
                 }
             });
@@ -267,6 +273,13 @@ bool ProductHost::initialize() {
                                 coordinator_->state().presentation_state ==
                                     coordinator::PresentationState::PanelVisible) {
                                 native_bridge_->post_ranking_snapshot(*snap_ptr);
+                            }
+                            if (taskbar_speed_window_) {
+                                taskbar_speed_window_->update_rates(platform::TaskbarRatePair{
+                                    .download_bytes_per_sec =
+                                        snap_ptr->total_download_bytes_per_sec,
+                                    .upload_bytes_per_sec = snap_ptr->total_upload_bytes_per_sec,
+                                });
                             }
                         }
                         if (settings_surface_visible_ && settings_bridge_ && collector_companion_) {
@@ -439,6 +452,13 @@ bool ProductHost::initialize() {
     }
 
     window_->create_tray_icon();
+    taskbar_speed_window_ = std::make_unique<platform::TaskbarSpeedWindow>();
+    taskbar_speed_window_->update_config(current_config_.display.speed_unit,
+                                         current_config_.appearance.theme);
+    static_cast<void>(taskbar_speed_window_->create(
+        [this]() { on_context_menu_show_monitor(); },
+        [this](int screen_x, int screen_y) { on_open_context_menu(screen_x, screen_y); }));
+    taskbar_speed_window_->set_enabled(current_config_.display.show_taskbar_speed);
     icon_warmup_thread_ = std::thread([this]() noexcept {
         try {
             warm_executable_icons();
@@ -492,6 +512,9 @@ void ProductHost::shutdown() {
 
     native_bridge_.reset();
     webview_.reset();
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->close();
+    }
     if (window_) {
         window_->close();
     }
@@ -516,12 +539,18 @@ void ProductHost::on_window_dpi_changed(std::uint32_t /*new_dpi*/, const RECT* /
         coordinator_->update_monitors(platform::Win32Window::enumerate_monitors());
         apply_coordinator_state();
     }
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->sync_with_taskbar();
+    }
 }
 
 void ProductHost::on_display_change() {
     if (coordinator_) {
         coordinator_->update_monitors(platform::Win32Window::enumerate_monitors());
         apply_coordinator_state();
+    }
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->sync_with_taskbar();
     }
 }
 
@@ -748,6 +777,9 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
             static_cast<void>(settings_webview_->ensure_alive());
         }
         ensure_window_presentation();
+        if (taskbar_speed_window_) {
+            taskbar_speed_window_->sync_with_taskbar();
+        }
     }
     history_persist_elapsed_ += elapsed;
     if (history_persist_elapsed_ >= kTrafficHistoryAutoSaveInterval) {
@@ -761,6 +793,12 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
 void ProductHost::on_surface_outside_click() {
     if (!coordinator_) {
         return;
+    }
+    if (taskbar_speed_window_ && taskbar_speed_window_->is_enabled()) {
+        POINT pt{};
+        if (GetCursorPos(&pt) != FALSE && taskbar_speed_window_->contains_screen_point(pt)) {
+            return;
+        }
     }
     const auto& state = coordinator_->state();
     if (state.presentation_state == coordinator::PresentationState::PanelVisible &&
@@ -1564,6 +1602,14 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected string for speed_unit";
         }
+    } else if (key == "display.show_taskbar_speed" || key == "general.showTaskbarSpeed" ||
+               key == "showTaskbarSpeed") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_speed = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_speed";
+        }
     } else if (key == "appearance.theme" || key == "theme") {
         if (yyjson_is_str(val)) {
             std::string_view str = yyjson_get_str(val);
@@ -1984,6 +2030,11 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         publish_surface_state();
     }
     apply_settings_window_chrome();
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->update_config(current_config_.display.speed_unit,
+                                             current_config_.appearance.theme);
+        taskbar_speed_window_->set_enabled(current_config_.display.show_taskbar_speed);
+    }
 
     // Broadcast authoritative snapshot
     broadcast_to_all_bridges(

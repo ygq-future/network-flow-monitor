@@ -82,6 +82,7 @@ struct DisplayConfig {
     SpeedUnit speed_unit{SpeedUnit::Auto};
     bool show_upload{true};
     bool show_download{true};
+    bool show_taskbar_speed{false};
 
     bool operator==(const DisplayConfig&) const = default;
 };

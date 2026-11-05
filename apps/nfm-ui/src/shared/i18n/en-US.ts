@@ -66,6 +66,8 @@ export const enUS: TranslationSchema = {
     // General
     launchAtStartup: 'Launch at Windows startup',
     launchAtStartupDesc: 'Start monitor automatically at user sign-in',
+    showTaskbarSpeed: 'Show Taskbar Speed',
+    showTaskbarSpeedDesc: 'Display live upload and download rates on the Windows taskbar',
     speedUnit: 'Speed Unit',
     speedUnitDesc: 'Throughput display format across all views',
     speedUnitAuto: 'Auto (KB/s, MB/s)',

@@ -67,6 +67,8 @@ export interface TranslationSchema {
     // General
     launchAtStartup: string
     launchAtStartupDesc: string
+    showTaskbarSpeed: string
+    showTaskbarSpeedDesc: string
     speedUnit: string
     speedUnitDesc: string
     speedUnitAuto: string

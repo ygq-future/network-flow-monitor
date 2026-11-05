@@ -8,6 +8,7 @@
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
+#include "network_flow_monitor/host/platform/taskbar_speed_window.h"
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 
@@ -2139,6 +2140,91 @@ int Run() {
 }
 } // namespace traffic_history_suite
 
+namespace taskbar_speed_window_suite {
+namespace {
+
+class TestContext {
+  public:
+    void Check(bool condition, std::string_view name) {
+        if (!condition) {
+            std::cerr << "Case failed: " << name << '\n';
+            ++failures_;
+        }
+    }
+    [[nodiscard]] int failures() const noexcept {
+        return failures_;
+    }
+
+  private:
+    int failures_{};
+};
+
+void TestRateFormatting(TestContext& ctx) {
+    using nfm::config::SpeedUnit;
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    ctx.Check(TaskbarSpeedWindow::format_rate_line(L"\u2191", 0U, SpeedUnit::Auto) ==
+                  L"\u2191: 0.0 KB/s",
+              "0 bytes in Auto formats as 0.0 KB/s");
+    ctx.Check(TaskbarSpeedWindow::format_rate_line(L"\u2193", 7372U, SpeedUnit::Bytes) ==
+                  L"\u2193: 7.2 KB/s",
+              "7372 bytes formats as 7.2 KB/s");
+    ctx.Check(TaskbarSpeedWindow::format_rate_line(L"\u2193", 434176U, SpeedUnit::Auto) ==
+                  L"\u2193: 424 KB/s",
+              ">= 100 KB/s rounds to integer");
+    ctx.Check(TaskbarSpeedWindow::format_rate_line(L"\u2191", 125000U, SpeedUnit::Bits) ==
+                  L"\u2191: 1.0 Mbps",
+              "125000 bytes in Bits formats as 1.0 Mbps");
+    const auto parts = TaskbarSpeedWindow::format_rate_parts(434176U, SpeedUnit::Auto);
+    ctx.Check(parts.value == L"424" && parts.unit == L"KB/s",
+              "format_rate_parts separates value and unit for fixed-column rendering");
+}
+
+void TestAdaptivePlacementWin11AndWin10(TestContext& ctx) {
+    using nfm::host::platform::TaskbarLayoutInput;
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    // Case 1: Win11 centered taskbar without widgets -> placed on left edge
+    const TaskbarLayoutInput win11_centered{
+        .taskbar_rect = RECT{0, 1032, 1920, 1080},
+        .notify_rect = RECT{1720, 1032, 1920, 1080},
+        .has_notify_rect = true,
+        .taskbar_centered = true,
+        .widgets_enabled = false,
+        .dpi = 96U,
+    };
+    const auto p1 = TaskbarSpeedWindow::compute_placement(win11_centered);
+    ctx.Check(p1.valid && p1.placed_on_left, "Win11 centered without widgets places on left");
+    ctx.Check(p1.x_px == 2 && p1.y_px == 8 && p1.width_px == 80 && p1.height_px == 32,
+              "Win11 left placement uses relative Shell_TrayWnd coordinates (2, 8, 80x32)");
+
+    // Case 2: Win10 / Win11 left-aligned taskbar -> placed on right side immediately left of
+    // TrayNotifyWnd in relative taskbar coordinates
+    const TaskbarLayoutInput win10_left_aligned{
+        .taskbar_rect = RECT{0, 1040, 1920, 1080},
+        .notify_rect = RECT{1700, 1040, 1920, 1080},
+        .has_notify_rect = true,
+        .taskbar_centered = false,
+        .widgets_enabled = false,
+        .dpi = 96U,
+    };
+    const auto p2 = TaskbarSpeedWindow::compute_placement(win10_left_aligned);
+    ctx.Check(p2.valid && !p2.placed_on_left,
+              "Win10/left-aligned taskbar places on right before TrayNotifyWnd");
+    ctx.Check(p2.x_px == 1700 - 80 - 2 && p2.y_px == 4 && p2.height_px == 32,
+              "Win10 right placement docks 2px left of TrayNotifyWnd in relative coords");
+}
+
+} // namespace
+
+int Run() {
+    TestContext ctx;
+    TestRateFormatting(ctx);
+    TestAdaptivePlacementWin11AndWin10(ctx);
+    return ctx.failures();
+}
+} // namespace taskbar_speed_window_suite
+
 int main() {
     int failures = 0;
     failures += (host_bridge_suite::Run() != 0 ? 1 : 0);
@@ -2147,5 +2233,6 @@ int main() {
     failures += (dock_capsule_coordinator_suite::Run() != 0 ? 1 : 0);
     failures += (app_updater_suite::Run() != 0 ? 1 : 0);
     failures += (traffic_history_suite::Run() != 0 ? 1 : 0);
+    failures += (taskbar_speed_window_suite::Run() != 0 ? 1 : 0);
     return failures;
 }

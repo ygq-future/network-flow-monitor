@@ -108,6 +108,7 @@ add_library(
         host/platform/atomic_file.cpp
         host/platform/rotating_file_logger.cpp
         host/platform/startup_registration.cpp
+        host/platform/taskbar_speed_window.cpp
         host/platform/webview2_environment.cpp
         host/platform/win32_window.cpp
         host/webview/webview_controller.cpp

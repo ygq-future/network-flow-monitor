@@ -11,6 +11,7 @@
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
+#include "network_flow_monitor/host/platform/taskbar_speed_window.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 #include "network_flow_monitor/host/webview/webview_controller.h"
 
@@ -150,6 +151,7 @@ class ProductHost : public platform::IWindowEventListener,
     std::shared_ptr<lifecycle::CollectorCompanion> collector_companion_;
     std::unique_ptr<platform::AppUpdater> app_updater_;
     std::unique_ptr<history::TrafficHistoryStore> traffic_history_store_;
+    std::unique_ptr<platform::TaskbarSpeedWindow> taskbar_speed_window_;
     config::AppConfig current_config_;
     std::optional<bridge::RankingSnapshotDto> latest_ranking_snapshot_;
     std::optional<bridge::CollectorStatusDto> latest_collector_status_;

@@ -47,8 +47,8 @@ constexpr std::array<std::string_view, 8> kUserRootKeys{
     "schema_version", "ranking",    "display", "interaction",
     "floating",       "appearance", "startup", "diagnostics"};
 constexpr std::array<std::string_view, 3> kRankingKeys{"top_n", "window_ms", "excluded_programs"};
-constexpr std::array<std::string_view, 4> kDisplayKeys{"refresh_interval_ms", "speed_unit",
-                                                       "show_upload", "show_download"};
+constexpr std::array<std::string_view, 5> kDisplayKeys{
+    "refresh_interval_ms", "speed_unit", "show_upload", "show_download", "show_taskbar_speed"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
 constexpr std::array<std::string_view, 16> kFloatingKeys{"auto_hide_enabled",
                                                          "auto_hide_delay_ms",
@@ -409,8 +409,12 @@ std::optional<ConfigError> ParseDisplay(yyjson_val* root, AppConfig& config, boo
                                  config.display.show_upload, &complete)) {
         return error;
     }
-    return ReadBoolean(group, "show_download", "display.show_download",
-                       config.display.show_download, &complete);
+    if (auto error = ReadBoolean(group, "show_download", "display.show_download",
+                                 config.display.show_download, &complete)) {
+        return error;
+    }
+    return ReadBoolean(group, "show_taskbar_speed", "display.show_taskbar_speed",
+                       config.display.show_taskbar_speed, &complete);
 }
 
 std::optional<ConfigError> ParseInteraction(yyjson_val* root, AppConfig& config, bool& complete) {
@@ -745,7 +749,10 @@ bool AddDisplay(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig&
                                    config.display.refresh_interval.count()) &&
            AddString(document, group, "speed_unit", SpeedUnitText(config.display.speed_unit)) &&
            yyjson_mut_obj_add_bool(document, group, "show_upload", config.display.show_upload) &&
-           yyjson_mut_obj_add_bool(document, group, "show_download", config.display.show_download);
+           yyjson_mut_obj_add_bool(document, group, "show_download",
+                                   config.display.show_download) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_speed",
+                                   config.display.show_taskbar_speed);
 }
 
 bool AddInteraction(yyjson_mut_doc* document, yyjson_mut_val* root,

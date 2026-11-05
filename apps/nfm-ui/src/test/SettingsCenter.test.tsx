@@ -28,6 +28,7 @@ describe('SettingsCenter', () => {
     expect(screen.getByRole('button', { name: /Traffic History/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Collector & Logs/i })).toBeInTheDocument()
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
+    expect(screen.getByText('Show Taskbar Speed')).toBeInTheDocument()
     expect(screen.getByText('Speed Unit')).toBeInTheDocument()
     expect(screen.getByText('Application Theme')).toBeInTheDocument()
     expect(screen.getByText('Language')).toBeInTheDocument()
@@ -73,6 +74,14 @@ describe('SettingsCenter', () => {
     fireEvent.click(startupToggle)
     expect(spySend).toHaveBeenCalledWith('updateSetting', {
       key: 'startup.ui_at_login',
+      value: true,
+    })
+
+    // Toggle taskbar speed
+    const taskbarSpeedToggle = screen.getByRole('switch', { name: /Show Taskbar Speed/i })
+    fireEvent.click(taskbarSpeedToggle)
+    expect(spySend).toHaveBeenCalledWith('updateSetting', {
+      key: 'display.show_taskbar_speed',
       value: true,
     })
 

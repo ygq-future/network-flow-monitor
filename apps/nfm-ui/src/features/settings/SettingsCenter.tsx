@@ -375,6 +375,17 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
+                label={t.settings.showTaskbarSpeed}
+                description={t.settings.showTaskbarSpeedDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarSpeed)}
+                    onChange={val => handleUpdate('display.show_taskbar_speed', val)}
+                    ariaLabel={t.settings.showTaskbarSpeed}
+                  />
+                }
+              />
+              <SettingsRow
                 label={t.settings.speedUnit}
                 description={t.settings.speedUnitDesc}
                 control={

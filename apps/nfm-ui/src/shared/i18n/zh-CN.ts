@@ -66,6 +66,8 @@ export const zhCN: TranslationSchema = {
     // General
     launchAtStartup: '登录 Windows 时自动启动',
     launchAtStartupDesc: '登录系统桌面时自动运行监视器',
+    showTaskbarSpeed: '显示任务栏网速',
+    showTaskbarSpeedDesc: '在系统任务栏实时展示上下行网速信息',
     speedUnit: '速率单位',
     speedUnitDesc: '界面吞吐速率的计量格式',
     speedUnitAuto: '自动适应 (KB/s, MB/s)',

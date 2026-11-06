@@ -2195,8 +2195,8 @@ void TestAdaptivePlacementWin11AndWin10(TestContext& ctx) {
     };
     const auto p1 = TaskbarSpeedWindow::compute_placement(win11_centered);
     ctx.Check(p1.valid && p1.placed_on_left, "Win11 centered without widgets places on left");
-    ctx.Check(p1.x_px == 2 && p1.y_px == 8 && p1.width_px == 80 && p1.height_px == 32,
-              "Win11 left placement uses relative Shell_TrayWnd coordinates (2, 8, 80x32)");
+    ctx.Check(p1.x_px == 2 && p1.y_px == 8 && p1.width_px == 74 && p1.height_px == 32,
+              "Win11 left placement uses relative Shell_TrayWnd coordinates (2, 8, 74x32)");
 
     // Case 2: Win10 / Win11 left-aligned taskbar -> placed on right side immediately left of
     // TrayNotifyWnd in relative taskbar coordinates
@@ -2211,8 +2211,137 @@ void TestAdaptivePlacementWin11AndWin10(TestContext& ctx) {
     const auto p2 = TaskbarSpeedWindow::compute_placement(win10_left_aligned);
     ctx.Check(p2.valid && !p2.placed_on_left,
               "Win10/left-aligned taskbar places on right before TrayNotifyWnd");
-    ctx.Check(p2.x_px == 1700 - 80 - 2 && p2.y_px == 4 && p2.height_px == 32,
+    ctx.Check(p2.x_px == 1700 - 74 - 2 && p2.y_px == 4 && p2.height_px == 32,
               "Win10 right placement docks 2px left of TrayNotifyWnd in relative coords");
+}
+
+void EnsureTaskbarTestClassesRegistered(HINSTANCE hinst) noexcept {
+    constexpr const wchar_t* kClasses[] = {
+        L"NFM_TestShellTrayWnd",
+        L"TrayNotifyWnd",
+        L"NFM_TestTaskbarBandWnd",
+        L"MSTaskSwWClass",
+    };
+    for (const wchar_t* class_name : kClasses) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc = &DefWindowProcW;
+        wc.hInstance = hinst;
+        wc.lpszClassName = class_name;
+        RegisterClassExW(&wc);
+    }
+}
+
+void TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(TestContext& ctx) {
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+
+    HWND fake_taskbar =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40, nullptr,
+                        nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar != nullptr, "synthetic classical taskbar container created");
+    if (fake_taskbar == nullptr) {
+        return;
+    }
+
+    HWND rebar_hwnd = CreateWindowExW(0, L"NFM_TestTaskbarBandWnd", L"",
+                                      WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 96,
+                                      0, 1604, 40, fake_taskbar, nullptr, hinst, nullptr);
+    // Simulate a Windows 10 taskbar where a third-party monitor (such as TrafficMonitor) already
+    // shrunk MSTaskSwWClass from 1604px to 1460px on the right.
+    HWND mstask_hwnd = CreateWindowExW(0, L"MSTaskSwWClass", L"",
+                                       WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 4,
+                                       0, 1460, 40, rebar_hwnd, nullptr, hinst, nullptr);
+    HWND notify_hwnd = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700, 0,
+                                       220, 40, fake_taskbar, nullptr, hinst, nullptr);
+
+    RECT initial_mstask_rect{};
+    GetWindowRect(mstask_hwnd, &initial_mstask_rect);
+
+    TaskbarSpeedWindow speed_wnd;
+    ctx.Check(speed_wnd.create(nullptr, nullptr), "TaskbarSpeedWindow creates successfully");
+    speed_wnd.set_target_taskbar_for_testing(fake_taskbar);
+
+    // 1. First enable: attaches directly to the taskbar container, configures LWA_COLORKEY after
+    // SetParent, docks left of TrayNotifyWnd, and leaves MSTaskSwWClass completely untouched.
+    speed_wnd.set_enabled(true);
+    ctx.Check(GetAncestor(speed_wnd.hwnd(), GA_PARENT) == fake_taskbar,
+              "TaskbarSpeedWindow attaches directly to Shell_TrayWnd container");
+    COLORREF color_key = 0;
+    DWORD layered_flags = 0;
+    ctx.Check((GetWindowLongPtrW(speed_wnd.hwnd(), GWL_EXSTYLE) &
+               static_cast<LONG_PTR>(WS_EX_LAYERED)) != 0 &&
+                  GetLayeredWindowAttributes(speed_wnd.hwnd(), &color_key, nullptr,
+                                             &layered_flags) != FALSE &&
+                  (layered_flags & LWA_COLORKEY) != 0U,
+              "TaskbarSpeedWindow re-establishes WS_EX_LAYERED + LWA_COLORKEY after SetParent");
+
+    const UINT dpi_val = GetDpiForWindow(fake_taskbar);
+    const int dpi_int = static_cast<int>(dpi_val > 0U ? dpi_val : 96U);
+    const int expected_width = (TaskbarSpeedWindow::kDefaultOverlayWidthDip * dpi_int) / 96;
+    const int expected_margin = (TaskbarSpeedWindow::kHorizontalMarginDip * dpi_int) / 96;
+    const int expected_rel_x = 1700 - expected_width - expected_margin;
+
+    RECT taskbar_rc{};
+    RECT speed_rc_first{};
+    GetWindowRect(fake_taskbar, &taskbar_rc);
+    GetWindowRect(speed_wnd.hwnd(), &speed_rc_first);
+    ctx.Check((speed_rc_first.left - taskbar_rc.left) == expected_rel_x &&
+                  (speed_rc_first.right - speed_rc_first.left) == expected_width,
+              "TaskbarSpeedWindow docks immediately left of TrayNotifyWnd on classical taskbar");
+
+    RECT mstask_after_first{};
+    GetWindowRect(mstask_hwnd, &mstask_after_first);
+    ctx.Check(mstask_after_first.left == initial_mstask_rect.left &&
+                  mstask_after_first.right == initial_mstask_rect.right,
+              "First enable does not shrink or shift MSTaskSwWClass / third-party taskbar windows");
+
+    // 2. Disable and second enable: neither MSTaskSwWClass nor TaskbarSpeedWindow drifts.
+    speed_wnd.set_enabled(false);
+    speed_wnd.set_enabled(true);
+    RECT mstask_after_second{};
+    RECT speed_rc_second{};
+    GetWindowRect(mstask_hwnd, &mstask_after_second);
+    GetWindowRect(speed_wnd.hwnd(), &speed_rc_second);
+    ctx.Check(mstask_after_second.left == initial_mstask_rect.left &&
+                  mstask_after_second.right == initial_mstask_rect.right,
+              "Repeated disable/enable cycles never mutate MSTaskSwWClass bounds");
+    ctx.Check(speed_rc_second.left == speed_rc_first.left &&
+                  speed_rc_second.right == speed_rc_first.right,
+              "Repeated disable/enable cycles preserve exact overlay coordinates");
+
+    // 3. Sibling Z-order self-healing: if a sibling band window is raised to HWND_TOP,
+    // sync_with_taskbar() restores TaskbarSpeedWindow to the top of the taskbar's child list.
+    SetWindowPos(rebar_hwnd, HWND_TOP, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    ctx.Check(GetWindow(speed_wnd.hwnd(), GW_HWNDPREV) != nullptr,
+              "raising sibling taskbar band places it ahead of TaskbarSpeedWindow before sync");
+    speed_wnd.sync_with_taskbar();
+    ctx.Check(GetWindow(speed_wnd.hwnd(), GW_HWNDPREV) == nullptr,
+              "sync_with_taskbar restores TaskbarSpeedWindow to HWND_TOP among taskbar children");
+    // 4. Verify client rect dimensions match the target DPI-scaled overlay geometry (74x32 at 96
+    // DPI, resized from initial 1x1 so child layered surface allocation is triggered).
+    RECT client_rc{};
+    ctx.Check(GetClientRect(speed_wnd.hwnd(), &client_rc) != FALSE &&
+                  (client_rc.right - client_rc.left) == expected_width &&
+                  (client_rc.bottom - client_rc.top) ==
+                      (TaskbarSpeedWindow::kDefaultOverlayHeightDip * dpi_int) / 96,
+              "reparented child overlay resizes from 1x1 to target DPI dimensions");
+
+    speed_wnd.close();
+    if (notify_hwnd != nullptr) {
+        DestroyWindow(notify_hwnd);
+    }
+    if (mstask_hwnd != nullptr) {
+        DestroyWindow(mstask_hwnd);
+    }
+    if (rebar_hwnd != nullptr) {
+        DestroyWindow(rebar_hwnd);
+    }
+    DestroyWindow(fake_taskbar);
 }
 
 } // namespace
@@ -2221,6 +2350,7 @@ int Run() {
     TestContext ctx;
     TestRateFormatting(ctx);
     TestAdaptivePlacementWin11AndWin10(ctx);
+    TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(ctx);
     return ctx.failures();
 }
 } // namespace taskbar_speed_window_suite

@@ -51,7 +51,7 @@ class TaskbarSpeedWindow {
     using ClickCallback = std::function<void()>;
     using ContextMenuCallback = std::function<void(int screen_x, int screen_y)>;
 
-    static constexpr int kDefaultOverlayWidthDip = 80;
+    static constexpr int kDefaultOverlayWidthDip = 74;
     static constexpr int kDefaultOverlayHeightDip = 32;
     static constexpr int kHorizontalMarginDip = 2;
 
@@ -74,6 +74,7 @@ class TaskbarSpeedWindow {
     void update_config(config::SpeedUnit speed_unit, config::ThemeMode theme_mode);
     void update_rates(TaskbarRatePair rates);
     void sync_with_taskbar();
+    void set_target_taskbar_for_testing(HWND taskbar_hwnd) noexcept;
 
     [[nodiscard]] HWND hwnd() const noexcept {
         return hwnd_;
@@ -95,14 +96,11 @@ class TaskbarSpeedWindow {
     [[nodiscard]] bool resolve_dark_text_mode() const noexcept;
     void sample_and_apply_taskbar_background_color(HWND taskbar_hwnd, const RECT& taskbar_rect,
                                                    bool placed_on_left) noexcept;
-    void reset_win10_taskbar_min_pos() noexcept;
     void paint_window(HDC paint_dc) noexcept;
 
     HWND hwnd_{nullptr};
     HWND attached_parent_hwnd_{nullptr};
-    HWND win10_min_hwnd_{nullptr};
-    RECT win10_min_original_rect_{};
-    int win10_min_left_space_{0};
+    HWND target_taskbar_override_hwnd_{nullptr};
     UINT taskbar_created_msg_{0};
 
     ClickCallback on_left_click_;

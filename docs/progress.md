@@ -467,7 +467,7 @@ Product Host and frontend implementation remain Ticket 01 work.
 
 - **需求与设计边界**：
   - 提供极简、透明融合任务栏背景、跟随主题黑白文字配色的任务栏实时网速展示，仅在设置中心「通用」页暴露单个开关 `display.show_taskbar_speed`（`Show Taskbar Speed / 显示任务栏网速`）。
-  - **原生任务栏父子挂载 (`SetParent` + 相对坐标，与任务栏浑然一体)**：采用与 TrafficMonitor 一致的 `WS_POPUP` + `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`（不设置独立 `WS_EX_TOPMOST`），通过 `SetParent` 挂载到 Win11 的 `Shell_TrayWnd`（或 Win10 的 `ReBarWindow32`，并在 Win10 下自动缩减 `MSTaskSwWClass` 宽度以留出右侧空位，关闭时还原）。窗口坐标完全使用相对于任务栏左上角的局部坐标，因此无论是任务栏自动隐藏滑出/滑入、F11 全屏被遮挡，还是在全屏下按 `Win` 键随开始菜单浮出，均由系统 DWM 与任务栏合成层原生联动，无任何“原地突兀显隐”感。
+  - **原生任务栏父子挂载 (`SetParent` + 相对坐标，与任务栏浑然一体)**：采用 `WS_POPUP` + `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`（不设置独立 `WS_EX_TOPMOST`），在 Windows 10 与 Windows 11 下统一通过 `SetParent` 直接挂载到 `Shell_TrayWnd`，并在 `SetParent` 前将窗口收缩至 `1 × 1`、挂载后通过 `MoveWindow` 展开至目标尺寸以强制分配子窗口分层重定向位图；仅避让 Windows 原生任务栏组件（`TrayNotifyWnd`、`Start`、`Widgets`），保持 `MSTaskSwWClass` 原生几何不变。窗口坐标完全使用相对于 `Shell_TrayWnd` 左上角的局部坐标，因此无论是任务栏自动隐藏滑出/滑入、F11 全屏被遮挡，还是在全屏下按 `Win` 键随开始菜单浮出，均由系统 DWM 与任务栏合成层原生联动，无任何“原地突兀显隐”感。
   - **ClearType 锐利字体与三栏固定锚点防跳动 (`paint_window`)**：采样任务栏真实背景色 (`GetPixel` + `SetLayeredWindowAttributes(..., LWA_COLORKEY)`) 作为双缓冲画布底色，使 9pt `微软雅黑` (`DEFAULT_QUALITY`) 获得完整的 ClearType 亚像素抗锯齿锐度；采用「左对齐箭头前缀 (`↑:`/`↓:`) + 右对齐数值列 + 左对齐单位列 (`KB/s`/`MB/s`)」固定三栏坐标消除数字位数变化引起的单位跳动；与监控面板共享相同的 1 Hz `RankingSnapshotDto` 滑动窗口总速率数据源。
   - **交互联动 (`ProductHost`)**：左键点击网速文字直接切换 340 DIP 监控面板的展开与收起（并在 `on_surface_outside_click` 中豁免任务栏网速窗区域防止外部点击冲突），右键点击弹出原生上下文菜单。
 - **测试与质量门禁 (`tests/config_tests.cpp`, `tests/host_tests.cpp`, `SettingsCenter.test.tsx`)**：
@@ -481,3 +481,16 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 将 `rateMapping.ts` 的 `RATE_CURVE_EXPONENT` 提升为 `3`（对数三次方映射），使默认 `10 MB/s` 上限下 `300 KB/s` 约占半区 `14.3%`、**`1 MB/s` 精准落在半区的约三分之一（`31.8%`）**、`3 MB/s` 约占 `57.2%`、`5 MB/s` 约占 `73.0%`、`10 MB/s` 占满 `100%`；同时将 `CAPSULE_ATTACK_ALPHA` 下调至 `0.28` 与释放阻尼对称。
   - 将 `SnapshotPublisher::RunDue` 的 `TrafficTick` 速率计算改为基于保留 1 秒历史样本队列（`rate_samples_`）的滚动窗口均值，保持 4 Hz (250ms) 高频推送的同时消除单 Tick 微突发导致的 $\times 4$ 速率虚高，使胶囊与任务栏/监控面板的速率口径一致。
 - **测试验证 (`rateMapping.test.ts`, `ipc_session_tests.cpp`)**：更新 `1 MB/s` 对应约三分之一填充比例的断言，并新增 250ms 突发流量在 1 秒滚动窗口下平滑均值化的 IPC 集成单测。
+
+## 第三十七轮 Windows 10 任务栏网速窗口不显示及第三方任务栏组件位移修复 — complete
+
+- **现象与根因 (`src/host/platform/taskbar_speed_window.cpp`, `include/network_flow_monitor/host/platform/taskbar_speed_window.h`)**：
+  1. **100% DPI (96 DPI) 下 `SetParent` 后分层子窗口重定向位图未重分配导致完全不可见**：`TaskbarSpeedWindow::create()` 此前以默认目标尺寸创建 `WS_EX_LAYERED` 顶层 `WS_POPUP` 窗口。当 `SetParent` 将其挂载为任务栏子窗口时，Win32 使原顶层分层重定向表面失效；在 125%+ DPI 下后续 `MoveWindow` 因尺寸改变触发表面重分配而可见，但在 96 DPI（如 Windows 10 `1920×1080` 100% 缩放）下目标尺寸与创建尺寸一致，`MoveWindow` 不产生尺寸变更，导致子窗口分层重定向位图始终未分配而在屏幕上完全不可见。
+  2. **修改 `MSTaskSwWClass` 宽度引发与 TrafficMonitor 周期性互推位移**：原 Windows 10 分支通过 `MoveWindow(min_hwnd, ...)` 缩减任务栏应用区 `MSTaskSwWClass` 宽度；TrafficMonitor 的 100 ms 定时器检测到 `MSTaskSwWClass` 宽度不等于其缓存值后，将缩减后的宽度覆写为新的 `m_rcMinOri` 并再次减去自身宽度（`141 px`），导致每次开启或切换开关时 TrafficMonitor 持续向左偏移且关闭后无法复原。
+  3. **冒号后数值列预留宽度偏大**：`paint_window` 此前对数值列固定预留 `32 DIP`（125% DPI 下为 `40 px`，而最大 4 字符数值 `"88.8"` / `"99.9"` 实际渲染宽度仅 `31 px`），导致冒号 `:` 与右对齐数值之间多出 `9 px` 冗余留白。
+- **修复 (`taskbar_speed_window.h`, `taskbar_speed_window.cpp`)**：
+  - 将初始隐藏窗口尺寸设为 `1 × 1`，并在每次执行 `SetParent(hwnd_, taskbar_hwnd)` 前先将窗口重置为 `1 × 1`，确保 `SetParent` 后的 `MoveWindow` 在 96 DPI 及任意缩放比例下均触发尺寸变更并分配有效的子窗口分层合成表面；
+  - Windows 10 与 Windows 11 统一挂载至 `Shell_TrayWnd` 并使用 `compute_placement()` 仅避让系统原生组件（Windows 10 与左对齐 Windows 11 停靠在 `TrayNotifyWnd` 左侧，居中且未开启小组件的 Windows 11 XAML 任务栏停靠在左侧边缘），在 `sync_with_taskbar()` 中维护 `GW_HWNDPREV == nullptr` 顶层子窗口 Z 序，保持 `MSTaskSwWClass` 原生几何不变；
+  - 在 `paint_window` 中按当前 DPI 字体实测最大 4 字符数值 `"88.8"` 的精确像素宽度（`GetTextExtentPoint32W(mem_dc, L"88.8", 4, &max_val_sz)`）加 `1 DIP` 间距计算 `val_right`，并将总窗口宽度 `kDefaultOverlayWidthDip` 从 `80 DIP` 收紧至 `74 DIP`。
+- **回归测试 (`tests/host_tests.cpp`)**：
+  - 新增 `TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder`：构造包含任务栏中间容器、`MSTaskSwWClass`、`TrayNotifyWnd` 的经典任务栏窗口树，验证首次开启与反复开关下 `MSTaskSwWClass` 几何零改动、`TrayNotifyWnd` 左侧精确定位、兄弟容器抢占 Z 序后的自动置顶恢复，以及 `74 × 32`（96 DPI 几何）下 `SetParent` 分层子窗口在屏幕 DC 上的真实像素合成渲染。

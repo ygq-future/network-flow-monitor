@@ -32,8 +32,16 @@ constexpr wchar_t kTaskbarOverlayClassName[] = L"NetworkFlowMonitor_TaskbarSpeed
     return build_num >= 22000L;
 }
 
-[[nodiscard]] bool query_taskbar_centered() noexcept {
-    if (!is_windows_11_or_greater()) {
+[[nodiscard]] bool is_windows_11_xaml_taskbar(HWND taskbar_hwnd) noexcept {
+    if (!is_windows_11_or_greater() || taskbar_hwnd == nullptr) {
+        return false;
+    }
+    return FindWindowExW(taskbar_hwnd, nullptr,
+                         L"Windows.UI.Composition.DesktopWindowContentBridge", nullptr) != nullptr;
+}
+
+[[nodiscard]] bool query_taskbar_centered(HWND taskbar_hwnd) noexcept {
+    if (!is_windows_11_xaml_taskbar(taskbar_hwnd)) {
         return false;
     }
     DWORD align = 1U; // Windows 11 defaults to centered (1)
@@ -46,8 +54,8 @@ constexpr wchar_t kTaskbarOverlayClassName[] = L"NetworkFlowMonitor_TaskbarSpeed
     return true;
 }
 
-[[nodiscard]] bool query_taskbar_widgets_enabled() noexcept {
-    if (!is_windows_11_or_greater()) {
+[[nodiscard]] bool query_taskbar_widgets_enabled(HWND taskbar_hwnd) noexcept {
+    if (!is_windows_11_xaml_taskbar(taskbar_hwnd)) {
         return false;
     }
     DWORD widgets = 0U;
@@ -256,14 +264,15 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
     wc.lpszClassName = kTaskbarOverlayClassName;
     RegisterClassExW(&wc);
 
-    // Follow TrafficMonitor's exact taskbar window creation contract:
-    // WS_POPUP with WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE, LWA_COLORKEY set before
-    // SetParent(hwnd, parent_taskbar), and NO independent WS_EX_TOPMOST so the child window
-    // inherits Shell_TrayWnd's exact Z-order and fullscreen auto-hide behavior.
+    // Create hidden at 1x1 as WS_POPUP with WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+    // (and no independent WS_EX_TOPMOST) so that once parented to Shell_TrayWnd, the window
+    // inherits the taskbar's exact Z-order and fullscreen/auto-hide behavior. Starting at 1x1 (and
+    // shrinking to 1x1 prior to any SetParent) ensures the subsequent MoveWindow after SetParent
+    // always resizes the window to its target dimensions, forcing Win32/DWM to allocate a valid
+    // child layered redirection bitmap even at 96 DPI (80x32).
     constexpr DWORD kExStyle = WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
     hwnd_ = CreateWindowExW(kExStyle, kTaskbarOverlayClassName, L"NFM Taskbar Speed", WS_POPUP, 0,
-                            0, kDefaultOverlayWidthDip, kDefaultOverlayHeightDip, nullptr, nullptr,
-                            hinst, this);
+                            0, 1, 1, nullptr, nullptr, hinst, this);
     if (hwnd_ == nullptr) {
         return false;
     }
@@ -276,16 +285,10 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
     return true;
 }
 
-void TaskbarSpeedWindow::reset_win10_taskbar_min_pos() noexcept {
-    if (win10_min_hwnd_ != nullptr && IsWindow(win10_min_hwnd_) != FALSE &&
-        (win10_min_original_rect_.right > win10_min_original_rect_.left)) {
-        const int orig_w = win10_min_original_rect_.right - win10_min_original_rect_.left;
-        const int orig_h = win10_min_original_rect_.bottom - win10_min_original_rect_.top;
-        MoveWindow(win10_min_hwnd_, win10_min_left_space_, 0, orig_w, orig_h, TRUE);
-    }
-    win10_min_hwnd_ = nullptr;
-    win10_min_original_rect_ = RECT{};
-    win10_min_left_space_ = 0;
+void TaskbarSpeedWindow::set_target_taskbar_for_testing(HWND taskbar_hwnd) noexcept {
+    target_taskbar_override_hwnd_ = taskbar_hwnd;
+    attached_parent_hwnd_ = nullptr;
+    current_relative_bounds_ = RECT{};
 }
 
 void TaskbarSpeedWindow::close() noexcept {
@@ -293,7 +296,6 @@ void TaskbarSpeedWindow::close() noexcept {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
     }
-    reset_win10_taskbar_min_pos();
     attached_parent_hwnd_ = nullptr;
     visible_ = false;
 }
@@ -303,9 +305,6 @@ void TaskbarSpeedWindow::set_enabled(bool enabled) {
         return;
     }
     enabled_ = enabled;
-    if (!enabled_) {
-        reset_win10_taskbar_min_pos();
-    }
     sync_with_taskbar();
 }
 
@@ -403,7 +402,9 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         return;
     }
 
-    HWND taskbar_hwnd = FindWindowW(L"Shell_TrayWnd", nullptr);
+    HWND taskbar_hwnd = (target_taskbar_override_hwnd_ != nullptr)
+                            ? target_taskbar_override_hwnd_
+                            : FindWindowW(L"Shell_TrayWnd", nullptr);
     if (taskbar_hwnd == nullptr || IsWindow(taskbar_hwnd) == FALSE) {
         if (visible_) {
             ShowWindow(hwnd_, SW_HIDE);
@@ -420,143 +421,72 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
 
     const UINT dpi_val = GetDpiForWindow(taskbar_hwnd);
     current_dpi_ = (dpi_val > 0U) ? dpi_val : 96U;
-    const bool is_win11 = is_windows_11_or_greater();
 
-    if (is_win11) {
-        // Windows 11 path (identical to TrafficMonitor CWin11TaskbarDlg):
-        // Parent is Shell_TrayWnd; coordinates are relative to Shell_TrayWnd top-left.
-        if (attached_parent_hwnd_ != taskbar_hwnd ||
-            GetAncestor(hwnd_, GA_PARENT) != taskbar_hwnd) {
-            SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
-            static_cast<void>(SetParent(hwnd_, taskbar_hwnd));
-            attached_parent_hwnd_ = taskbar_hwnd;
-            current_relative_bounds_ = RECT{};
-        }
-
-        HWND notify_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"TrayNotifyWnd", nullptr);
-        RECT notify_rect{};
-        const bool has_notify =
-            (notify_hwnd != nullptr && GetWindowRect(notify_hwnd, &notify_rect) != FALSE);
-
-        const TaskbarLayoutInput layout_input{
-            .taskbar_rect = taskbar_rect,
-            .notify_rect = notify_rect,
-            .has_notify_rect = has_notify,
-            .taskbar_centered = query_taskbar_centered(),
-            .widgets_enabled = query_taskbar_widgets_enabled(),
-            .dpi = current_dpi_,
-        };
-        const TaskbarOverlayPlacement placement = compute_placement(layout_input);
-        if (!placement.valid) {
-            return;
-        }
-
-        int rel_y = placement.y_px;
-        HWND start_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"Start", nullptr);
-        RECT start_rect{};
-        if (start_hwnd != nullptr && GetWindowRect(start_hwnd, &start_rect) != FALSE) {
-            const int start_h = start_rect.bottom - start_rect.top;
-            const int tb_h = taskbar_rect.bottom - taskbar_rect.top;
-            if (start_h > 0 && tb_h >= start_h) {
-                rel_y = ((start_h - placement.height_px) / 2) + (tb_h - start_h);
-            }
-        }
-
-        const RECT target_rel{
-            .left = placement.x_px,
-            .top = rel_y,
-            .right = placement.x_px + placement.width_px,
-            .bottom = rel_y + placement.height_px,
-        };
-        if (current_relative_bounds_.left != target_rel.left ||
-            current_relative_bounds_.top != target_rel.top ||
-            current_relative_bounds_.right != target_rel.right ||
-            current_relative_bounds_.bottom != target_rel.bottom) {
-            current_relative_bounds_ = target_rel;
-            MoveWindow(hwnd_, placement.x_px, rel_y, placement.width_px, placement.height_px, TRUE);
-        }
-
-        if (!visible_ || IsWindowVisible(hwnd_) == FALSE) {
-            visible_ = true;
-            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-            InvalidateRect(hwnd_, nullptr, FALSE);
-        }
-
-        sample_and_apply_taskbar_background_color(taskbar_hwnd, taskbar_rect,
-                                                  placement.placed_on_left);
-    } else {
-        // Windows 10 classical taskbar path (identical to TrafficMonitor CClassicalTaskbarDlg):
-        // Parent is ReBarWindow32; shrink MSTaskSwWClass width on the right so app buttons never
-        // overlap our speed window.
-        HWND bar_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"ReBarWindow32", nullptr);
-        if (bar_hwnd == nullptr) {
-            bar_hwnd = taskbar_hwnd;
-        }
-        HWND min_hwnd = FindWindowExW(bar_hwnd, nullptr, L"MSTaskSwWClass", nullptr);
-        if (min_hwnd == nullptr) {
-            min_hwnd = FindWindowExW(bar_hwnd, nullptr, L"MSTaskListWClass", nullptr);
-        }
-
-        if (attached_parent_hwnd_ != bar_hwnd || GetAncestor(hwnd_, GA_PARENT) != bar_hwnd) {
-            SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
-            static_cast<void>(SetParent(hwnd_, bar_hwnd));
-            attached_parent_hwnd_ = bar_hwnd;
-            current_relative_bounds_ = RECT{};
-        }
-
-        RECT bar_rect{};
-        GetWindowRect(bar_hwnd, &bar_rect);
-        const int bar_w = bar_rect.right - bar_rect.left;
-        const int bar_h = bar_rect.bottom - bar_rect.top;
-        const int dpi_int = static_cast<int>(current_dpi_);
-        const int wnd_w = (kDefaultOverlayWidthDip * dpi_int) / 96;
-        const int wnd_h = std::min(bar_h, (kDefaultOverlayHeightDip * dpi_int) / 96);
-
-        int rel_x = std::max(0, bar_w - wnd_w - 2);
-        const int rel_y = std::max(0, (bar_h - wnd_h) / 2);
-
-        if (min_hwnd != nullptr && bar_hwnd != taskbar_hwnd) {
-            RECT min_rect{};
-            GetWindowRect(min_hwnd, &min_rect);
-            const int cur_min_w = min_rect.right - min_rect.left;
-            const int cur_min_h = min_rect.bottom - min_rect.top;
-            if (win10_min_hwnd_ != min_hwnd) {
-                win10_min_hwnd_ = min_hwnd;
-                win10_min_original_rect_ = min_rect;
-                win10_min_left_space_ = min_rect.left - bar_rect.left;
-            }
-            const int orig_min_w = win10_min_original_rect_.right - win10_min_original_rect_.left;
-            if (orig_min_w > wnd_w + 20) {
-                if (cur_min_w != orig_min_w - wnd_w) {
-                    MoveWindow(min_hwnd, win10_min_left_space_, 0, orig_min_w - wnd_w, cur_min_h,
-                               TRUE);
-                }
-                rel_x = win10_min_left_space_ + orig_min_w - wnd_w + 2;
-            }
-        }
-
-        const RECT target_rel{
-            .left = rel_x,
-            .top = rel_y,
-            .right = rel_x + wnd_w,
-            .bottom = rel_y + wnd_h,
-        };
-        if (current_relative_bounds_.left != target_rel.left ||
-            current_relative_bounds_.top != target_rel.top ||
-            current_relative_bounds_.right != target_rel.right ||
-            current_relative_bounds_.bottom != target_rel.bottom) {
-            current_relative_bounds_ = target_rel;
-            MoveWindow(hwnd_, rel_x, rel_y, wnd_w, wnd_h, TRUE);
-        }
-
-        if (!visible_ || IsWindowVisible(hwnd_) == FALSE) {
-            visible_ = true;
-            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-            InvalidateRect(hwnd_, nullptr, FALSE);
-        }
-
-        sample_and_apply_taskbar_background_color(taskbar_hwnd, taskbar_rect, false);
+    // Attach directly to Shell_TrayWnd and position relative to native taskbar components
+    // (TrayNotifyWnd, Start, Widgets) while preserving sibling taskbar container geometry.
+    if (attached_parent_hwnd_ != taskbar_hwnd || GetAncestor(hwnd_, GA_PARENT) != taskbar_hwnd) {
+        MoveWindow(hwnd_, 0, 0, 1, 1, FALSE);
+        SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
+        static_cast<void>(SetParent(hwnd_, taskbar_hwnd));
+        attached_parent_hwnd_ = taskbar_hwnd;
+        current_relative_bounds_ = RECT{};
     }
+
+    HWND notify_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"TrayNotifyWnd", nullptr);
+    RECT notify_rect{};
+    const bool has_notify =
+        (notify_hwnd != nullptr && GetWindowRect(notify_hwnd, &notify_rect) != FALSE);
+
+    const TaskbarLayoutInput layout_input{
+        .taskbar_rect = taskbar_rect,
+        .notify_rect = notify_rect,
+        .has_notify_rect = has_notify,
+        .taskbar_centered = query_taskbar_centered(taskbar_hwnd),
+        .widgets_enabled = query_taskbar_widgets_enabled(taskbar_hwnd),
+        .dpi = current_dpi_,
+    };
+    const TaskbarOverlayPlacement placement = compute_placement(layout_input);
+    if (!placement.valid) {
+        return;
+    }
+
+    int rel_y = placement.y_px;
+    HWND start_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"Start", nullptr);
+    RECT start_rect{};
+    if (start_hwnd != nullptr && GetWindowRect(start_hwnd, &start_rect) != FALSE) {
+        const int start_h = start_rect.bottom - start_rect.top;
+        const int tb_h = taskbar_rect.bottom - taskbar_rect.top;
+        if (start_h > 0 && tb_h >= start_h) {
+            rel_y = ((start_h - placement.height_px) / 2) + (tb_h - start_h);
+        }
+    }
+
+    const RECT target_rel{
+        .left = placement.x_px,
+        .top = rel_y,
+        .right = placement.x_px + placement.width_px,
+        .bottom = rel_y + placement.height_px,
+    };
+    if (current_relative_bounds_.left != target_rel.left ||
+        current_relative_bounds_.top != target_rel.top ||
+        current_relative_bounds_.right != target_rel.right ||
+        current_relative_bounds_.bottom != target_rel.bottom) {
+        current_relative_bounds_ = target_rel;
+        MoveWindow(hwnd_, placement.x_px, rel_y, placement.width_px, placement.height_px, TRUE);
+    }
+
+    if (!visible_ || IsWindowVisible(hwnd_) == FALSE) {
+        visible_ = true;
+        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+
+    if (GetWindow(hwnd_, GW_HWNDPREV) != nullptr) {
+        SetWindowPos(hwnd_, HWND_TOP, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+
+    sample_and_apply_taskbar_background_color(taskbar_hwnd, taskbar_rect, placement.placed_on_left);
 }
 
 void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
@@ -619,13 +549,17 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     const int half_h = height / 2;
     // Fixed 3-column anchors so digit width changes never shift the unit ("KB/s" / "MB/s"):
     // [pad_x .. label_right] (left-aligned "↑:" / "↓:")
-    // [label_right .. val_right] (right-aligned numeric magnitude)
+    // [label_right .. val_right] (right-aligned numeric magnitude sized to max 4-char "88.8")
     // [unit_left .. width] (left-aligned unit)
     SIZE label_sz{};
+    SIZE max_val_sz{};
     GetTextExtentPoint32W(mem_dc, L"\u2191:", 2, &label_sz);
+    GetTextExtentPoint32W(mem_dc, L"88.8", 4, &max_val_sz);
     const int pad_x = (2 * dpi_int) / 96;
     const int label_w = (label_sz.cx > 0) ? label_sz.cx : ((12 * dpi_int) / 96);
-    const int val_right = pad_x + label_w + ((32 * dpi_int) / 96);
+    const int max_val_w = (max_val_sz.cx > 0) ? max_val_sz.cx : ((24 * dpi_int) / 96);
+    const int colon_gap = (1 * dpi_int) / 96;
+    const int val_right = pad_x + label_w + colon_gap + max_val_w;
     const int unit_left = val_right + ((3 * dpi_int) / 96);
 
     const auto draw_item_row = [&](int top_y, int bottom_y, std::wstring_view label_str,
@@ -688,7 +622,6 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
 
     if (self->taskbar_created_msg_ != 0U && msg == self->taskbar_created_msg_) {
         self->attached_parent_hwnd_ = nullptr;
-        self->win10_min_hwnd_ = nullptr;
         self->sync_with_taskbar();
         return 0;
     }

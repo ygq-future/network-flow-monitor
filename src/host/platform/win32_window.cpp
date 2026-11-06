@@ -169,9 +169,9 @@ bool Win32Window::create(IWindowEventListener* listener) {
         configure_surface_chrome(false, true);
     }
 
+    taskbar_created_msg_ = RegisterWindowMessageW(L"TaskbarCreated");
     SendMessageW(hwnd_, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(app_icon_big));
     SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(app_icon_small));
-
     if (listener_ != nullptr) {
         listener_->on_window_created(hwnd_);
     }
@@ -658,8 +658,12 @@ void Win32Window::close() {
 }
 
 bool Win32Window::create_tray_icon() {
-    if (hwnd_ == nullptr || tray_icon_active_) {
+    if (hwnd_ == nullptr) {
         return false;
+    }
+    tray_icon_requested_ = true;
+    if (tray_icon_active_) {
+        return true;
     }
     auto* tray_icon = static_cast<HICON>(LoadImageW(
         GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
@@ -685,6 +689,7 @@ bool Win32Window::create_tray_icon() {
 }
 
 void Win32Window::remove_tray_icon() {
+    tray_icon_requested_ = false;
     if (hwnd_ != nullptr && tray_icon_active_) {
         NOTIFYICONDATAW nid{};
         nid.cbSize = sizeof(NOTIFYICONDATAW);
@@ -849,6 +854,13 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
 
+    if (self->taskbar_created_msg_ != 0U && msg == self->taskbar_created_msg_) {
+        if (self->tray_icon_requested_) {
+            self->tray_icon_active_ = false;
+            static_cast<void>(self->create_tray_icon());
+        }
+        return 0;
+    }
     switch (msg) {
     case WM_NCCALCSIZE: {
         if (self->config_.frameless && wparam == TRUE) {

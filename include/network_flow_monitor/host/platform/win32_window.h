@@ -169,6 +169,8 @@ class Win32Window {
     std::chrono::milliseconds last_tick_gap_{0};
     bool class_registered_{false};
     bool tray_icon_active_{false};
+    bool tray_icon_requested_{false};
+    UINT taskbar_created_msg_{0};
     bool surface_pointer_inside_{false};
     bool surface_button_down_{false};
     bool outside_button_was_down_{false};

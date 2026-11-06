@@ -268,25 +268,38 @@ SystemTelemetrySampler::~SystemTelemetrySampler() noexcept {
 }
 
 void SystemTelemetrySampler::ensure_initialized() noexcept {
-    if (initialized_) {
+    if (!initialized_) {
+        initialized_ = true;
+        FILETIME idle_ft{};
+        FILETIME kernel_ft{};
+        FILETIME user_ft{};
+        if (GetSystemTimes(&idle_ft, &kernel_ft, &user_ft) != FALSE) {
+            prev_idle_ticks_ = filetime_to_u64(idle_ft);
+            prev_total_ticks_ = filetime_to_u64(kernel_ft) + filetime_to_u64(user_ft);
+        }
+    }
+
+    const bool all_counters_ready =
+        (pdh_query_ != nullptr && cpu_utility_counter_ != nullptr &&
+         cpu_power_counter_ != nullptr && thermal_zone_counter_ != nullptr &&
+         gpu_engine_counter_ != nullptr && gpu_adapter_mem_counter_ != nullptr &&
+         gpu_adapter_shared_mem_counter_ != nullptr);
+    if (all_counters_ready) {
         return;
     }
-    initialized_ = true;
-
-    FILETIME idle_ft{};
-    FILETIME kernel_ft{};
-    FILETIME user_ft{};
-    if (GetSystemTimes(&idle_ft, &kernel_ft, &user_ft) != FALSE) {
-        prev_idle_ticks_ = filetime_to_u64(idle_ft);
-        prev_total_ticks_ = filetime_to_u64(kernel_ft) + filetime_to_u64(user_ft);
-    }
-
-    PDH_HQUERY query = nullptr;
-    if (PdhOpenQueryW(nullptr, 0U, &query) != ERROR_SUCCESS || query == nullptr) {
+    if (sample_count_ > 0U && (sample_count_ % 5U) != 0U) {
         return;
     }
-    pdh_query_ = query;
 
+    if (pdh_query_ == nullptr) {
+        PDH_HQUERY query = nullptr;
+        if (PdhOpenQueryW(nullptr, 0U, &query) != ERROR_SUCCESS || query == nullptr) {
+            return;
+        }
+        pdh_query_ = query;
+    }
+
+    auto* query = static_cast<PDH_HQUERY>(pdh_query_);
     auto add_counter = [query](const wchar_t* path) noexcept -> void* {
         PDH_HCOUNTER counter = nullptr;
         if (PdhAddEnglishCounterW(query, path, 0U, &counter) == ERROR_SUCCESS) {
@@ -295,17 +308,38 @@ void SystemTelemetrySampler::ensure_initialized() noexcept {
         return nullptr;
     };
 
-    cpu_utility_counter_ = add_counter(L"\\Processor Information(_Total)\\% Processor Time");
+    bool added_any = false;
     if (cpu_utility_counter_ == nullptr) {
-        cpu_utility_counter_ = add_counter(L"\\Processor(_Total)\\% Processor Time");
+        cpu_utility_counter_ = add_counter(L"\\Processor Information(_Total)\\% Processor Time");
+        if (cpu_utility_counter_ == nullptr) {
+            cpu_utility_counter_ = add_counter(L"\\Processor(_Total)\\% Processor Time");
+        }
+        added_any = added_any || (cpu_utility_counter_ != nullptr);
     }
-    cpu_power_counter_ = add_counter(L"\\Energy Meter(*)\\Power");
-    thermal_zone_counter_ =
-        add_counter(L"\\Thermal Zone Information(*)\\High Precision Temperature");
-    gpu_engine_counter_ = add_counter(L"\\GPU Engine(*)\\Utilization Percentage");
-    gpu_adapter_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Dedicated Usage");
-    gpu_adapter_shared_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Shared Usage");
-    static_cast<void>(PdhCollectQueryData(query));
+    if (cpu_power_counter_ == nullptr) {
+        cpu_power_counter_ = add_counter(L"\\Energy Meter(*)\\Power");
+        added_any = added_any || (cpu_power_counter_ != nullptr);
+    }
+    if (thermal_zone_counter_ == nullptr) {
+        thermal_zone_counter_ =
+            add_counter(L"\\Thermal Zone Information(*)\\High Precision Temperature");
+        added_any = added_any || (thermal_zone_counter_ != nullptr);
+    }
+    if (gpu_engine_counter_ == nullptr) {
+        gpu_engine_counter_ = add_counter(L"\\GPU Engine(*)\\Utilization Percentage");
+        added_any = added_any || (gpu_engine_counter_ != nullptr);
+    }
+    if (gpu_adapter_mem_counter_ == nullptr) {
+        gpu_adapter_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Dedicated Usage");
+        added_any = added_any || (gpu_adapter_mem_counter_ != nullptr);
+    }
+    if (gpu_adapter_shared_mem_counter_ == nullptr) {
+        gpu_adapter_shared_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Shared Usage");
+        added_any = added_any || (gpu_adapter_shared_mem_counter_ != nullptr);
+    }
+    if (added_any) {
+        static_cast<void>(PdhCollectQueryData(query));
+    }
 }
 
 void SystemTelemetrySampler::refresh_gpu_adapters_if_needed() noexcept {

@@ -1144,6 +1144,9 @@ void ProductHost::ensure_window_presentation() {
     if (!coordinator_ || !window_ || window_->hwnd() == nullptr) {
         return;
     }
+    if (!window_->has_tray_icon()) {
+        static_cast<void>(window_->create_tray_icon());
+    }
     bool monitors_changed = false;
     if (!coordinator_->state().is_dragging) {
         const auto live_monitors = platform::Win32Window::enumerate_monitors();

@@ -534,11 +534,11 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **纯系统原生零驱动采集 (`include/network_flow_monitor/host/platform/system_telemetry_sampler.h`, `src/host/platform/system_telemetry_sampler.cpp`)**：
   - 完全基于 Windows 11 标准用户态只读接口实现 6 项硬件遥测采样（无内核驱动、无硬件端口/SMBus 竞争锁、不唤醒休眠独显）：
     1. **CPU 使用率 (`CPU: %`)**：PDH `\Processor Information(_Total)\% Processor Time`（带 `\Processor(_Total)\% Processor Time` 与 `GetSystemTimes` 兜底，与任务管理器/CoreTemp 时间利用率口径对齐）；
-    2. **CPU 温度 (`CPU: ℃`)**：PDH `\Thermal Zone Information(*)\High Precision Temperature`（系统 ACPI 热区十分之一开尔文转摄氏度 `(raw - 2731.5) / 10.0`）；
+    2. **CPU 温度 (`CPU: ℃`)**：优先读取用户态 `CoreTempMappingObject` 只读共享内存（兼容运行 CoreTemp 的台式机），回退使用 PDH `\Thermal Zone Information(*)\High Precision Temperature`（系统 ACPI 热区十分之一开尔文转摄氏度 `(raw - 2731.5) / 10.0`，并自动过滤 AMI/Intel 台式机主板 DSDT 静态假常数 `3010`/`3030` dK）；
     3. **CPU 封装功耗 (`CPU: W`)**：PDH `\Energy Meter(*)\Power`（Windows 原生 EMI/RAPL `RAPL_Package*_PKG` 毫瓦转瓦特 `W`）；
     4. **内存使用率 (`MEM: %`)**：Win32 `GlobalMemoryStatusEx` 物理内存占用比例与已用/总容量 GB；
     5. **GPU 使用率 (`GPU: %`)**：PDH `\GPU Engine(*)\Utilization Percentage`（WDDM `dxgkrnl` 按显卡 LUID 与引擎类型聚合峰值占用）；
-    6. **GPU 显存 (`VRM: %`)**：PDH `\GPU Adapter Memory(*)\Dedicated Usage` 结合 DXGI `IDXGIFactory1::EnumAdapters1` 与显示类注册表 `HardwareInformation.qwMemorySize` 64 位真实总显存容量，任务栏展示紧凑百分比 `VRM: %`，鼠标悬浮 Tooltip 展示百分比与 `已用 / 总计 GB`。
+    6. **GPU 显存 (`VRM: %`)**：同时支持独立显卡专用显存（PDH `\GPU Adapter Memory(*)\Dedicated Usage` + `DedicatedVideoMemory` / 注册表 `HardwareInformation.qwMemorySize`）与核显共享显存自动回退（PDH `\GPU Adapter Memory(*)\Shared Usage` + `SharedSystemMemory`），任务栏展示紧凑百分比 `VRM: %`，鼠标悬浮 Tooltip 展示百分比与 `已用 / 总计 GB`。
 - **配置与设置中心「任务栏监控」独立面板 (`app_config.h`, `config_codec.cpp`, `bridge_dispatcher.cpp`, `SettingsCenter.tsx`, `en-US.ts`, `zh-CN.ts`)**：
   - 在 `DisplayConfig` 中新增 `show_taskbar_cpu_usage`、`show_taskbar_cpu_temp`、`show_taskbar_cpu_power`、`show_taskbar_memory_usage`、`show_taskbar_gpu_usage`、`show_taskbar_gpu_memory`，连同 `show_taskbar_speed` 默认全部关闭（`false`）；
   - 设置中心新增 **「任务栏监控 (`Taskbar Monitor`)」** 分类面板，将原位于「通用」页的「显示任务栏网速」迁移至该面板，集中管理全部 7 项任务栏监控开关。

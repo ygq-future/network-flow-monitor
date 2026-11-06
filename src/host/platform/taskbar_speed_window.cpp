@@ -675,7 +675,16 @@ void TaskbarSpeedWindow::update_config(const config::DisplayConfig& display_conf
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         if (tooltip_visible_) {
+            const bool light_mode = resolve_tooltip_light_mode();
+            const BOOL use_dark = light_mode ? FALSE : TRUE;
+            static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaUseImmersiveDarkMode,
+                                                    &use_dark, sizeof(use_dark)));
+            const COLORREF dwm_border = light_mode ? RGB(224, 224, 224) : RGB(51, 51, 51);
+            static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaBorderColor, &dwm_border,
+                                                    sizeof(dwm_border)));
             show_or_update_tooltip();
+            RedrawWindow(tooltip_hwnd_, nullptr, nullptr,
+                         RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME);
         }
     }
 }
@@ -699,7 +708,13 @@ void TaskbarSpeedWindow::refresh_if_needed() {
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
         if (tooltip_visible_) {
-            show_or_update_tooltip();
+            POINT pt{};
+            if (GetCursorPos(&pt) != FALSE && !contains_screen_point(pt)) {
+                mouse_tracking_ = false;
+                hide_tooltip();
+            } else {
+                show_or_update_tooltip();
+            }
         }
     } catch (...) {
     }
@@ -753,7 +768,7 @@ void TaskbarSpeedWindow::show_or_update_tooltip() {
 
     HDC screen_dc = GetDC(nullptr);
     int max_lbl_w = (60 * dpi_int) / 96;
-    int max_val_w = (70 * dpi_int) / 96;
+    int max_val_w = (118 * dpi_int) / 96;
     if (screen_dc != nullptr) {
         const int lf_height = -MulDiv(9, dpi_int, 72);
         HFONT font =
@@ -806,21 +821,31 @@ void TaskbarSpeedWindow::show_or_update_tooltip() {
         tip_y = overlay_rc.bottom + screen_margin;
     }
 
-    const bool light_mode = resolve_tooltip_light_mode();
-    const BOOL use_dark = light_mode ? FALSE : TRUE;
-    static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaUseImmersiveDarkMode, &use_dark,
-                                            sizeof(use_dark)));
-    const COLORREF dwm_border = light_mode ? RGB(224, 224, 224) : RGB(51, 51, 51);
-    static_cast<void>(
-        DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaBorderColor, &dwm_border, sizeof(dwm_border)));
-
-    SetWindowPos(tooltip_hwnd_, HWND_TOPMOST, tip_x, tip_y, tip_w, tip_h,
-                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (!tooltip_visible_) {
+        const bool light_mode = resolve_tooltip_light_mode();
+        const BOOL use_dark = light_mode ? FALSE : TRUE;
+        static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaUseImmersiveDarkMode,
+                                                &use_dark, sizeof(use_dark)));
+        const COLORREF dwm_border = light_mode ? RGB(224, 224, 224) : RGB(51, 51, 51);
+        static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaBorderColor, &dwm_border,
+                                                sizeof(dwm_border)));
+        SetWindowPos(tooltip_hwnd_, HWND_TOPMOST, tip_x, tip_y, tip_w, tip_h,
+                     SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         tooltip_visible_ = true;
         ShowWindow(tooltip_hwnd_, SW_SHOWNOACTIVATE);
+        RedrawWindow(tooltip_hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME);
+    } else {
+        RECT cur_rc{};
+        const bool bounds_changed =
+            (GetWindowRect(tooltip_hwnd_, &cur_rc) == FALSE || cur_rc.left != tip_x ||
+             cur_rc.top != tip_y || (cur_rc.right - cur_rc.left) != tip_w ||
+             (cur_rc.bottom - cur_rc.top) != tip_h);
+        if (bounds_changed) {
+            SetWindowPos(tooltip_hwnd_, HWND_TOPMOST, tip_x, tip_y, tip_w, tip_h,
+                         SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        }
+        InvalidateRect(tooltip_hwnd_, nullptr, FALSE);
     }
-    RedrawWindow(tooltip_hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME);
 }
 
 void TaskbarSpeedWindow::paint_tooltip_window(HDC paint_dc) noexcept {
@@ -1367,13 +1392,30 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     }
     case WM_MOUSELEAVE: {
         self->mouse_tracking_ = false;
+        POINT pt{};
+        if (GetCursorPos(&pt) != FALSE && self->contains_screen_point(pt)) {
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(TRACKMOUSEEVENT);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            if (TrackMouseEvent(&tme) != FALSE) {
+                self->mouse_tracking_ = true;
+            }
+            return 0;
+        }
         self->hide_tooltip();
         return 0;
     }
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
+        return 0;
     case WM_LBUTTONUP: {
-        self->hide_tooltip();
         if (self->on_left_click_) {
             self->on_left_click_();
+        }
+        if (self->tooltip_visible_ && self->tooltip_hwnd_ != nullptr) {
+            SetWindowPos(self->tooltip_hwnd_, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         }
         return 0;
     }

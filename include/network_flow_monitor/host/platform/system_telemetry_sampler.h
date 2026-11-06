@@ -46,6 +46,7 @@ class SystemTelemetrySampler {
     struct GpuAdapterInfo {
         LUID luid{};
         std::uint64_t total_dedicated_bytes{0};
+        std::uint64_t total_shared_bytes{0};
     };
 
     void ensure_initialized() noexcept;
@@ -58,7 +59,7 @@ class SystemTelemetrySampler {
     void* thermal_zone_counter_{nullptr};
     void* gpu_engine_counter_{nullptr};
     void* gpu_adapter_mem_counter_{nullptr};
-
+    void* gpu_adapter_shared_mem_counter_{nullptr};
     bool initialized_{false};
     std::uint64_t prev_idle_ticks_{0};
     std::uint64_t prev_total_ticks_{0};

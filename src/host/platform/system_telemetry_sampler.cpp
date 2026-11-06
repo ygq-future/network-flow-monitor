@@ -21,9 +21,78 @@ constexpr double kKelvinTenthsZeroCelsius = 2731.5;
 constexpr double kKelvinTenthsScale = 10.0;
 constexpr double kMinValidCelsius = 1.0;
 constexpr double kMaxValidCelsius = 135.0;
+constexpr std::uint64_t kMinDedicatedGpuVramBytes = 512ULL * 1024ULL * 1024ULL;
 constexpr std::uint32_t kGpuAdapterRefreshCadence = 30U;
 constexpr std::size_t kInitialPdhBufferBytes = 16384U;
 
+#pragma pack(push, 4)
+struct CoreTempSharedData {
+    std::array<std::uint32_t, 256> uiLoad{};
+    std::array<std::uint32_t, 128> uiTjMax{};
+    std::uint32_t uiCoreCnt{0};
+    std::uint32_t uiCPUCnt{0};
+    std::array<float, 256> fTemp{};
+    float fVID{0.0F};
+    float fCPUSpeed{0.0F};
+    float fFSBSpeed{0.0F};
+    float fMultiplier{0.0F};
+    std::array<char, 100> sCPUName{};
+    unsigned char ucFahrenheit{0};
+    unsigned char ucDeltaToTjMax{0};
+};
+#pragma pack(pop)
+
+[[nodiscard]] bool is_bios_dummy_kelvin_tenths(double raw_kelvin_tenths) noexcept {
+    // AMI Aptio / Intel reference desktop ACPI DSDT tables hardcode TZ00._TMP = 0x0BC2 (3010 dK =
+    // 27.85 C) and TZ01._TMP = 0x0BD6 (3030 dK = 29.85 C), or 2732 dK (0.05 C) / 2942 dK (21.05 C).
+    const long long rounded = std::llround(raw_kelvin_tenths);
+    return rounded == 3010LL || rounded == 3009LL || rounded == 3030LL || rounded == 2942LL ||
+           rounded == 2732LL;
+}
+
+[[nodiscard]] std::optional<double> sample_coretemp_shared_memory_celsius() noexcept {
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, L"CoreTempMappingObject");
+    if (mapping == nullptr) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, L"Global\\CoreTempMappingObject");
+    }
+    if (mapping == nullptr) {
+        return std::nullopt;
+    }
+
+    std::optional<double> max_core_celsius{};
+    const void* view = MapViewOfFile(mapping, FILE_MAP_READ, 0U, 0U, sizeof(CoreTempSharedData));
+    if (view != nullptr) {
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(view, &mbi, sizeof(mbi)) >= sizeof(mbi) &&
+            mbi.RegionSize >= sizeof(CoreTempSharedData)) {
+            const auto* data = static_cast<const CoreTempSharedData*>(view);
+            const std::size_t cpu_count =
+                std::clamp<std::size_t>(static_cast<std::size_t>(data->uiCPUCnt), 1U, 128U);
+            const std::size_t core_count = std::min<std::size_t>(
+                static_cast<std::size_t>(data->uiCoreCnt) * cpu_count, data->fTemp.size());
+            for (std::size_t idx = 0U; idx < core_count; ++idx) {
+                auto temp = static_cast<double>(data->fTemp[idx]);
+                if (!std::isfinite(temp) || temp <= 0.0) {
+                    continue;
+                }
+                if (data->ucDeltaToTjMax != 0U && data->uiTjMax[0] > 0U) {
+                    temp = static_cast<double>(data->uiTjMax[0]) - temp;
+                }
+                if (data->ucFahrenheit != 0U) {
+                    temp = (temp - 32.0) * 5.0 / 9.0;
+                }
+                if (temp >= kMinValidCelsius && temp <= kMaxValidCelsius) {
+                    if (!max_core_celsius.has_value() || temp > *max_core_celsius) {
+                        max_core_celsius = temp;
+                    }
+                }
+            }
+        }
+        UnmapViewOfFile(view);
+    }
+    CloseHandle(mapping);
+    return max_core_celsius;
+}
 [[nodiscard]] std::uint64_t filetime_to_u64(const FILETIME& ft) noexcept {
     return (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32U) |
            static_cast<std::uint64_t>(ft.dwLowDateTime);
@@ -235,7 +304,7 @@ void SystemTelemetrySampler::ensure_initialized() noexcept {
         add_counter(L"\\Thermal Zone Information(*)\\High Precision Temperature");
     gpu_engine_counter_ = add_counter(L"\\GPU Engine(*)\\Utilization Percentage");
     gpu_adapter_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Dedicated Usage");
-
+    gpu_adapter_shared_mem_counter_ = add_counter(L"\\GPU Adapter Memory(*)\\Shared Usage");
     static_cast<void>(PdhCollectQueryData(query));
 }
 
@@ -265,7 +334,7 @@ void SystemTelemetrySampler::refresh_gpu_adapters_if_needed() noexcept {
                 continue;
             }
             if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0U ||
-                desc.DedicatedVideoMemory == 0U) {
+                (desc.DedicatedVideoMemory == 0U && desc.SharedSystemMemory == 0U)) {
                 continue;
             }
             const bool already_recorded =
@@ -276,13 +345,15 @@ void SystemTelemetrySampler::refresh_gpu_adapters_if_needed() noexcept {
             if (already_recorded) {
                 continue;
             }
-            auto total_bytes = static_cast<std::uint64_t>(desc.DedicatedVideoMemory);
+            auto total_dedicated_bytes = static_cast<std::uint64_t>(desc.DedicatedVideoMemory);
             const std::uint64_t reg_bytes =
                 query_registry_max_vram_for_description(std::wstring_view(desc.Description));
-            total_bytes = std::max(total_bytes, reg_bytes);
+            total_dedicated_bytes = std::max(total_dedicated_bytes, reg_bytes);
+            const auto total_shared_bytes = static_cast<std::uint64_t>(desc.SharedSystemMemory);
             discovered.push_back(GpuAdapterInfo{
                 .luid = desc.AdapterLuid,
-                .total_dedicated_bytes = total_bytes,
+                .total_dedicated_bytes = total_dedicated_bytes,
+                .total_shared_bytes = total_shared_bytes,
             });
         }
         if (!discovered.empty()) {
@@ -390,15 +461,18 @@ SystemTelemetrySnapshot SystemTelemetrySampler::sample() noexcept {
         }
     }
 
-    // 4. CPU Temperature (Celsius) via ACPI Thermal Zone Information
-    if (thermal_zone_counter_ != nullptr) {
+    // 4. CPU Temperature (Celsius): prefer CoreTemp user-mode shared memory when active, else
+    // non-dummy ACPI Thermal Zone Information.
+    snapshot.cpu_temperature_celsius = sample_coretemp_shared_memory_celsius();
+    if (!snapshot.cpu_temperature_celsius.has_value() && thermal_zone_counter_ != nullptr) {
         std::optional<double> preferred_tz01{};
         std::optional<double> max_valid_temp{};
         try {
             for_each_pdh_item(
                 thermal_zone_counter_, pdh_buffer_,
                 [&](std::wstring_view name, double raw_kelvin_tenths) noexcept {
-                    if (!std::isfinite(raw_kelvin_tenths)) {
+                    if (!std::isfinite(raw_kelvin_tenths) ||
+                        is_bios_dummy_kelvin_tenths(raw_kelvin_tenths)) {
                         return;
                     }
                     const double celsius =
@@ -421,12 +495,13 @@ SystemTelemetrySnapshot SystemTelemetrySampler::sample() noexcept {
             preferred_tz01.has_value() ? preferred_tz01 : max_valid_temp;
     }
 
-    // 5. GPU Usage (%) & Dedicated VRAM (GB / Total GB)
-    // Select primary physical GPU (preferring dedicated adapter with largest total VRAM).
+    // 5. GPU Usage (%) & VRAM (Dedicated VRAM on dGPUs; Shared GPU Memory fallback on iGPUs)
     struct PerAdapterStats {
         LUID luid{};
-        std::uint64_t total_bytes{0};
-        std::uint64_t used_bytes{0};
+        std::uint64_t total_dedicated_bytes{0};
+        std::uint64_t used_dedicated_bytes{0};
+        std::uint64_t total_shared_bytes{0};
+        std::uint64_t used_shared_bytes{0};
         double max_engine_utilization{0.0};
     };
 
@@ -436,8 +511,10 @@ SystemTelemetrySnapshot SystemTelemetrySampler::sample() noexcept {
         for (const auto& info : gpu_adapters_) {
             adapter_stats.push_back(PerAdapterStats{
                 .luid = info.luid,
-                .total_bytes = info.total_dedicated_bytes,
-                .used_bytes = 0U,
+                .total_dedicated_bytes = info.total_dedicated_bytes,
+                .used_dedicated_bytes = 0U,
+                .total_shared_bytes = info.total_shared_bytes,
+                .used_shared_bytes = 0U,
                 .max_engine_utilization = 0.0,
             });
         }
@@ -464,7 +541,26 @@ SystemTelemetrySnapshot SystemTelemetrySampler::sample() noexcept {
                                   }
                                   if (auto* st = find_or_add_adapter(parsed.luid)) {
                                       const auto used_u64 = static_cast<std::uint64_t>(bytes_used);
-                                      st->used_bytes = std::max(st->used_bytes, used_u64);
+                                      st->used_dedicated_bytes =
+                                          std::max(st->used_dedicated_bytes, used_u64);
+                                  }
+                              });
+        }
+
+        if (gpu_adapter_shared_mem_counter_ != nullptr) {
+            for_each_pdh_item(gpu_adapter_shared_mem_counter_, pdh_buffer_,
+                              [&](std::wstring_view name, double bytes_used) {
+                                  if (!std::isfinite(bytes_used) || bytes_used < 0.0) {
+                                      return;
+                                  }
+                                  const ParsedGpuLuid parsed = parse_luid_from_instance(name);
+                                  if (!parsed.valid) {
+                                      return;
+                                  }
+                                  if (auto* st = find_or_add_adapter(parsed.luid)) {
+                                      const auto used_u64 = static_cast<std::uint64_t>(bytes_used);
+                                      st->used_shared_bytes =
+                                          std::max(st->used_shared_bytes, used_u64);
                                   }
                               });
         }
@@ -508,31 +604,52 @@ SystemTelemetrySnapshot SystemTelemetrySampler::sample() noexcept {
         }
 
         if (!adapter_stats.empty()) {
-            // Choose adapter:
-            // If an adapter has active utilization or dedicated VRAM usage and total_bytes > 0,
-            // pick the primary dedicated GPU (largest total_bytes, or highest utilization).
             const PerAdapterStats* best = &adapter_stats.front();
             for (const auto& candidate : adapter_stats) {
-                if (candidate.total_bytes > best->total_bytes) {
-                    best = &candidate;
+                const bool cand_has_ded =
+                    (candidate.total_dedicated_bytes >= kMinDedicatedGpuVramBytes);
+                const bool best_has_ded =
+                    (best->total_dedicated_bytes >= kMinDedicatedGpuVramBytes);
+                if (cand_has_ded != best_has_ded) {
+                    if (cand_has_ded) {
+                        best = &candidate;
+                    }
+                } else if (cand_has_ded) {
+                    if (candidate.total_dedicated_bytes > best->total_dedicated_bytes) {
+                        best = &candidate;
+                    }
+                } else {
+                    if (candidate.used_shared_bytes > best->used_shared_bytes ||
+                        (candidate.used_shared_bytes == best->used_shared_bytes &&
+                         candidate.total_shared_bytes > best->total_shared_bytes)) {
+                        best = &candidate;
+                    }
                 }
             }
-            // Maximum utilization across all hardware adapters so iGPU + dGPU Hybrid activity is
-            // always reflected accurately in GPU usage %, while VRAM shows the primary GPU's VRAM.
+
             double max_overall_gpu_util = best->max_engine_utilization;
             for (const auto& candidate : adapter_stats) {
-                if (candidate.total_bytes > 0U) {
+                if (candidate.total_dedicated_bytes > 0U || candidate.total_shared_bytes > 0U) {
                     max_overall_gpu_util =
                         std::max(max_overall_gpu_util, candidate.max_engine_utilization);
                 }
             }
             snapshot.gpu_usage_percent = std::clamp(max_overall_gpu_util, 0.0, 100.0);
-            snapshot.gpu_vram_used_gb = static_cast<double>(best->used_bytes) / kBytesPerGib;
-            snapshot.gpu_vram_total_gb = static_cast<double>(best->total_bytes) / kBytesPerGib;
-            if (best->total_bytes > 0U) {
+
+            const bool use_dedicated_pool =
+                (best->total_dedicated_bytes >= kMinDedicatedGpuVramBytes &&
+                 (best->used_dedicated_bytes > 0U || best->used_shared_bytes == 0U));
+            const std::uint64_t chosen_used_bytes =
+                use_dedicated_pool ? best->used_dedicated_bytes : best->used_shared_bytes;
+            const std::uint64_t chosen_total_bytes =
+                use_dedicated_pool ? best->total_dedicated_bytes : best->total_shared_bytes;
+
+            snapshot.gpu_vram_used_gb = static_cast<double>(chosen_used_bytes) / kBytesPerGib;
+            snapshot.gpu_vram_total_gb = static_cast<double>(chosen_total_bytes) / kBytesPerGib;
+            if (chosen_total_bytes > 0U) {
                 snapshot.gpu_vram_usage_percent =
-                    std::clamp(static_cast<double>(best->used_bytes) * 100.0 /
-                                   static_cast<double>(best->total_bytes),
+                    std::clamp(static_cast<double>(chosen_used_bytes) * 100.0 /
+                                   static_cast<double>(chosen_total_bytes),
                                0.0, 100.0);
             }
         }

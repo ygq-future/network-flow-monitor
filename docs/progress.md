@@ -547,3 +547,11 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 上传网速（`↑:`）与下载网速（`↓:`）始终保持上下成对出现在最右侧列，不参与硬件空位替补；硬件列按日常 2 位数（`"88"` 宽度，`58 DIP` 列宽）预留固定数值槽位（当出现 3 位数如 `100` 时自动缩小字号以适配该 2 位数槽位宽度），网速列预留 4 字符固定数值槽位（`"88.8"` 宽度，`74 DIP` 列宽）并对 `MB/s` / `Mbps` 单位做字号适配使其与 `KB/s` 宽度对齐，鼠标悬浮在任务栏监控区域时弹出纯黑/纯白自适应主题的详情 Tooltip 卡片（展示全部已启用监控项，其中内存与显存同时展示百分比与 `已用 / 总计 GB`）。
 - **测试与质量门禁 (`tests/config_tests.cpp`, `tests/host_tests.cpp`, `SettingsCenter.test.tsx`)**：
   - 新增配置默认关闭与持久化编解码测试、硬件两行替补与网速成对列构建测试、`SystemTelemetrySampler` 实机采样测试，以及设置中心「任务栏监控」Tab 交互测试。
+
+## 第四十一轮 v0.3.5 原生系统任务栏硬件与网速监控发布 — complete
+
+- **全仓版本号同步升级至 `0.3.5` (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `docs/development.md`)**：
+  - 同步升级 CMake 工程版本、前端包清单、Windows 资源 `FILEVERSION`/`PRODUCTVERSION`（`0,3,5,0` / `"0.3.5"`）以及前端默认回退版本号。
+- **撰写中英双语发布说明 (`.github/release-note/v0.3.5.md`)**：
+  - 汇总第 35–40 轮原生系统任务栏网速与硬件遥测监控（`TaskbarSpeedWindow` + `SystemTelemetrySampler`）、核显共享显存与 CoreTemp 共享内存兼容、两行固定槽位对齐、悬浮详情卡片防闪烁、设置中心「任务栏监控」独立面板以及开机极早期启动自动恢复加固。
+- **质量门禁与发布流程**：通过 `tools/quality.ps1 -Mode Full` 20/20 门禁与 `tools/package.ps1 -Configuration Release` 便携包构建，提交并推送 `v0.3.5` tag 触发 GitHub Release 自动发布。

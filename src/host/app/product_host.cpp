@@ -452,13 +452,16 @@ bool ProductHost::initialize() {
     }
 
     window_->create_tray_icon();
+    telemetry_sampler_ = std::make_unique<platform::SystemTelemetrySampler>();
     taskbar_speed_window_ = std::make_unique<platform::TaskbarSpeedWindow>();
-    taskbar_speed_window_->update_config(current_config_.display.speed_unit,
-                                         current_config_.appearance.theme);
     static_cast<void>(taskbar_speed_window_->create(
         [this]() { on_context_menu_show_monitor(); },
         [this](int screen_x, int screen_y) { on_open_context_menu(screen_x, screen_y); }));
-    taskbar_speed_window_->set_enabled(current_config_.display.show_taskbar_speed);
+    taskbar_speed_window_->update_config(current_config_.display, current_config_.appearance.theme,
+                                         current_config_.appearance.language);
+    if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
+        taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
+    }
     icon_warmup_thread_ = std::thread([this]() noexcept {
         try {
             warm_executable_icons();
@@ -778,7 +781,11 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
         }
         ensure_window_presentation();
         if (taskbar_speed_window_) {
-            taskbar_speed_window_->sync_with_taskbar();
+            if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
+                taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
+            } else {
+                taskbar_speed_window_->sync_with_taskbar();
+            }
         }
     }
     history_persist_elapsed_ += elapsed;
@@ -1592,6 +1599,54 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected boolean for show_taskbar_speed";
         }
+    } else if (key == "display.show_taskbar_cpu_usage" || key == "general.showTaskbarCpuUsage" ||
+               key == "showTaskbarCpuUsage") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_cpu_usage = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_cpu_usage";
+        }
+    } else if (key == "display.show_taskbar_cpu_temp" || key == "general.showTaskbarCpuTemp" ||
+               key == "showTaskbarCpuTemp") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_cpu_temp = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_cpu_temp";
+        }
+    } else if (key == "display.show_taskbar_cpu_power" || key == "general.showTaskbarCpuPower" ||
+               key == "showTaskbarCpuPower") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_cpu_power = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_cpu_power";
+        }
+    } else if (key == "display.show_taskbar_memory_usage" ||
+               key == "general.showTaskbarMemoryUsage" || key == "showTaskbarMemoryUsage") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_memory_usage = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_memory_usage";
+        }
+    } else if (key == "display.show_taskbar_gpu_usage" || key == "general.showTaskbarGpuUsage" ||
+               key == "showTaskbarGpuUsage") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_gpu_usage = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_gpu_usage";
+        }
+    } else if (key == "display.show_taskbar_gpu_memory" || key == "general.showTaskbarGpuMemory" ||
+               key == "showTaskbarGpuMemory") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_gpu_memory = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_gpu_memory";
+        }
     } else if (key == "appearance.theme" || key == "theme") {
         if (yyjson_is_str(val)) {
             std::string_view str = yyjson_get_str(val);
@@ -1968,9 +2023,12 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
     }
     apply_settings_window_chrome();
     if (taskbar_speed_window_) {
-        taskbar_speed_window_->update_config(current_config_.display.speed_unit,
-                                             current_config_.appearance.theme);
-        taskbar_speed_window_->set_enabled(current_config_.display.show_taskbar_speed);
+        if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
+            taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
+        }
+        taskbar_speed_window_->update_config(current_config_.display,
+                                             current_config_.appearance.theme,
+                                             current_config_.appearance.language);
     }
 
     // Broadcast authoritative snapshot

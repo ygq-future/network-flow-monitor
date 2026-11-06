@@ -47,8 +47,17 @@ constexpr std::array<std::string_view, 8> kUserRootKeys{
     "schema_version", "ranking",    "display", "interaction",
     "floating",       "appearance", "startup", "diagnostics"};
 constexpr std::array<std::string_view, 3> kRankingKeys{"top_n", "window_ms", "excluded_programs"};
-constexpr std::array<std::string_view, 5> kDisplayKeys{
-    "refresh_interval_ms", "speed_unit", "show_upload", "show_download", "show_taskbar_speed"};
+constexpr std::array<std::string_view, 11> kDisplayKeys{"refresh_interval_ms",
+                                                        "speed_unit",
+                                                        "show_upload",
+                                                        "show_download",
+                                                        "show_taskbar_speed",
+                                                        "show_taskbar_cpu_usage",
+                                                        "show_taskbar_cpu_temp",
+                                                        "show_taskbar_cpu_power",
+                                                        "show_taskbar_memory_usage",
+                                                        "show_taskbar_gpu_usage",
+                                                        "show_taskbar_gpu_memory"};
 constexpr std::array<std::string_view, 2> kInteractionKeys{"hover_delay_ms", "dismiss_delay_ms"};
 constexpr std::array<std::string_view, 16> kFloatingKeys{"auto_hide_enabled",
                                                          "auto_hide_delay_ms",
@@ -413,8 +422,53 @@ std::optional<ConfigError> ParseDisplay(yyjson_val* root, AppConfig& config, boo
                                  config.display.show_download, &complete)) {
         return error;
     }
-    return ReadBoolean(group, "show_taskbar_speed", "display.show_taskbar_speed",
-                       config.display.show_taskbar_speed, &complete);
+    if (auto error = ReadBoolean(group, "show_taskbar_speed", "display.show_taskbar_speed",
+                                 config.display.show_taskbar_speed, &complete)) {
+        return error;
+    }
+    if (yyjson_obj_get(group, "show_taskbar_cpu_usage") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_cpu_usage", "display.show_taskbar_cpu_usage",
+                            config.display.show_taskbar_cpu_usage, &complete)) {
+            return error;
+        }
+    }
+    if (yyjson_obj_get(group, "show_taskbar_cpu_temp") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_cpu_temp", "display.show_taskbar_cpu_temp",
+                            config.display.show_taskbar_cpu_temp, &complete)) {
+            return error;
+        }
+    }
+    if (yyjson_obj_get(group, "show_taskbar_cpu_power") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_cpu_power", "display.show_taskbar_cpu_power",
+                            config.display.show_taskbar_cpu_power, &complete)) {
+            return error;
+        }
+    }
+    if (yyjson_obj_get(group, "show_taskbar_memory_usage") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_memory_usage", "display.show_taskbar_memory_usage",
+                            config.display.show_taskbar_memory_usage, &complete)) {
+            return error;
+        }
+    }
+    if (yyjson_obj_get(group, "show_taskbar_gpu_usage") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_gpu_usage", "display.show_taskbar_gpu_usage",
+                            config.display.show_taskbar_gpu_usage, &complete)) {
+            return error;
+        }
+    }
+    if (yyjson_obj_get(group, "show_taskbar_gpu_memory") != nullptr) {
+        if (auto error =
+                ReadBoolean(group, "show_taskbar_gpu_memory", "display.show_taskbar_gpu_memory",
+                            config.display.show_taskbar_gpu_memory, &complete)) {
+            return error;
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<ConfigError> ParseInteraction(yyjson_val* root, AppConfig& config, bool& complete) {
@@ -752,7 +806,19 @@ bool AddDisplay(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig&
            yyjson_mut_obj_add_bool(document, group, "show_download",
                                    config.display.show_download) &&
            yyjson_mut_obj_add_bool(document, group, "show_taskbar_speed",
-                                   config.display.show_taskbar_speed);
+                                   config.display.show_taskbar_speed) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_cpu_usage",
+                                   config.display.show_taskbar_cpu_usage) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_cpu_temp",
+                                   config.display.show_taskbar_cpu_temp) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_cpu_power",
+                                   config.display.show_taskbar_cpu_power) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_memory_usage",
+                                   config.display.show_taskbar_memory_usage) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_gpu_usage",
+                                   config.display.show_taskbar_gpu_usage) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_gpu_memory",
+                                   config.display.show_taskbar_gpu_memory);
 }
 
 bool AddInteraction(yyjson_mut_doc* document, yyjson_mut_val* root,

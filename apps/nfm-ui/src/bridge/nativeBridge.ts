@@ -107,6 +107,12 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
       uiAtLogin: false,
       speedUnit: 'auto',
       showTaskbarSpeed: false,
+      showTaskbarCpuUsage: false,
+      showTaskbarCpuTemp: false,
+      showTaskbarCpuPower: false,
+      showTaskbarMemoryUsage: false,
+      showTaskbarGpuUsage: false,
+      showTaskbarGpuMemory: false,
     },
     appearance: {
       theme: 'system',
@@ -395,6 +401,42 @@ export class MockBridge extends NativeBridge {
       key === 'showTaskbarSpeed'
     ) {
       cfg.general.showTaskbarSpeed = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_cpu_usage' ||
+      key === 'general.showTaskbarCpuUsage' ||
+      key === 'showTaskbarCpuUsage'
+    ) {
+      cfg.general.showTaskbarCpuUsage = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_cpu_temp' ||
+      key === 'general.showTaskbarCpuTemp' ||
+      key === 'showTaskbarCpuTemp'
+    ) {
+      cfg.general.showTaskbarCpuTemp = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_cpu_power' ||
+      key === 'general.showTaskbarCpuPower' ||
+      key === 'showTaskbarCpuPower'
+    ) {
+      cfg.general.showTaskbarCpuPower = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_memory_usage' ||
+      key === 'general.showTaskbarMemoryUsage' ||
+      key === 'showTaskbarMemoryUsage'
+    ) {
+      cfg.general.showTaskbarMemoryUsage = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_gpu_usage' ||
+      key === 'general.showTaskbarGpuUsage' ||
+      key === 'showTaskbarGpuUsage'
+    ) {
+      cfg.general.showTaskbarGpuUsage = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_gpu_memory' ||
+      key === 'general.showTaskbarGpuMemory' ||
+      key === 'showTaskbarGpuMemory'
+    ) {
+      cfg.general.showTaskbarGpuMemory = Boolean(value)
     } else if (key === 'appearance.theme' || key === 'theme') {
       cfg.appearance.theme = value as 'system' | 'light' | 'dark'
     } else if (key === 'appearance.language' || key === 'language') {

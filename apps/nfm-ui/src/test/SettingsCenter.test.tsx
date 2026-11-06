@@ -18,17 +18,18 @@ function renderWithProviders(ui: React.ReactElement, bridge: MockBridge) {
 }
 
 describe('SettingsCenter', () => {
-  it('renders 3 tabs including Traffic History and default general section', () => {
+  it('renders 4 tabs including Taskbar Monitor and Traffic History and default general section', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /General/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Capsule$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Taskbar Monitor/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Traffic History/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Collector & Logs/i })).not.toBeInTheDocument()
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
-    expect(screen.getByText('Show Taskbar Speed')).toBeInTheDocument()
+    expect(screen.queryByText('Show Taskbar Speed')).not.toBeInTheDocument()
     expect(screen.queryByText('Speed Unit')).not.toBeInTheDocument()
     expect(screen.getByText('Application Theme')).toBeInTheDocument()
     expect(screen.getByText('Language')).toBeInTheDocument()
@@ -70,14 +71,26 @@ describe('SettingsCenter', () => {
       value: true,
     })
 
-    // Toggle taskbar speed
+    // Switch to Taskbar Monitor tab and toggle taskbar speed & hardware metrics
+    fireEvent.click(screen.getByRole('button', { name: /Taskbar Monitor/i }))
     const taskbarSpeedToggle = screen.getByRole('switch', { name: /Show Taskbar Speed/i })
     fireEvent.click(taskbarSpeedToggle)
     expect(spySend).toHaveBeenCalledWith('updateSetting', {
       key: 'display.show_taskbar_speed',
       value: true,
     })
-
+    const cpuUsageToggle = screen.getByRole('switch', { name: /Show CPU Usage/i })
+    fireEvent.click(cpuUsageToggle)
+    expect(spySend).toHaveBeenCalledWith('updateSetting', {
+      key: 'display.show_taskbar_cpu_usage',
+      value: true,
+    })
+    const gpuMemToggle = screen.getByRole('switch', { name: /Show GPU Memory/i })
+    fireEvent.click(gpuMemToggle)
+    expect(spySend).toHaveBeenCalledWith('updateSetting', {
+      key: 'display.show_taskbar_gpu_memory',
+      value: true,
+    })
     // Switch to capsule tab and change width
     fireEvent.click(screen.getByRole('button', { name: /^Capsule$/i }))
     const widthSlider = screen.getByRole('slider', { name: 'Capsule Width' })

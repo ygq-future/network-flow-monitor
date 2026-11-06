@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cwchar>
+#include <dwmapi.h>
 #include <string_view>
 
 namespace nfm::host::platform {
@@ -11,7 +12,29 @@ namespace nfm::host::platform {
 namespace {
 
 constexpr wchar_t kTaskbarOverlayClassName[] = L"NetworkFlowMonitor_TaskbarSpeedWindow";
-
+constexpr wchar_t kTaskbarTooltipClassName[] = L"NetworkFlowMonitor_TaskbarTooltipWindow";
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
+#else
+constexpr DWORD kDwmwaUseImmersiveDarkMode = DWMWA_USE_IMMERSIVE_DARK_MODE;
+#endif
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+constexpr DWORD kDwmwaWindowCornerPreference = 33;
+#else
+constexpr DWORD kDwmwaWindowCornerPreference = DWMWA_WINDOW_CORNER_PREFERENCE;
+#endif
+#ifndef DWMWA_BORDER_COLOR
+constexpr DWORD kDwmwaBorderColor = 34;
+#else
+constexpr DWORD kDwmwaBorderColor = DWMWA_BORDER_COLOR;
+#endif
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+constexpr DWORD kDwmwaSystemBackdropType = 38;
+#else
+constexpr DWORD kDwmwaSystemBackdropType = DWMWA_SYSTEMBACKDROP_TYPE;
+#endif
+constexpr int kDwmwcpRoundSmall = 3;
+constexpr int kDwmsbtDisable = 1;
 [[nodiscard]] bool is_windows_11_or_greater() noexcept {
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
@@ -75,6 +98,44 @@ constexpr wchar_t kTaskbarOverlayClassName[] = L"NetworkFlowMonitor_TaskbarSpeed
     } else {
         static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.1f", val));
     }
+    return std::wstring(buf.data());
+}
+
+[[nodiscard]] std::wstring format_rounded_int(double val) {
+    std::array<wchar_t, 32> buf{};
+    const double clamped = std::isfinite(val) ? std::max(0.0, val) : 0.0;
+    static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.0f", std::round(clamped)));
+    return std::wstring(buf.data());
+}
+
+[[nodiscard]] std::wstring format_one_decimal(double val) {
+    std::array<wchar_t, 32> buf{};
+    const double clamped = std::isfinite(val) ? std::max(0.0, val) : 0.0;
+    static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.1f", clamped));
+    return std::wstring(buf.data());
+}
+
+[[nodiscard]] std::wstring format_power_watts(double val) {
+    std::array<wchar_t, 32> buf{};
+    const double clamped = std::isfinite(val) ? std::max(0.0, val) : 0.0;
+    if (clamped >= 10.0) {
+        static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.0f", std::round(clamped)));
+    } else {
+        static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.1f", clamped));
+    }
+    return std::wstring(buf.data());
+}
+
+[[nodiscard]] std::wstring format_capacity_detail(double pct, double used_gb, double total_gb) {
+    std::array<wchar_t, 64> buf{};
+    const double safe_pct = std::isfinite(pct) ? std::clamp(pct, 0.0, 100.0) : 0.0;
+    if (!std::isfinite(total_gb) || total_gb <= 0.0) {
+        static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.1f%%", safe_pct));
+        return std::wstring(buf.data());
+    }
+    const double safe_used = std::isfinite(used_gb) ? std::clamp(used_gb, 0.0, total_gb) : 0.0;
+    static_cast<void>(std::swprintf(buf.data(), buf.size(), L"%.1f%% (%.1f / %.1f GB)", safe_pct,
+                                    safe_used, total_gb));
     return std::wstring(buf.data());
 }
 
@@ -173,6 +234,228 @@ std::wstring TaskbarSpeedWindow::format_rate_line(std::wstring_view arrow_prefix
     return line;
 }
 
+std::vector<TaskbarColumnPair> TaskbarSpeedWindow::build_display_columns(
+    const config::DisplayConfig& display_config, TaskbarRatePair rates,
+    const SystemTelemetrySnapshot& telemetry) {
+    struct HardwareItem {
+        TaskbarMetricCell cell;
+        int min_width_dip;
+    };
+
+    std::vector<HardwareItem> hw_items;
+    hw_items.reserve(6U);
+
+    // Canonical sequence requested:
+    // 1. CPU: usage%
+    // 2. CPU: temperature °C
+    // 3. CPU: power W
+    // 4. MEM: usage%
+    // 5. GPU: usage%
+    // 6. VRM: usage%
+    if (display_config.show_taskbar_cpu_usage) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"CPU:",
+                    .value = format_rounded_int(telemetry.cpu_usage_percent),
+                    .unit = L"%",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+    if (display_config.show_taskbar_cpu_temp) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"CPU:",
+                    .value = telemetry.cpu_temperature_celsius.has_value()
+                                 ? format_rounded_int(*telemetry.cpu_temperature_celsius)
+                                 : L"--",
+                    .unit = L"\u2103",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+    if (display_config.show_taskbar_cpu_power) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"CPU:",
+                    .value = telemetry.cpu_package_power_watts.has_value()
+                                 ? format_power_watts(*telemetry.cpu_package_power_watts)
+                                 : L"--",
+                    .unit = L"W",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+    if (display_config.show_taskbar_memory_usage) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"MEM:",
+                    .value = format_rounded_int(telemetry.memory_usage_percent),
+                    .unit = L"%",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+    if (display_config.show_taskbar_gpu_usage) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"GPU:",
+                    .value = format_rounded_int(telemetry.gpu_usage_percent),
+                    .unit = L"%",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+    if (display_config.show_taskbar_gpu_memory) {
+        hw_items.push_back(HardwareItem{
+            .cell =
+                TaskbarMetricCell{
+                    .label = L"VRM:",
+                    .value = format_rounded_int(telemetry.gpu_vram_usage_percent),
+                    .unit = L"%",
+                    .empty = false,
+                },
+            .min_width_dip = kHardwareColumnWidthDip,
+        });
+    }
+
+    std::vector<TaskbarColumnPair> columns;
+    columns.reserve(((hw_items.size() + 1U) / 2U) + 1U);
+
+    // Pair hardware items sequentially (top, bottom) so disabled items are filled by subsequent
+    // hardware items.
+    for (std::size_t idx = 0U; idx < hw_items.size(); idx += 2U) {
+        TaskbarColumnPair col{};
+        col.top = hw_items[idx].cell;
+        col.width_dip = hw_items[idx].min_width_dip;
+        if (idx + 1U < hw_items.size()) {
+            col.bottom = hw_items[idx + 1U].cell;
+            col.width_dip = std::max(col.width_dip, hw_items[idx + 1U].min_width_dip);
+        }
+        columns.push_back(std::move(col));
+    }
+
+    // Upload and download speeds never substitute into hardware slots and always appear as an
+    // inseparable vertical pair in the rightmost column.
+    if (display_config.show_taskbar_speed) {
+        const TaskbarFormattedRate up_parts =
+            format_rate_parts(rates.upload_bytes_per_sec, display_config.speed_unit);
+        const TaskbarFormattedRate down_parts =
+            format_rate_parts(rates.download_bytes_per_sec, display_config.speed_unit);
+        columns.push_back(TaskbarColumnPair{
+            .top =
+                TaskbarMetricCell{
+                    .label = L"\u2191:",
+                    .value = up_parts.value,
+                    .unit = up_parts.unit,
+                    .empty = false,
+                },
+            .bottom =
+                TaskbarMetricCell{
+                    .label = L"\u2193:",
+                    .value = down_parts.value,
+                    .unit = down_parts.unit,
+                    .empty = false,
+                },
+            .width_dip = kDefaultOverlayWidthDip,
+        });
+    }
+
+    return columns;
+}
+
+std::vector<TaskbarTooltipRow> TaskbarSpeedWindow::build_tooltip_rows(
+    const config::DisplayConfig& display_config, TaskbarRatePair rates,
+    const SystemTelemetrySnapshot& telemetry, bool is_chinese) {
+    std::vector<TaskbarTooltipRow> rows;
+    rows.reserve(8U);
+
+    if (display_config.show_taskbar_cpu_usage) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"CPU \u4F7F\u7528\u7387" : L"CPU Usage",
+            .value = format_one_decimal(telemetry.cpu_usage_percent) + L"%",
+        });
+    }
+    if (display_config.show_taskbar_cpu_temp) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"CPU \u6E29\u5EA6" : L"CPU Temp",
+            .value = telemetry.cpu_temperature_celsius.has_value()
+                         ? (format_one_decimal(*telemetry.cpu_temperature_celsius) + L" \u2103")
+                         : L"--",
+        });
+    }
+    if (display_config.show_taskbar_cpu_power) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"CPU \u5C01\u88C5\u529F\u8017" : L"CPU Power",
+            .value = telemetry.cpu_package_power_watts.has_value()
+                         ? (format_one_decimal(*telemetry.cpu_package_power_watts) + L" W")
+                         : L"--",
+        });
+    }
+    if (display_config.show_taskbar_memory_usage) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"\u5185\u5B58\u5360\u7528 (MEM)" : L"Memory (MEM)",
+            .value = format_capacity_detail(telemetry.memory_usage_percent,
+                                            telemetry.memory_used_gb, telemetry.memory_total_gb),
+        });
+    }
+    if (display_config.show_taskbar_gpu_usage) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"GPU \u4F7F\u7528\u7387" : L"GPU Usage",
+            .value = format_one_decimal(telemetry.gpu_usage_percent) + L"%",
+        });
+    }
+    if (display_config.show_taskbar_gpu_memory) {
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"GPU \u663E\u5B58 (VRM)" : L"GPU VRAM (VRM)",
+            .value =
+                format_capacity_detail(telemetry.gpu_vram_usage_percent, telemetry.gpu_vram_used_gb,
+                                       telemetry.gpu_vram_total_gb),
+        });
+    }
+    if (display_config.show_taskbar_speed) {
+        const TaskbarFormattedRate up_parts =
+            format_rate_parts(rates.upload_bytes_per_sec, display_config.speed_unit);
+        const TaskbarFormattedRate down_parts =
+            format_rate_parts(rates.download_bytes_per_sec, display_config.speed_unit);
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"\u4E0A\u4F20\u7F51\u901F (\u2191)" : L"Upload (\u2191)",
+            .value = up_parts.value + L" " + up_parts.unit,
+        });
+        rows.push_back(TaskbarTooltipRow{
+            .label = is_chinese ? L"\u4E0B\u8F7D\u7F51\u901F (\u2193)" : L"Download (\u2193)",
+            .value = down_parts.value + L" " + down_parts.unit,
+        });
+    }
+
+    return rows;
+}
+
+int TaskbarSpeedWindow::compute_required_width_dip(
+    const std::vector<TaskbarColumnPair>& columns) noexcept {
+    if (columns.empty()) {
+        return kDefaultOverlayWidthDip;
+    }
+    int total_dip = 0;
+    for (std::size_t i = 0U; i < columns.size(); ++i) {
+        if (i > 0U) {
+            total_dip += kColumnGapDip;
+        }
+        total_dip += columns[i].width_dip;
+    }
+    return std::max(kHardwareColumnWidthDip, total_dip);
+}
+
 TaskbarOverlayPlacement TaskbarSpeedWindow::compute_placement(
     const TaskbarLayoutInput& input) noexcept {
     TaskbarOverlayPlacement result{};
@@ -183,7 +466,9 @@ TaskbarOverlayPlacement TaskbarSpeedWindow::compute_placement(
     }
 
     const int dpi_val = static_cast<int>(input.dpi > 0U ? input.dpi : 96U);
-    const int width_px = std::min(tb_width, (kDefaultOverlayWidthDip * dpi_val) / 96);
+    const int desired_dip =
+        (input.overlay_width_dip > 0) ? input.overlay_width_dip : kDefaultOverlayWidthDip;
+    const int width_px = std::min(tb_width, (desired_dip * dpi_val) / 96);
     const int height_px = std::min(tb_height, (kDefaultOverlayHeightDip * dpi_val) / 96);
     const int margin_px = (kHorizontalMarginDip * dpi_val) / 96;
 
@@ -246,6 +531,32 @@ bool TaskbarSpeedWindow::resolve_dark_text_mode() const noexcept {
     return is_taskbar_light_theme();
 }
 
+bool TaskbarSpeedWindow::resolve_tooltip_light_mode() const noexcept {
+    if (theme_mode_ == config::ThemeMode::Light) {
+        return true;
+    }
+    if (theme_mode_ == config::ThemeMode::Dark) {
+        return false;
+    }
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    const wchar_t* subkey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+    if (RegGetValueW(HKEY_CURRENT_USER, subkey, L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr,
+                     &value, &size) == ERROR_SUCCESS) {
+        return value != 0;
+    }
+    return is_taskbar_light_theme();
+}
+bool TaskbarSpeedWindow::resolve_chinese_locale() const noexcept {
+    if (language_mode_ == config::LanguageMode::SimplifiedChinese) {
+        return true;
+    }
+    if (language_mode_ == config::LanguageMode::English) {
+        return false;
+    }
+    return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
+}
+
 bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback on_right_click) {
     if (hwnd_ != nullptr) {
         return true;
@@ -264,6 +575,15 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
     wc.lpszClassName = kTaskbarOverlayClassName;
     RegisterClassExW(&wc);
 
+    WNDCLASSEXW tip_wc{};
+    tip_wc.cbSize = sizeof(WNDCLASSEXW);
+    tip_wc.style = CS_HREDRAW | CS_VREDRAW;
+    tip_wc.lpfnWndProc = &TaskbarSpeedWindow::tooltip_window_proc;
+    tip_wc.hInstance = hinst;
+    tip_wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    tip_wc.lpszClassName = kTaskbarTooltipClassName;
+    RegisterClassExW(&tip_wc);
+
     // Create hidden at 1x1 as WS_POPUP with WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
     // (and no independent WS_EX_TOPMOST) so that once parented to Shell_TrayWnd, the window
     // inherits the taskbar's exact Z-order and fullscreen/auto-hide behavior. Starting at 1x1 (and
@@ -277,6 +597,18 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
         return false;
     }
 
+    constexpr DWORD kTipExStyle =
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
+    tooltip_hwnd_ = CreateWindowExW(kTipExStyle, kTaskbarTooltipClassName, L"", WS_POPUP, 0, 0, 1,
+                                    1, nullptr, nullptr, hinst, this);
+    if (tooltip_hwnd_ != nullptr) {
+        const int corner_pref = kDwmwcpRoundSmall;
+        static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaWindowCornerPreference,
+                                                &corner_pref, sizeof(corner_pref)));
+        const int backdrop_type = kDwmsbtDisable;
+        static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaSystemBackdropType,
+                                                &backdrop_type, sizeof(backdrop_type)));
+    }
     taskbar_back_color_ =
         sanitize_transparent_color(resolve_dark_text_mode() ? RGB(210, 210, 211) : RGB(32, 33, 33));
     SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
@@ -292,12 +624,18 @@ void TaskbarSpeedWindow::set_target_taskbar_for_testing(HWND taskbar_hwnd) noexc
 }
 
 void TaskbarSpeedWindow::close() noexcept {
+    hide_tooltip();
+    if (tooltip_hwnd_ != nullptr) {
+        DestroyWindow(tooltip_hwnd_);
+        tooltip_hwnd_ = nullptr;
+    }
     if (hwnd_ != nullptr) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
     }
     attached_parent_hwnd_ = nullptr;
     visible_ = false;
+    mouse_tracking_ = false;
 }
 
 void TaskbarSpeedWindow::set_enabled(bool enabled) {
@@ -305,37 +643,264 @@ void TaskbarSpeedWindow::set_enabled(bool enabled) {
         return;
     }
     enabled_ = enabled;
+    if (!enabled_) {
+        hide_tooltip();
+    }
+    if (enabled_ && !config::HasAnyTaskbarMonitorItem(display_config_)) {
+        display_config_.show_taskbar_speed = true;
+    }
     sync_with_taskbar();
 }
 
-void TaskbarSpeedWindow::update_config(config::SpeedUnit speed_unit, config::ThemeMode theme_mode) {
-    const bool changed = (speed_unit_ != speed_unit || theme_mode_ != theme_mode);
-    speed_unit_ = speed_unit;
+void TaskbarSpeedWindow::update_config(const config::DisplayConfig& display_config,
+                                       config::ThemeMode theme_mode,
+                                       config::LanguageMode language_mode) {
+    const bool changed = (display_config_ != display_config || theme_mode_ != theme_mode ||
+                          language_mode_ != language_mode);
+    display_config_ = display_config;
     theme_mode_ = theme_mode;
-    if (changed && visible_ && hwnd_ != nullptr) {
-        InvalidateRect(hwnd_, nullptr, FALSE);
+    language_mode_ = language_mode;
+    const bool next_enabled = config::HasAnyTaskbarMonitorItem(display_config_);
+    if (enabled_ != next_enabled) {
+        enabled_ = next_enabled;
+        if (!enabled_) {
+            hide_tooltip();
+        }
+        sync_with_taskbar();
+        return;
+    }
+    if (changed && enabled_ && hwnd_ != nullptr) {
+        sync_with_taskbar();
+        if (visible_) {
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        if (tooltip_visible_) {
+            show_or_update_tooltip();
+        }
+    }
+}
+
+void TaskbarSpeedWindow::refresh_if_needed() {
+    if (!enabled_ || hwnd_ == nullptr) {
+        return;
+    }
+    sync_with_taskbar();
+    if (!visible_) {
+        return;
+    }
+    try {
+        const auto next_cols =
+            build_display_columns(display_config_,
+                                  TaskbarRatePair{.download_bytes_per_sec = download_bytes_per_sec_,
+                                                  .upload_bytes_per_sec = upload_bytes_per_sec_},
+                                  telemetry_);
+        const bool dark_text = resolve_dark_text_mode();
+        if (next_cols != last_rendered_columns_ || dark_text != last_rendered_dark_text_) {
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        if (tooltip_visible_) {
+            show_or_update_tooltip();
+        }
+    } catch (...) {
     }
 }
 
 void TaskbarSpeedWindow::update_rates(TaskbarRatePair rates) {
     download_bytes_per_sec_ = rates.download_bytes_per_sec;
     upload_bytes_per_sec_ = rates.upload_bytes_per_sec;
-    if (enabled_ && hwnd_ != nullptr) {
-        sync_with_taskbar();
-        if (visible_) {
-            const TaskbarFormattedRate up_parts =
-                format_rate_parts(upload_bytes_per_sec_, speed_unit_);
-            const TaskbarFormattedRate down_parts =
-                format_rate_parts(download_bytes_per_sec_, speed_unit_);
-            const std::wstring up_line = up_parts.value + L" " + up_parts.unit;
-            const std::wstring down_line = down_parts.value + L" " + down_parts.unit;
-            const bool dark_text = resolve_dark_text_mode();
-            if (up_line != last_rendered_up_ || down_line != last_rendered_down_ ||
-                dark_text != last_rendered_dark_text_) {
-                InvalidateRect(hwnd_, nullptr, FALSE);
-            }
-        }
+    refresh_if_needed();
+}
+
+void TaskbarSpeedWindow::update_telemetry(const SystemTelemetrySnapshot& telemetry) {
+    telemetry_ = telemetry;
+    refresh_if_needed();
+}
+
+void TaskbarSpeedWindow::hide_tooltip() noexcept {
+    if (tooltip_hwnd_ != nullptr && tooltip_visible_) {
+        ShowWindow(tooltip_hwnd_, SW_HIDE);
     }
+    tooltip_visible_ = false;
+}
+
+void TaskbarSpeedWindow::show_or_update_tooltip() {
+    if (tooltip_hwnd_ == nullptr || hwnd_ == nullptr || !enabled_ || !visible_) {
+        hide_tooltip();
+        return;
+    }
+
+    std::vector<TaskbarTooltipRow> rows;
+    try {
+        rows = build_tooltip_rows(display_config_,
+                                  TaskbarRatePair{.download_bytes_per_sec = download_bytes_per_sec_,
+                                                  .upload_bytes_per_sec = upload_bytes_per_sec_},
+                                  telemetry_, resolve_chinese_locale());
+    } catch (...) {
+        return;
+    }
+    if (rows.empty()) {
+        hide_tooltip();
+        return;
+    }
+
+    last_tooltip_rows_ = std::move(rows);
+
+    const int dpi_int = static_cast<int>(current_dpi_ > 0U ? current_dpi_ : 96U);
+    const int pad_x = (12 * dpi_int) / 96;
+    const int pad_y = (8 * dpi_int) / 96;
+    const int row_h = (20 * dpi_int) / 96;
+    const int mid_gap = (18 * dpi_int) / 96;
+
+    HDC screen_dc = GetDC(nullptr);
+    int max_lbl_w = (60 * dpi_int) / 96;
+    int max_val_w = (70 * dpi_int) / 96;
+    if (screen_dc != nullptr) {
+        const int lf_height = -MulDiv(9, dpi_int, 72);
+        HFONT font =
+            CreateFontW(lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                        DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
+        HGDIOBJ old_font = (font != nullptr) ? SelectObject(screen_dc, font) : nullptr;
+        for (const auto& row : last_tooltip_rows_) {
+            SIZE lsz{};
+            SIZE vsz{};
+            GetTextExtentPoint32W(screen_dc, row.label.c_str(), static_cast<int>(row.label.size()),
+                                  &lsz);
+            GetTextExtentPoint32W(screen_dc, row.value.c_str(), static_cast<int>(row.value.size()),
+                                  &vsz);
+            max_lbl_w = std::max(max_lbl_w, static_cast<int>(lsz.cx));
+            max_val_w = std::max(max_val_w, static_cast<int>(vsz.cx));
+        }
+        if (old_font != nullptr) {
+            SelectObject(screen_dc, old_font);
+        }
+        if (font != nullptr) {
+            DeleteObject(font);
+        }
+        ReleaseDC(nullptr, screen_dc);
+    }
+
+    const int tip_w = (pad_x * 2) + max_lbl_w + mid_gap + max_val_w;
+    const int tip_h = (pad_y * 2) + (static_cast<int>(last_tooltip_rows_.size()) * row_h);
+
+    RECT overlay_rc{};
+    GetWindowRect(hwnd_, &overlay_rc);
+
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(MONITORINFO);
+    HMONITOR hmon = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+    RECT mon_rc{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    if (hmon != nullptr && GetMonitorInfoW(hmon, &mi) != FALSE) {
+        mon_rc = mi.rcMonitor;
+    }
+
+    const int overlay_center_x = (overlay_rc.left + overlay_rc.right) / 2;
+    const int screen_margin = (6 * dpi_int) / 96;
+    int tip_x = overlay_center_x - (tip_w / 2);
+    tip_x = std::clamp(tip_x, static_cast<int>(mon_rc.left) + screen_margin,
+                       std::max(static_cast<int>(mon_rc.left) + screen_margin,
+                                static_cast<int>(mon_rc.right) - tip_w - screen_margin));
+
+    int tip_y = overlay_rc.top - tip_h - screen_margin;
+    if (tip_y < mon_rc.top + screen_margin) {
+        tip_y = overlay_rc.bottom + screen_margin;
+    }
+
+    const bool light_mode = resolve_tooltip_light_mode();
+    const BOOL use_dark = light_mode ? FALSE : TRUE;
+    static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaUseImmersiveDarkMode, &use_dark,
+                                            sizeof(use_dark)));
+    const COLORREF dwm_border = light_mode ? RGB(224, 224, 224) : RGB(51, 51, 51);
+    static_cast<void>(
+        DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaBorderColor, &dwm_border, sizeof(dwm_border)));
+
+    SetWindowPos(tooltip_hwnd_, HWND_TOPMOST, tip_x, tip_y, tip_w, tip_h,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (!tooltip_visible_) {
+        tooltip_visible_ = true;
+        ShowWindow(tooltip_hwnd_, SW_SHOWNOACTIVATE);
+    }
+    RedrawWindow(tooltip_hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME);
+}
+
+void TaskbarSpeedWindow::paint_tooltip_window(HDC paint_dc) noexcept {
+    if (tooltip_hwnd_ == nullptr || paint_dc == nullptr) {
+        return;
+    }
+    RECT client_rc{};
+    if (GetClientRect(tooltip_hwnd_, &client_rc) == FALSE) {
+        return;
+    }
+    const int width = client_rc.right - client_rc.left;
+    const int height = client_rc.bottom - client_rc.top;
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    HDC mem_dc = CreateCompatibleDC(paint_dc);
+    if (mem_dc == nullptr) {
+        return;
+    }
+    HBITMAP mem_bmp = CreateCompatibleBitmap(paint_dc, width, height);
+    if (mem_bmp == nullptr) {
+        DeleteDC(mem_dc);
+        return;
+    }
+    HGDIOBJ old_bmp = SelectObject(mem_dc, mem_bmp);
+
+    const bool light_mode = resolve_tooltip_light_mode();
+    const COLORREF bg_color = light_mode ? RGB(255, 255, 255) : RGB(0, 0, 0);
+    const COLORREF border_color = light_mode ? RGB(224, 224, 224) : RGB(51, 51, 51);
+    const COLORREF label_color = light_mode ? RGB(102, 102, 102) : RGB(166, 166, 166);
+    const COLORREF value_color = light_mode ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    HBRUSH bg_brush = CreateSolidBrush(bg_color);
+    FillRect(mem_dc, &client_rc, bg_brush);
+    DeleteObject(bg_brush);
+
+    HBRUSH border_brush = CreateSolidBrush(border_color);
+    FrameRect(mem_dc, &client_rc, border_brush);
+    DeleteObject(border_brush);
+
+    const int dpi_int = static_cast<int>(current_dpi_ > 0U ? current_dpi_ : 96U);
+    const int lf_height = -MulDiv(9, dpi_int, 72);
+    HFONT font = CreateFontW(lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                             DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
+    HGDIOBJ old_font = (font != nullptr) ? SelectObject(mem_dc, font) : nullptr;
+
+    SetBkMode(mem_dc, TRANSPARENT);
+    const int pad_x = (12 * dpi_int) / 96;
+    const int pad_y = (8 * dpi_int) / 96;
+    const int row_h = (20 * dpi_int) / 96;
+
+    for (std::size_t idx = 0U; idx < last_tooltip_rows_.size(); ++idx) {
+        const auto& row = last_tooltip_rows_[idx];
+        const int top_y = pad_y + (static_cast<int>(idx) * row_h);
+        RECT rc_row{
+            .left = pad_x,
+            .top = top_y,
+            .right = width - pad_x,
+            .bottom = top_y + row_h,
+        };
+        SetTextColor(mem_dc, label_color);
+        DrawTextW(mem_dc, row.label.c_str(), static_cast<int>(row.label.size()), &rc_row,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SetTextColor(mem_dc, value_color);
+        DrawTextW(mem_dc, row.value.c_str(), static_cast<int>(row.value.size()), &rc_row,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    BitBlt(paint_dc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
+
+    if (old_font != nullptr) {
+        SelectObject(mem_dc, old_font);
+    }
+    if (font != nullptr) {
+        DeleteObject(font);
+    }
+    SelectObject(mem_dc, old_bmp);
+    DeleteObject(mem_bmp);
+    DeleteDC(mem_dc);
 }
 
 bool TaskbarSpeedWindow::contains_screen_point(POINT pt) const noexcept {
@@ -395,6 +960,7 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         return;
     }
     if (!enabled_) {
+        hide_tooltip();
         if (visible_ || IsWindowVisible(hwnd_) != FALSE) {
             ShowWindow(hwnd_, SW_HIDE);
             visible_ = false;
@@ -406,6 +972,7 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
                             ? target_taskbar_override_hwnd_
                             : FindWindowW(L"Shell_TrayWnd", nullptr);
     if (taskbar_hwnd == nullptr || IsWindow(taskbar_hwnd) == FALSE) {
+        hide_tooltip();
         if (visible_) {
             ShowWindow(hwnd_, SW_HIDE);
             visible_ = false;
@@ -432,6 +999,17 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         current_relative_bounds_ = RECT{};
     }
 
+    int required_width_dip = kDefaultOverlayWidthDip;
+    try {
+        const auto cols =
+            build_display_columns(display_config_,
+                                  TaskbarRatePair{.download_bytes_per_sec = download_bytes_per_sec_,
+                                                  .upload_bytes_per_sec = upload_bytes_per_sec_},
+                                  telemetry_);
+        required_width_dip = compute_required_width_dip(cols);
+    } catch (...) {
+    }
+
     HWND notify_hwnd = FindWindowExW(taskbar_hwnd, nullptr, L"TrayNotifyWnd", nullptr);
     RECT notify_rect{};
     const bool has_notify =
@@ -444,6 +1022,7 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         .taskbar_centered = query_taskbar_centered(taskbar_hwnd),
         .widgets_enabled = query_taskbar_widgets_enabled(taskbar_hwnd),
         .dpi = current_dpi_,
+        .overlay_width_dip = required_width_dip,
     };
     const TaskbarOverlayPlacement placement = compute_placement(layout_input);
     if (!placement.valid) {
@@ -473,6 +1052,7 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         current_relative_bounds_.bottom != target_rel.bottom) {
         current_relative_bounds_ = target_rel;
         MoveWindow(hwnd_, placement.x_px, rel_y, placement.width_px, placement.height_px, TRUE);
+        InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
     if (!visible_ || IsWindowVisible(hwnd_) == FALSE) {
@@ -503,13 +1083,14 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
         return;
     }
 
-    TaskbarFormattedRate up_parts{};
-    TaskbarFormattedRate down_parts{};
+    std::vector<TaskbarColumnPair> columns;
     try {
-        up_parts = format_rate_parts(upload_bytes_per_sec_, speed_unit_);
-        down_parts = format_rate_parts(download_bytes_per_sec_, speed_unit_);
-        last_rendered_up_ = up_parts.value + L" " + up_parts.unit;
-        last_rendered_down_ = down_parts.value + L" " + down_parts.unit;
+        columns =
+            build_display_columns(display_config_,
+                                  TaskbarRatePair{.download_bytes_per_sec = download_bytes_per_sec_,
+                                                  .upload_bytes_per_sec = upload_bytes_per_sec_},
+                                  telemetry_);
+        last_rendered_columns_ = columns;
     } catch (...) {
         return;
     }
@@ -541,61 +1122,153 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     HFONT font = CreateFontW(lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
                              DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
+    // Scale "MEM:" (~80% of 9pt), "VRM:" / "MB/s" (~90% of 9pt), and 3-digit hardware values
+    // (~68% of 9pt) so "MEM:" matches "CPU:", "VRM:" matches "GPU:", "MB/s" matches "KB/s", and
+    // 3-digit hardware values ("100") fit cleanly inside a 2-digit ("88") slot.
+    const int mem_lf_height = -std::max(8, MulDiv(-lf_height, 4, 5));
+    HFONT mem_label_font =
+        CreateFontW(mem_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
+    const int vrm_lf_height = -std::max(8, MulDiv(-lf_height, 9, 10));
+    HFONT vrm_label_font =
+        CreateFontW(vrm_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
+    const int compact_3digit_lf_height = -std::max(7, MulDiv(-lf_height, 13, 20));
+    HFONT compact_3digit_font =
+        CreateFontW(compact_3digit_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                    DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
     HGDIOBJ old_font = (font != nullptr) ? SelectObject(mem_dc, font) : nullptr;
 
     SetBkMode(mem_dc, TRANSPARENT);
     SetTextColor(mem_dc, dark_text ? RGB(0, 0, 0) : RGB(255, 255, 255));
 
     const int half_h = height / 2;
-    // Fixed 3-column anchors so digit width changes never shift the unit ("KB/s" / "MB/s"):
-    // [pad_x .. label_right] (left-aligned "↑:" / "↓:")
-    // [label_right .. val_right] (right-aligned numeric magnitude sized to max 4-char "88.8")
-    // [unit_left .. width] (left-aligned unit)
-    SIZE label_sz{};
-    SIZE max_val_sz{};
-    GetTextExtentPoint32W(mem_dc, L"\u2191:", 2, &label_sz);
-    GetTextExtentPoint32W(mem_dc, L"88.8", 4, &max_val_sz);
     const int pad_x = (2 * dpi_int) / 96;
-    const int label_w = (label_sz.cx > 0) ? label_sz.cx : ((12 * dpi_int) / 96);
-    const int max_val_w = (max_val_sz.cx > 0) ? max_val_sz.cx : ((24 * dpi_int) / 96);
-    const int colon_gap = (1 * dpi_int) / 96;
-    const int val_right = pad_x + label_w + colon_gap + max_val_w;
-    const int unit_left = val_right + ((3 * dpi_int) / 96);
+    const int col_gap_px = std::max(3, (kColumnGapDip * dpi_int) / 96);
+    const int colon_gap_px = std::max(1, (1 * dpi_int) / 96);
+    const int rate_unit_gap_px = std::max(2, (2 * dpi_int) / 96);
+    const int hw_unit_gap_px = std::max(1, (1 * dpi_int) / 96);
 
-    const auto draw_item_row = [&](int top_y, int bottom_y, std::wstring_view label_str,
-                                   const TaskbarFormattedRate& parts) {
+    SIZE cpu_lbl_sz{};
+    GetTextExtentPoint32W(mem_dc, L"CPU:", 4, &cpu_lbl_sz);
+    const int cpu_label_w = (cpu_lbl_sz.cx > 0) ? cpu_lbl_sz.cx : ((27 * dpi_int) / 96);
+
+    SIZE gpu_lbl_sz{};
+    GetTextExtentPoint32W(mem_dc, L"GPU:", 4, &gpu_lbl_sz);
+    const int gpu_label_w = (gpu_lbl_sz.cx > 0) ? gpu_lbl_sz.cx : ((28 * dpi_int) / 96);
+
+    // Fixed 2-digit slot ("88") for hardware values (3-digit values scale down to fit this exact
+    // 2-digit width) and fixed 4-char slot ("88.8") for network rates so units stay stationary.
+    SIZE max_hw_val_sz{};
+    GetTextExtentPoint32W(mem_dc, L"88", 2, &max_hw_val_sz);
+    const int max_hw_val_w = (max_hw_val_sz.cx > 0) ? max_hw_val_sz.cx : ((14 * dpi_int) / 96);
+
+    SIZE max_rate_val_sz{};
+    GetTextExtentPoint32W(mem_dc, L"88.8", 4, &max_rate_val_sz);
+    const int max_rate_val_w =
+        (max_rate_val_sz.cx > 0) ? max_rate_val_sz.cx : ((24 * dpi_int) / 96);
+
+    const auto draw_metric_cell = [&](RECT row_bounds, const TaskbarMetricCell& cell,
+                                      bool is_rate_col) {
+        if (cell.empty) {
+            return;
+        }
+        const bool is_mem_label = (cell.label == L"MEM:");
+        const bool is_vrm_label = (cell.label == L"VRM:");
+        SIZE lbl_sz{};
+        GetTextExtentPoint32W(mem_dc, cell.label.c_str(), static_cast<int>(cell.label.size()),
+                              &lbl_sz);
+        int label_w = (lbl_sz.cx > 0) ? lbl_sz.cx : ((12 * dpi_int) / 96);
+        if (is_mem_label) {
+            label_w = cpu_label_w;
+        } else if (is_vrm_label) {
+            label_w = gpu_label_w;
+        }
+
         RECT rc_label{
-            .left = pad_x,
-            .top = top_y,
-            .right = pad_x + label_w,
-            .bottom = bottom_y,
+            .left = row_bounds.left,
+            .top = row_bounds.top,
+            .right = row_bounds.left + label_w,
+            .bottom = row_bounds.bottom,
         };
+        if (is_mem_label && mem_label_font != nullptr) {
+            SelectObject(mem_dc, mem_label_font);
+        } else if (is_vrm_label && vrm_label_font != nullptr) {
+            SelectObject(mem_dc, vrm_label_font);
+        }
+        DrawTextW(mem_dc, cell.label.c_str(), static_cast<int>(cell.label.size()), &rc_label,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if ((is_mem_label || is_vrm_label) && font != nullptr) {
+            SelectObject(mem_dc, font);
+        }
+
+        const int slot_val_w = is_rate_col ? max_rate_val_w : max_hw_val_w;
+        const int unit_gap_px = is_rate_col ? rate_unit_gap_px : hw_unit_gap_px;
+        const int val_left = static_cast<int>(rc_label.right) + colon_gap_px;
+        const int val_right = std::min(static_cast<int>(row_bounds.right), val_left + slot_val_w);
         RECT rc_val{
-            .left = pad_x + label_w,
-            .top = top_y,
+            .left = val_left,
+            .top = row_bounds.top,
             .right = val_right,
-            .bottom = bottom_y,
+            .bottom = row_bounds.bottom,
         };
-        RECT rc_unit{
-            .left = unit_left,
-            .top = top_y,
-            .right = width,
-            .bottom = bottom_y,
-        };
-        DrawTextW(mem_dc, label_str.data(), static_cast<int>(label_str.size()), &rc_label,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        DrawTextW(mem_dc, parts.value.c_str(), static_cast<int>(parts.value.size()), &rc_val,
+        const bool shrink_3digit_hw = (!is_rate_col && cell.value.size() >= 3U);
+        if (shrink_3digit_hw && compact_3digit_font != nullptr) {
+            SelectObject(mem_dc, compact_3digit_font);
+        }
+        DrawTextW(mem_dc, cell.value.c_str(), static_cast<int>(cell.value.size()), &rc_val,
                   DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        DrawTextW(mem_dc, parts.unit.c_str(), static_cast<int>(parts.unit.size()), &rc_unit,
+        if (shrink_3digit_hw && font != nullptr) {
+            SelectObject(mem_dc, font);
+        }
+
+        RECT rc_unit{
+            .left = val_right + unit_gap_px,
+            .top = row_bounds.top,
+            .right = row_bounds.right,
+            .bottom = row_bounds.bottom,
+        };
+        const bool is_mb_unit =
+            (is_rate_col && !cell.unit.empty() && (cell.unit[0] == L'M' || cell.unit[0] == L'm'));
+        if (is_mb_unit && vrm_label_font != nullptr) {
+            SelectObject(mem_dc, vrm_label_font);
+        }
+        DrawTextW(mem_dc, cell.unit.c_str(), static_cast<int>(cell.unit.size()), &rc_unit,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if (is_mb_unit && font != nullptr) {
+            SelectObject(mem_dc, font);
+        }
     };
 
-    draw_item_row(0, half_h, L"\u2191:", up_parts);
-    draw_item_row(half_h, height, L"\u2193:", down_parts);
+    int cursor_x = pad_x;
+    for (std::size_t idx = 0U; idx < columns.size(); ++idx) {
+        const auto& col = columns[idx];
+        const int col_w_px = (col.width_dip * dpi_int) / 96;
+        const int col_right =
+            (idx + 1U == columns.size()) ? width : std::min(width, cursor_x + col_w_px);
+        const bool is_rate_col = (col.top.unit.size() > 2U || col.bottom.unit.size() > 2U);
+
+        draw_metric_cell(RECT{cursor_x, 0, col_right, half_h}, col.top, is_rate_col);
+        draw_metric_cell(RECT{cursor_x, half_h, col_right, height}, col.bottom, is_rate_col);
+        cursor_x = col_right + col_gap_px;
+    }
+
     BitBlt(paint_dc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY);
 
     if (old_font != nullptr) {
         SelectObject(mem_dc, old_font);
+    }
+    if (compact_3digit_font != nullptr) {
+        DeleteObject(compact_3digit_font);
+    }
+    if (vrm_label_font != nullptr) {
+        DeleteObject(vrm_label_font);
+    }
+    if (mem_label_font != nullptr) {
+        DeleteObject(mem_label_font);
     }
     if (font != nullptr) {
         DeleteObject(font);
@@ -603,6 +1276,40 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     SelectObject(mem_dc, old_bmp);
     DeleteObject(mem_bmp);
     DeleteDC(mem_dc);
+}
+
+LRESULT CALLBACK TaskbarSpeedWindow::tooltip_window_proc(HWND hwnd, UINT msg, WPARAM wparam,
+                                                         LPARAM lparam) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* self = reinterpret_cast<TaskbarSpeedWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (msg == WM_NCCREATE) {
+        // NOLINTNEXTLINE(performance-no-int-to-ptr)
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        self = reinterpret_cast<TaskbarSpeedWindow*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    if (self == nullptr) {
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        self->paint_tooltip_window(hdc);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_ERASEBKGND:
+        return TRUE;
+    case WM_NCHITTEST:
+        return HTTRANSPARENT;
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -643,7 +1350,28 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     case WM_SETCURSOR:
         SetCursor(LoadCursorW(nullptr, IDC_ARROW));
         return TRUE;
+    case WM_MOUSEMOVE: {
+        if (!self->mouse_tracking_) {
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(TRACKMOUSEEVENT);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            if (TrackMouseEvent(&tme) != FALSE) {
+                self->mouse_tracking_ = true;
+            }
+        }
+        if (!self->tooltip_visible_) {
+            self->show_or_update_tooltip();
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE: {
+        self->mouse_tracking_ = false;
+        self->hide_tooltip();
+        return 0;
+    }
     case WM_LBUTTONUP: {
+        self->hide_tooltip();
         if (self->on_left_click_) {
             self->on_left_click_();
         }
@@ -651,6 +1379,7 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     }
     case WM_RBUTTONUP:
     case WM_CONTEXTMENU: {
+        self->hide_tooltip();
         POINT pt{};
         if (GetCursorPos(&pt) != FALSE && self->on_right_click_) {
             self->on_right_click_(pt.x, pt.y);

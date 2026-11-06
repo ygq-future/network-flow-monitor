@@ -751,7 +751,9 @@ Invoke-GateStep -Name 'C++ Release tests' -Action {
 }
 # Phase 15: Package Release
 Invoke-GateStep -Name 'Package Release' -Action {
-    & $cpack --config (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake') -B (Join-Path $projectRoot 'build\windows-x64-release')
+    $distRoot = Join-Path $projectRoot 'build\dist'
+    New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+    & $cpack --config (Join-Path $projectRoot 'build\windows-x64-release\CPackConfig.cmake') -B $distRoot
 }
 
 Write-SummaryAndExit -GateMode $Mode -ExitCode 0

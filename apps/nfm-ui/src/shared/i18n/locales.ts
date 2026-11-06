@@ -52,6 +52,7 @@ export interface TranslationSchema {
     general: string
     appearance: string
     capsule: string
+    taskbar: string
     monitor: string
     ranking: string
     collector: string
@@ -69,6 +70,18 @@ export interface TranslationSchema {
     launchAtStartupDesc: string
     showTaskbarSpeed: string
     showTaskbarSpeedDesc: string
+    showTaskbarCpuUsage: string
+    showTaskbarCpuUsageDesc: string
+    showTaskbarCpuTemp: string
+    showTaskbarCpuTempDesc: string
+    showTaskbarCpuPower: string
+    showTaskbarCpuPowerDesc: string
+    showTaskbarMemoryUsage: string
+    showTaskbarMemoryUsageDesc: string
+    showTaskbarGpuUsage: string
+    showTaskbarGpuUsageDesc: string
+    showTaskbarGpuMemory: string
+    showTaskbarGpuMemoryDesc: string
     speedUnit: string
     speedUnitDesc: string
     speedUnitAuto: string

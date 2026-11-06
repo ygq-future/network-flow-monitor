@@ -121,6 +121,12 @@ export interface GeneralConfigDto {
   uiAtLogin: boolean
   speedUnit: 'auto' | 'bytes' | 'bits'
   showTaskbarSpeed?: boolean
+  showTaskbarCpuUsage?: boolean
+  showTaskbarCpuTemp?: boolean
+  showTaskbarCpuPower?: boolean
+  showTaskbarMemoryUsage?: boolean
+  showTaskbarGpuUsage?: boolean
+  showTaskbarGpuMemory?: boolean
 }
 
 export interface AppearanceConfigDto {

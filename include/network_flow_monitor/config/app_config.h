@@ -83,9 +83,22 @@ struct DisplayConfig {
     bool show_upload{true};
     bool show_download{true};
     bool show_taskbar_speed{false};
+    bool show_taskbar_cpu_usage{false};
+    bool show_taskbar_cpu_temp{false};
+    bool show_taskbar_cpu_power{false};
+    bool show_taskbar_memory_usage{false};
+    bool show_taskbar_gpu_usage{false};
+    bool show_taskbar_gpu_memory{false};
 
     bool operator==(const DisplayConfig&) const = default;
 };
+
+[[nodiscard]] constexpr bool HasAnyTaskbarMonitorItem(const DisplayConfig& display) noexcept {
+    return display.show_taskbar_speed || display.show_taskbar_cpu_usage ||
+           display.show_taskbar_cpu_temp || display.show_taskbar_cpu_power ||
+           display.show_taskbar_memory_usage || display.show_taskbar_gpu_usage ||
+           display.show_taskbar_gpu_memory;
+}
 
 struct InteractionConfig {
     std::chrono::milliseconds hover_delay{350};

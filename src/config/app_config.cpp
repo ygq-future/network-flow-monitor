@@ -13,6 +13,12 @@ AppConfig DefaultAppConfig() noexcept {
                 .show_upload = true,
                 .show_download = true,
                 .show_taskbar_speed = false,
+                .show_taskbar_cpu_usage = false,
+                .show_taskbar_cpu_temp = false,
+                .show_taskbar_cpu_power = false,
+                .show_taskbar_memory_usage = false,
+                .show_taskbar_gpu_usage = false,
+                .show_taskbar_gpu_memory = false,
             },
         .interaction =
             {

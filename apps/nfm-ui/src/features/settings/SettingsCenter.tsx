@@ -42,7 +42,7 @@ import { SettingsRow } from '../../shared/components/SettingsRow'
 import { AppLogo } from '../../shared/components/AppLogo'
 import { TrafficHistoryPanel } from './TrafficHistoryPanel'
 
-export type SettingsTab = 'general' | 'capsule' | 'history'
+export type SettingsTab = 'general' | 'capsule' | 'taskbar' | 'history'
 export type LegacySettingsTab = SettingsTab | 'appearance' | 'monitor' | 'ranking' | 'diagnostics' | 'collector'
 export interface SettingsCenterProps {
   initialTab?: LegacySettingsTab
@@ -52,6 +52,7 @@ export interface SettingsCenterProps {
 
 function normalizeSettingsTab(tab: LegacySettingsTab): SettingsTab {
   if (tab === 'capsule' || tab === 'monitor') return 'capsule'
+  if (tab === 'taskbar') return 'taskbar'
   if (tab === 'history') return 'history'
   return 'general'
 }
@@ -270,6 +271,7 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   const tabs: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'general', label: t.settings.general, icon: Sliders },
     { id: 'capsule', label: t.settings.capsule, icon: Layers },
+    { id: 'taskbar', label: t.settings.taskbar, icon: AppWindow },
     { id: 'history', label: t.settings.history, icon: BarChart3 },
   ]
   return (
@@ -348,17 +350,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     checked={config.general.uiAtLogin}
                     onChange={val => handleUpdate('startup.ui_at_login', val)}
                     ariaLabel={t.settings.launchAtStartup}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.showTaskbarSpeed}
-                description={t.settings.showTaskbarSpeedDesc}
-                control={
-                  <Toggle
-                    checked={Boolean(config.general.showTaskbarSpeed)}
-                    onChange={val => handleUpdate('display.show_taskbar_speed', val)}
-                    ariaLabel={t.settings.showTaskbarSpeed}
                   />
                 }
               />
@@ -811,6 +802,89 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     checked={config.capsule.hideCapsuleWhenFullscreen ?? false}
                     onChange={val => handleUpdate('floating.hide_capsule_when_fullscreen', val)}
                     ariaLabel={t.settings.hideCapsuleFullscreen}
+                  />
+                }
+              />
+            </Card>
+          )}
+
+          {/* 3. Taskbar Monitor Tab */}
+          {activeTab === 'taskbar' && (
+            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
+              <SettingsRow
+                label={t.settings.showTaskbarSpeed}
+                description={t.settings.showTaskbarSpeedDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarSpeed)}
+                    onChange={val => handleUpdate('display.show_taskbar_speed', val)}
+                    ariaLabel={t.settings.showTaskbarSpeed}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarCpuUsage}
+                description={t.settings.showTaskbarCpuUsageDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarCpuUsage)}
+                    onChange={val => handleUpdate('display.show_taskbar_cpu_usage', val)}
+                    ariaLabel={t.settings.showTaskbarCpuUsage}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarCpuTemp}
+                description={t.settings.showTaskbarCpuTempDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarCpuTemp)}
+                    onChange={val => handleUpdate('display.show_taskbar_cpu_temp', val)}
+                    ariaLabel={t.settings.showTaskbarCpuTemp}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarCpuPower}
+                description={t.settings.showTaskbarCpuPowerDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarCpuPower)}
+                    onChange={val => handleUpdate('display.show_taskbar_cpu_power', val)}
+                    ariaLabel={t.settings.showTaskbarCpuPower}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarMemoryUsage}
+                description={t.settings.showTaskbarMemoryUsageDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarMemoryUsage)}
+                    onChange={val => handleUpdate('display.show_taskbar_memory_usage', val)}
+                    ariaLabel={t.settings.showTaskbarMemoryUsage}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarGpuUsage}
+                description={t.settings.showTaskbarGpuUsageDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarGpuUsage)}
+                    onChange={val => handleUpdate('display.show_taskbar_gpu_usage', val)}
+                    ariaLabel={t.settings.showTaskbarGpuUsage}
+                  />
+                }
+              />
+              <SettingsRow
+                label={t.settings.showTaskbarGpuMemory}
+                description={t.settings.showTaskbarGpuMemoryDesc}
+                control={
+                  <Toggle
+                    checked={Boolean(config.general.showTaskbarGpuMemory)}
+                    onChange={val => handleUpdate('display.show_taskbar_gpu_memory', val)}
+                    ariaLabel={t.settings.showTaskbarGpuMemory}
                   />
                 }
               />

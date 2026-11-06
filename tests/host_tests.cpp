@@ -2180,6 +2180,99 @@ void TestRateFormatting(TestContext& ctx) {
               "format_rate_parts separates value and unit for fixed-column rendering");
 }
 
+void TestHardwareColumnSubstitutionAndPairedNetworkRates(TestContext& ctx) {
+    using nfm::config::DisplayConfig;
+    using nfm::config::SpeedUnit;
+    using nfm::host::platform::SystemTelemetrySnapshot;
+    using nfm::host::platform::TaskbarRatePair;
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    const SystemTelemetrySnapshot sample{
+        .cpu_usage_percent = 18.4,
+        .memory_usage_percent = 63.7,
+        .memory_used_gb = 30.8,
+        .memory_total_gb = 48.0,
+        .cpu_temperature_celsius = 79.2,
+        .cpu_package_power_watts = 45.2,
+        .gpu_usage_percent = 24.1,
+        .gpu_vram_usage_percent = 26.8,
+        .gpu_vram_used_gb = 2.14,
+        .gpu_vram_total_gb = 7.99,
+    };
+    const TaskbarRatePair rates{
+        .download_bytes_per_sec = 1048576U,
+        .upload_bytes_per_sec = 524288U,
+    };
+
+    // 1. All 6 hardware metrics + network speed -> 4 columns in canonical 2-row order
+    DisplayConfig all_on{};
+    all_on.speed_unit = SpeedUnit::Auto;
+    all_on.show_taskbar_cpu_usage = true;
+    all_on.show_taskbar_cpu_temp = true;
+    all_on.show_taskbar_cpu_power = true;
+    all_on.show_taskbar_memory_usage = true;
+    all_on.show_taskbar_gpu_usage = true;
+    all_on.show_taskbar_gpu_memory = true;
+    all_on.show_taskbar_speed = true;
+
+    const auto cols_all = TaskbarSpeedWindow::build_display_columns(all_on, rates, sample);
+    ctx.Check(cols_all.size() == 4U, "all 6 hardware metrics + speed produces 4 columns");
+    if (cols_all.size() == 4U) {
+        ctx.Check(cols_all[0].top.label == L"CPU:" && cols_all[0].top.value == L"18" &&
+                      cols_all[0].top.unit == L"%" && cols_all[0].bottom.label == L"CPU:" &&
+                      cols_all[0].bottom.value == L"79" && cols_all[0].bottom.unit == L"\u2103",
+                  "Column 0 pairs CPU usage% on top and CPU temperature on bottom");
+        ctx.Check(cols_all[1].top.label == L"CPU:" && cols_all[1].top.value == L"45" &&
+                      cols_all[1].top.unit == L"W" && cols_all[1].bottom.label == L"MEM:" &&
+                      cols_all[1].bottom.value == L"64" && cols_all[1].bottom.unit == L"%",
+                  "Column 1 pairs CPU power W on top and MEM usage% on bottom");
+        ctx.Check(cols_all[2].top.label == L"GPU:" && cols_all[2].top.value == L"24" &&
+                      cols_all[2].top.unit == L"%" && cols_all[2].bottom.label == L"VRM:" &&
+                      cols_all[2].bottom.value == L"27" && cols_all[2].bottom.unit == L"%",
+                  "Column 2 pairs GPU usage% on top and VRM usage% on bottom");
+        ctx.Check(cols_all[3].top.label == L"\u2191:" && cols_all[3].bottom.label == L"\u2193:",
+                  "Column 3 keeps upload and download speeds paired vertically");
+    }
+
+    const auto tip_rows = TaskbarSpeedWindow::build_tooltip_rows(all_on, rates, sample, true);
+    ctx.Check(tip_rows.size() == 8U, "tooltip rows include all 6 hardware items + 2 speed rows");
+    if (tip_rows.size() == 8U) {
+        ctx.Check(tip_rows[3].value == L"63.7% (30.8 / 48.0 GB)",
+                  "Memory tooltip row formats percentage and used/total GB");
+        ctx.Check(tip_rows[5].value == L"26.8% (2.1 / 8.0 GB)",
+                  "VRAM tooltip row formats percentage and used/total GB");
+    }
+
+    // 2. Substitution rule: disabling CPU temp (#2) shifts CPU power (#3) into Col 0 bottom,
+    // while an odd hardware count (3 hardware items) leaves Col 1 bottom empty instead of pulling
+    // upload speed into the hardware column.
+    DisplayConfig odd_hw{};
+    odd_hw.show_taskbar_cpu_usage = true;
+    odd_hw.show_taskbar_cpu_power = true;
+    odd_hw.show_taskbar_gpu_memory = true;
+    odd_hw.show_taskbar_speed = true;
+
+    const auto cols_odd = TaskbarSpeedWindow::build_display_columns(odd_hw, rates, sample);
+    ctx.Check(cols_odd.size() == 3U, "3 hardware items + speed produces 3 columns");
+    if (cols_odd.size() == 3U) {
+        ctx.Check(cols_odd[0].top.unit == L"%" && cols_odd[0].bottom.unit == L"W",
+                  "CPU power substitutes into Col 0 bottom when CPU temp is disabled");
+        ctx.Check(cols_odd[1].top.label == L"VRM:" && cols_odd[1].top.unit == L"%" &&
+                      cols_odd[1].bottom.empty,
+                  "Odd hardware item occupies Col 1 top while Col 1 bottom stays empty");
+        ctx.Check(cols_odd[2].top.label == L"\u2191:" && cols_odd[2].bottom.label == L"\u2193:",
+                  "Upload and download speeds never substitute into hardware slots");
+    }
+
+    // 3. Live SystemTelemetrySampler smoke check (verifies PDH/Win32/DXGI zero-driver path)
+    nfm::host::platform::SystemTelemetrySampler live_sampler;
+    const auto live_snap = live_sampler.sample();
+    ctx.Check(live_snap.cpu_usage_percent >= 0.0 && live_snap.cpu_usage_percent <= 100.0 &&
+                  live_snap.memory_usage_percent > 0.0 && live_snap.memory_usage_percent <= 100.0 &&
+                  live_snap.gpu_usage_percent >= 0.0 && live_snap.gpu_usage_percent <= 100.0,
+              "live SystemTelemetrySampler returns bounded CPU, memory, and GPU percentages");
+}
+
 void TestAdaptivePlacementWin11AndWin10(TestContext& ctx) {
     using nfm::host::platform::TaskbarLayoutInput;
     using nfm::host::platform::TaskbarSpeedWindow;
@@ -2197,7 +2290,6 @@ void TestAdaptivePlacementWin11AndWin10(TestContext& ctx) {
     ctx.Check(p1.valid && p1.placed_on_left, "Win11 centered without widgets places on left");
     ctx.Check(p1.x_px == 2 && p1.y_px == 8 && p1.width_px == 74 && p1.height_px == 32,
               "Win11 left placement uses relative Shell_TrayWnd coordinates (2, 8, 74x32)");
-
     // Case 2: Win10 / Win11 left-aligned taskbar -> placed on right side immediately left of
     // TrayNotifyWnd in relative taskbar coordinates
     const TaskbarLayoutInput win10_left_aligned{
@@ -2349,6 +2441,7 @@ void TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(TestContext& ctx) {
 int Run() {
     TestContext ctx;
     TestRateFormatting(ctx);
+    TestHardwareColumnSubstitutionAndPairedNetworkRates(ctx);
     TestAdaptivePlacementWin11AndWin10(ctx);
     TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(ctx);
     return ctx.failures();

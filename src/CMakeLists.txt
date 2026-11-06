@@ -108,6 +108,7 @@ add_library(
         host/platform/atomic_file.cpp
         host/platform/rotating_file_logger.cpp
         host/platform/startup_registration.cpp
+        host/platform/system_telemetry_sampler.cpp
         host/platform/taskbar_speed_window.cpp
         host/platform/webview2_environment.cpp
         host/platform/win32_window.cpp
@@ -136,6 +137,8 @@ target_link_libraries(
         Comctl32
         Dwmapi
         Winhttp
+        Pdh
+        Dxgi
 )
 nfm_configure_target(nfm_host)
 nfm_enable_shared_pch(nfm_host)

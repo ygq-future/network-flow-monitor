@@ -528,3 +528,22 @@ Product Host and frontend implementation remain Ticket 01 work.
      - 更新中英文 README 与开发手册中的便携式 Release 发行包生成指南，将输出路径从 `dist/` 调整为 `build/dist/`。
   3. **产物迁移与目录收拢**：
      - 本地已有历史发行包及 CPack 目录安全迁移至 `build/dist/`，移除根目录 `dist/`，根目录恢复仅保留唯一的构建输出根目录 `build/`。
+
+## 第四十轮 原生系统任务栏硬件与网速监控 (`SystemTelemetrySampler` & `TaskbarSpeedWindow`) — complete
+
+- **纯系统原生零驱动采集 (`include/network_flow_monitor/host/platform/system_telemetry_sampler.h`, `src/host/platform/system_telemetry_sampler.cpp`)**：
+  - 完全基于 Windows 11 标准用户态只读接口实现 6 项硬件遥测采样（无内核驱动、无硬件端口/SMBus 竞争锁、不唤醒休眠独显）：
+    1. **CPU 使用率 (`CPU: %`)**：PDH `\Processor Information(_Total)\% Processor Time`（带 `\Processor(_Total)\% Processor Time` 与 `GetSystemTimes` 兜底，与任务管理器/CoreTemp 时间利用率口径对齐）；
+    2. **CPU 温度 (`CPU: ℃`)**：PDH `\Thermal Zone Information(*)\High Precision Temperature`（系统 ACPI 热区十分之一开尔文转摄氏度 `(raw - 2731.5) / 10.0`）；
+    3. **CPU 封装功耗 (`CPU: W`)**：PDH `\Energy Meter(*)\Power`（Windows 原生 EMI/RAPL `RAPL_Package*_PKG` 毫瓦转瓦特 `W`）；
+    4. **内存使用率 (`MEM: %`)**：Win32 `GlobalMemoryStatusEx` 物理内存占用比例与已用/总容量 GB；
+    5. **GPU 使用率 (`GPU: %`)**：PDH `\GPU Engine(*)\Utilization Percentage`（WDDM `dxgkrnl` 按显卡 LUID 与引擎类型聚合峰值占用）；
+    6. **GPU 显存 (`VRM: %`)**：PDH `\GPU Adapter Memory(*)\Dedicated Usage` 结合 DXGI `IDXGIFactory1::EnumAdapters1` 与显示类注册表 `HardwareInformation.qwMemorySize` 64 位真实总显存容量，任务栏展示紧凑百分比 `VRM: %`，鼠标悬浮 Tooltip 展示百分比与 `已用 / 总计 GB`。
+- **配置与设置中心「任务栏监控」独立面板 (`app_config.h`, `config_codec.cpp`, `bridge_dispatcher.cpp`, `SettingsCenter.tsx`, `en-US.ts`, `zh-CN.ts`)**：
+  - 在 `DisplayConfig` 中新增 `show_taskbar_cpu_usage`、`show_taskbar_cpu_temp`、`show_taskbar_cpu_power`、`show_taskbar_memory_usage`、`show_taskbar_gpu_usage`、`show_taskbar_gpu_memory`，连同 `show_taskbar_speed` 默认全部关闭（`false`）；
+  - 设置中心新增 **「任务栏监控 (`Taskbar Monitor`)」** 分类面板，将原位于「通用」页的「显示任务栏网速」迁移至该面板，集中管理全部 7 项任务栏监控开关。
+- **任务栏两行多列紧凑布局、动态替补、网速固定成对渲染与悬浮详情卡片 (`taskbar_speed_window.h`, `taskbar_speed_window.cpp`)**：
+  - 硬件指标按固定优先级（`CPU: 使用率%`、`CPU: 温度℃`、`CPU: 功耗W`、`MEM: 使用率%`、`GPU: 使用率%`、`VRM: 显存使用率%`）依次按上下两行配对成列，当关闭某项硬件指标时后续硬件指标自动向前替补；
+  - 上传网速（`↑:`）与下载网速（`↓:`）始终保持上下成对出现在最右侧列，不参与硬件空位替补；硬件列按日常 2 位数（`"88"` 宽度，`58 DIP` 列宽）预留固定数值槽位（当出现 3 位数如 `100` 时自动缩小字号以适配该 2 位数槽位宽度），网速列预留 4 字符固定数值槽位（`"88.8"` 宽度，`74 DIP` 列宽）并对 `MB/s` / `Mbps` 单位做字号适配使其与 `KB/s` 宽度对齐，鼠标悬浮在任务栏监控区域时弹出纯黑/纯白自适应主题的详情 Tooltip 卡片（展示全部已启用监控项，其中内存与显存同时展示百分比与 `已用 / 总计 GB`）。
+- **测试与质量门禁 (`tests/config_tests.cpp`, `tests/host_tests.cpp`, `SettingsCenter.test.tsx`)**：
+  - 新增配置默认关闭与持久化编解码测试、硬件两行替补与网速成对列构建测试、`SystemTelemetrySampler` 实机采样测试，以及设置中心「任务栏监控」Tab 交互测试。

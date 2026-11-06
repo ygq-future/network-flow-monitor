@@ -561,7 +561,18 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_obj_add_bool(doc.get(), gen, "uiAtLogin", config.startup.ui_at_login);
     yyjson_mut_obj_add_str(doc.get(), gen, "speedUnit", "auto");
     yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarSpeed", config.display.show_taskbar_speed);
-
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarCpuUsage",
+                            config.display.show_taskbar_cpu_usage);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarCpuTemp",
+                            config.display.show_taskbar_cpu_temp);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarCpuPower",
+                            config.display.show_taskbar_cpu_power);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarMemoryUsage",
+                            config.display.show_taskbar_memory_usage);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarGpuUsage",
+                            config.display.show_taskbar_gpu_usage);
+    yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarGpuMemory",
+                            config.display.show_taskbar_gpu_memory);
     // appearance
     yyjson_mut_val* app = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "appearance", app);

@@ -249,7 +249,7 @@ std::vector<TaskbarColumnPair> TaskbarSpeedWindow::build_display_columns(
     // 1. CPU: usage%
     // 2. CPU: temperature °C
     // 3. CPU: power W
-    // 4. MEM: usage%
+    // 4. RAM: usage%
     // 5. GPU: usage%
     // 6. VRM: usage%
     if (display_config.show_taskbar_cpu_usage) {
@@ -296,7 +296,7 @@ std::vector<TaskbarColumnPair> TaskbarSpeedWindow::build_display_columns(
         hw_items.push_back(HardwareItem{
             .cell =
                 TaskbarMetricCell{
-                    .label = L"MEM:",
+                    .label = L"RAM:",
                     .value = format_rounded_int(telemetry.memory_usage_percent),
                     .unit = L"%",
                     .empty = false,
@@ -404,7 +404,7 @@ std::vector<TaskbarTooltipRow> TaskbarSpeedWindow::build_tooltip_rows(
     }
     if (display_config.show_taskbar_memory_usage) {
         rows.push_back(TaskbarTooltipRow{
-            .label = is_chinese ? L"\u5185\u5B58\u5360\u7528 (MEM)" : L"Memory (MEM)",
+            .label = is_chinese ? L"\u5185\u5B58\u5360\u7528 (RAM)" : L"Memory (RAM)",
             .value = format_capacity_detail(telemetry.memory_usage_percent,
                                             telemetry.memory_used_gb, telemetry.memory_total_gb),
         });
@@ -1147,18 +1147,13 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     HFONT font = CreateFontW(lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
                              DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
-    // Scale "MEM:" (~80% of 9pt), "VRM:" / "MB/s" (~90% of 9pt), and 3-digit hardware values
-    // (~68% of 9pt) so "MEM:" matches "CPU:", "VRM:" matches "GPU:", "MB/s" matches "KB/s", and
-    // 3-digit hardware values ("100") fit cleanly inside a 2-digit ("88") slot.
-    const int mem_lf_height = -std::max(8, MulDiv(-lf_height, 4, 5));
-    HFONT mem_label_font =
-        CreateFontW(mem_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                    DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
-    const int vrm_lf_height = -std::max(8, MulDiv(-lf_height, 9, 10));
-    HFONT vrm_label_font =
-        CreateFontW(vrm_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+    // "RAM:" and "VRM:" are set at 90% of 9pt so their advance matches "CPU:" / "GPU:" and every
+    // hardware label lands inside the same label cell; 3-digit hardware values are set at ~68%
+    // of 9pt so "100" fits inside a 2-digit ("88") slot. "CPU:" / "GPU:" keep 9pt.
+    const int compact_label_lf_height = -std::max(8, MulDiv(-lf_height, 9, 10));
+    HFONT compact_label_font =
+        CreateFontW(compact_label_lf_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
                     DEFAULT_PITCH | FF_SWISS, L"\u5FAE\u8F6F\u96C5\u9ED1");
     const int compact_3digit_lf_height = -std::max(7, MulDiv(-lf_height, 13, 20));
     HFONT compact_3digit_font =
@@ -1177,14 +1172,6 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     const int rate_unit_gap_px = std::max(2, (2 * dpi_int) / 96);
     const int hw_unit_gap_px = std::max(1, (1 * dpi_int) / 96);
 
-    SIZE cpu_lbl_sz{};
-    GetTextExtentPoint32W(mem_dc, L"CPU:", 4, &cpu_lbl_sz);
-    const int cpu_label_w = (cpu_lbl_sz.cx > 0) ? cpu_lbl_sz.cx : ((27 * dpi_int) / 96);
-
-    SIZE gpu_lbl_sz{};
-    GetTextExtentPoint32W(mem_dc, L"GPU:", 4, &gpu_lbl_sz);
-    const int gpu_label_w = (gpu_lbl_sz.cx > 0) ? gpu_lbl_sz.cx : ((28 * dpi_int) / 96);
-
     // Fixed 2-digit slot ("88") for hardware values (3-digit values scale down to fit this exact
     // 2-digit width) and fixed 4-char slot ("88.8") for network rates so units stay stationary.
     SIZE max_hw_val_sz{};
@@ -1196,37 +1183,67 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     const int max_rate_val_w =
         (max_rate_val_sz.cx > 0) ? max_rate_val_sz.cx : ((24 * dpi_int) / 96);
 
+    // Rate units are tabular: the magnitude letter sits in a fixed cell sized to the widest
+    // one ("M"), and the shared suffix ("B/s" / "bps") is pinned right after that cell. All
+    // three units therefore share one total width and one exact glyph-column layout, so the
+    // unit block never changes size or moves as the value changes.
+    int rate_unit_lead_w = 0;
+    for (const wchar_t* lead : {L"K", L"M", L"G"}) {
+        SIZE lead_sz{};
+        GetTextExtentPoint32W(mem_dc, lead, 1, &lead_sz);
+        rate_unit_lead_w = std::max(rate_unit_lead_w, static_cast<int>(lead_sz.cx));
+    }
+    if (rate_unit_lead_w <= 0) {
+        rate_unit_lead_w = (12 * dpi_int) / 96;
+    }
+
+    // Every hardware label occupies one fixed cell, sized to the widest of them, so the value
+    // column starts at the same x in all hardware columns regardless of which metrics are
+    // enabled and how the remaining ones pair up.
+    const auto label_font_for = [&](std::wstring_view label) -> HFONT {
+        if (label == L"RAM:" || label == L"VRM:") {
+            return (compact_label_font != nullptr) ? compact_label_font : font;
+        }
+        return font;
+    };
+    const auto measure_label_w = [&](std::wstring_view label) {
+        if (label.empty()) {
+            return 0;
+        }
+        HFONT label_font = label_font_for(label);
+        if (label_font != nullptr) {
+            SelectObject(mem_dc, label_font);
+        }
+        SIZE lbl_sz{};
+        GetTextExtentPoint32W(mem_dc, label.data(), static_cast<int>(label.size()), &lbl_sz);
+        if (label_font != nullptr && font != nullptr) {
+            SelectObject(mem_dc, font);
+        }
+        return (lbl_sz.cx > 0) ? static_cast<int>(lbl_sz.cx) : ((12 * dpi_int) / 96);
+    };
+    int hw_label_w = 0;
+    for (const wchar_t* label : {L"CPU:", L"GPU:", L"RAM:", L"VRM:"}) {
+        hw_label_w = std::max(hw_label_w, measure_label_w(label));
+    }
+
     const auto draw_metric_cell = [&](RECT row_bounds, const TaskbarMetricCell& cell,
-                                      bool is_rate_col) {
+                                      bool is_rate_col, int label_w) {
         if (cell.empty) {
             return;
         }
-        const bool is_mem_label = (cell.label == L"MEM:");
-        const bool is_vrm_label = (cell.label == L"VRM:");
-        SIZE lbl_sz{};
-        GetTextExtentPoint32W(mem_dc, cell.label.c_str(), static_cast<int>(cell.label.size()),
-                              &lbl_sz);
-        int label_w = (lbl_sz.cx > 0) ? lbl_sz.cx : ((12 * dpi_int) / 96);
-        if (is_mem_label) {
-            label_w = cpu_label_w;
-        } else if (is_vrm_label) {
-            label_w = gpu_label_w;
-        }
-
         RECT rc_label{
             .left = row_bounds.left,
             .top = row_bounds.top,
             .right = row_bounds.left + label_w,
             .bottom = row_bounds.bottom,
         };
-        if (is_mem_label && mem_label_font != nullptr) {
-            SelectObject(mem_dc, mem_label_font);
-        } else if (is_vrm_label && vrm_label_font != nullptr) {
-            SelectObject(mem_dc, vrm_label_font);
+        HFONT label_font = label_font_for(cell.label);
+        if (label_font != nullptr) {
+            SelectObject(mem_dc, label_font);
         }
         DrawTextW(mem_dc, cell.label.c_str(), static_cast<int>(cell.label.size()), &rc_label,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        if ((is_mem_label || is_vrm_label) && font != nullptr) {
+        if (label_font != nullptr && font != nullptr) {
             SelectObject(mem_dc, font);
         }
 
@@ -1256,15 +1273,29 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
             .right = row_bounds.right,
             .bottom = row_bounds.bottom,
         };
-        const bool is_mb_unit =
-            (is_rate_col && !cell.unit.empty() && (cell.unit[0] == L'M' || cell.unit[0] == L'm'));
-        if (is_mb_unit && vrm_label_font != nullptr) {
-            SelectObject(mem_dc, vrm_label_font);
-        }
-        DrawTextW(mem_dc, cell.unit.c_str(), static_cast<int>(cell.unit.size()), &rc_unit,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-        if (is_mb_unit && font != nullptr) {
-            SelectObject(mem_dc, font);
+        if (is_rate_col && cell.unit.size() > 1U) {
+            // Magnitude letter is centered in its fixed cell so "M" fills it and "K"/"G" keep an
+            // even bearing; the suffix after the cell stays on one exact column for every unit.
+            RECT rc_lead{
+                .left = rc_unit.left,
+                .top = rc_unit.top,
+                .right = std::min(static_cast<int>(rc_unit.right),
+                                  static_cast<int>(rc_unit.left) + rate_unit_lead_w),
+                .bottom = rc_unit.bottom,
+            };
+            DrawTextW(mem_dc, cell.unit.c_str(), 1, &rc_lead,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            RECT rc_suffix{
+                .left = rc_lead.right,
+                .top = rc_unit.top,
+                .right = rc_unit.right,
+                .bottom = rc_unit.bottom,
+            };
+            DrawTextW(mem_dc, cell.unit.c_str() + 1, static_cast<int>(cell.unit.size()) - 1,
+                      &rc_suffix, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        } else {
+            DrawTextW(mem_dc, cell.unit.c_str(), static_cast<int>(cell.unit.size()), &rc_unit,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
         }
     };
 
@@ -1276,8 +1307,12 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
             (idx + 1U == columns.size()) ? width : std::min(width, cursor_x + col_w_px);
         const bool is_rate_col = (col.top.unit.size() > 2U || col.bottom.unit.size() > 2U);
 
-        draw_metric_cell(RECT{cursor_x, 0, col_right, half_h}, col.top, is_rate_col);
-        draw_metric_cell(RECT{cursor_x, half_h, col_right, height}, col.bottom, is_rate_col);
+        const int rate_label_w =
+            std::max(measure_label_w(col.top.label), measure_label_w(col.bottom.label));
+        const int col_label_w = is_rate_col ? rate_label_w : hw_label_w;
+        draw_metric_cell(RECT{cursor_x, 0, col_right, half_h}, col.top, is_rate_col, col_label_w);
+        draw_metric_cell(RECT{cursor_x, half_h, col_right, height}, col.bottom, is_rate_col,
+                         col_label_w);
         cursor_x = col_right + col_gap_px;
     }
 
@@ -1289,11 +1324,8 @@ void TaskbarSpeedWindow::paint_window(HDC paint_dc) noexcept {
     if (compact_3digit_font != nullptr) {
         DeleteObject(compact_3digit_font);
     }
-    if (vrm_label_font != nullptr) {
-        DeleteObject(vrm_label_font);
-    }
-    if (mem_label_font != nullptr) {
-        DeleteObject(mem_label_font);
+    if (compact_label_font != nullptr) {
+        DeleteObject(compact_label_font);
     }
     if (font != nullptr) {
         DeleteObject(font);

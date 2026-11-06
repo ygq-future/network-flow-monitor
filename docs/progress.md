@@ -555,3 +555,25 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **撰写中英双语发布说明 (`.github/release-note/v0.3.5.md`)**：
   - 汇总第 35–40 轮原生系统任务栏网速与硬件遥测监控（`TaskbarSpeedWindow` + `SystemTelemetrySampler`）、核显共享显存与 CoreTemp 共享内存兼容、两行固定槽位对齐、悬浮详情卡片防闪烁、设置中心「任务栏监控」独立面板以及开机极早期启动自动恢复加固。
 - **质量门禁与发布流程**：通过 `tools/quality.ps1 -Mode Full` 20/20 门禁与 `tools/package.ps1 -Configuration Release` 便携包构建，提交并推送 `v0.3.5` tag 触发 GitHub Release 自动发布。
+
+## 第四十二轮 任务栏网速单位改为等宽字格对齐 (`TaskbarSpeedWindow::paint_window`) — complete
+
+- **问题定位**：网速列此前对 `MB/s` / `Mbps` 单独套用 90% 字号来"凑宽度"，导致同一列上下两行字号不一致（`M` 笔画明显比 `K` 细），且换单位时字号跳变；同时比例字体下 `M`（14.66px）比 `K`（9.52px）宽约 5px，单位块宽度与后缀落点仍随单位变化。
+- **改造实现 (`src/host/platform/taskbar_speed_window.cpp`)**：
+  - 删除按单位切换字号的绘制分支，全部单位与数值、`CPU:` / `GPU:` 标签同为 9pt `微软雅黑`；`MEM:`（80%）与 `VRM:`（90%）标签的自适应保持不动；
+  - 网速单位改为**等宽字格（tabular）**：量级字母 `K` / `M` / `G` 固定占用一个按最宽字母（`M`）测量出的字格，公共后缀 `B/s` / `bps` 紧贴字格右边界绘制，因此 `KB/s`、`MB/s`、`GB/s` 四个字形列、单位块总宽度与起笔 X 完全一致；
+  - 量级字母在字格内居中：`M` 填满字格，`K` / `G` 两侧各留约 2.5px 均匀字距，避免左对齐时 `K` 后出现形似空格的 5px 缝隙；
+  - 单位块整体锚定在 `val_right + rate_unit_gap_px`，数值在 `"88.8"` 固定槽位内右对齐，数值位数变化与单位切换都不会让单位左右浮动。
+- **实机验证（125% DPI，`PrintWindow` 抓取任务栏浮层）**：同一会话内捕获 `1.1 GB/s` / `0.1 KB/s` 与 `346 MB/s` / `0.4 KB/s` 等帧，所有帧的单位后缀墨迹恒为 `x=295..315`、单位块恒为 `x=280..315`；`MEM:` / `VRM:` 与硬件数值槽位未受影响。
+
+## 第四十三轮 任务栏内存标签改为 `RAM:` 并统一硬件标签字格 (`TaskbarSpeedWindow::paint_window`) — complete
+
+- **背景**：`MEM:` 在微软雅黑下比 `CPU:` 宽约 7px（41.2px vs 34.0px），此前靠 80% 字号压缩贴合列宽；改为 `RAM:` 后若按"列内最宽标签"取槽位，标签槽会变宽 4.6px 而把 `CPU:` 功耗列的 `W` 挤出列边界，且槽宽会随"哪两项配对"变化（隐藏指标后自动替补）。
+- **改造实现 (`src/host/platform/taskbar_speed_window.cpp`)**：
+  - 任务栏内存标签改为 `RAM:`（Tooltip 同步为「内存占用 (RAM)」/「Memory (RAM)」）；
+  - `RAM:` 与 `VRM:` 同用 90% 字号（`compact_label_font`），实测字宽 33px / 34px，与 `CPU:`（31px）、`GPU:`（32px）同量级，125% DPI 下四者墨迹高度同为 11px；
+  - 硬件标签槽位改为**全局固定**：`hw_label_w` 取 `CPU:` / `GPU:` / `RAM:` / `VRM:` 四者实测宽度的最大值，所有硬件列共用；不再按列取最大，因此隐藏指标、重新配对都不会改变标签槽，数值列在所有列中从同一 X 起排；
+  - 网速列仍使用 `↑:` / `↓:` 自身测量的标签宽度，不受硬件标签槽影响。
+- **实机验证（125% DPI，`PrintWindow` 抓图）**：
+  - 默认 6 项全开：第 2 列 `CPU:` 冒号止于 `x=111`、`RAM:` 止于 `x=113`，两行标签墨迹高度均为 11px；`W` 墨迹止于 `x=149`，列右边界 `x=151`，2px 余量不再溢出；
+  - 关闭 `CPU 功耗` 让 `RAM:` 与 `GPU:` 配对：三列 `%` 墨迹分别止于 `x=70 / 147 / 224`，列内偏移一致（各列左边界 `2 / 79 / 155`），证明标签槽不随配对变化。

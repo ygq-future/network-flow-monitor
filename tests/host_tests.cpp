@@ -2223,9 +2223,9 @@ void TestHardwareColumnSubstitutionAndPairedNetworkRates(TestContext& ctx) {
                       cols_all[0].bottom.value == L"79" && cols_all[0].bottom.unit == L"\u2103",
                   "Column 0 pairs CPU usage% on top and CPU temperature on bottom");
         ctx.Check(cols_all[1].top.label == L"CPU:" && cols_all[1].top.value == L"45" &&
-                      cols_all[1].top.unit == L"W" && cols_all[1].bottom.label == L"MEM:" &&
+                      cols_all[1].top.unit == L"W" && cols_all[1].bottom.label == L"RAM:" &&
                       cols_all[1].bottom.value == L"64" && cols_all[1].bottom.unit == L"%",
-                  "Column 1 pairs CPU power W on top and MEM usage% on bottom");
+                  "Column 1 pairs CPU power W on top and RAM usage% on bottom");
         ctx.Check(cols_all[2].top.label == L"GPU:" && cols_all[2].top.value == L"24" &&
                       cols_all[2].top.unit == L"%" && cols_all[2].bottom.label == L"VRM:" &&
                       cols_all[2].bottom.value == L"27" && cols_all[2].bottom.unit == L"%",

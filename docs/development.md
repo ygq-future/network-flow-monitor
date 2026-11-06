@@ -100,7 +100,7 @@ bun run build
 
 ## Portable Packaging & Delivery Layout
 
-Run `tools/package.ps1` to produce a clean Release portable archive in `dist/`:
+Run `tools/package.ps1` to produce a clean Release portable archive in `build/dist/`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/package.ps1 -Configuration Release

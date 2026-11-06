@@ -90,7 +90,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $out = powershell -ExecutionPolicy Bypass -File tools/package.ps1 -Configuration Release
           $out | Out-Host
-          $archivePath = Join-Path 'dist' "${{ steps.meta.outputs.archive_name }}"
+          $archivePath = Join-Path 'build/dist' "${{ steps.meta.outputs.archive_name }}"
           if (-not (Test-Path -LiteralPath $archivePath)) {
             throw "Expected portable archive not found at $archivePath"
           }
@@ -104,8 +104,8 @@ jobs:
         with:
           name: NetworkFlowMonitor-${{ steps.meta.outputs.version }}-win-x64
           path: |
-            dist/${{ steps.meta.outputs.archive_name }}
-            dist/${{ steps.meta.outputs.archive_name }}.sha256
+            build/dist/${{ steps.meta.outputs.archive_name }}
+            build/dist/${{ steps.meta.outputs.archive_name }}.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -125,7 +125,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: NetworkFlowMonitor-${{ needs.quality.outputs.version }}-win-x64
-          path: dist
+          path: build/dist
 
       - name: Resolve Release Note
         id: note
@@ -149,8 +149,8 @@ jobs:
           $tag = "v$version"
           $title = "Network Flow Monitor v$version"
           $notePath = '${{ steps.note.outputs.note_path }}'
-          $zipPath = "dist/${{ needs.quality.outputs.archive_name }}"
-          $shaPath = "dist/${{ needs.quality.outputs.archive_name }}.sha256"
+          $zipPath = "build/dist/${{ needs.quality.outputs.archive_name }}"
+          $shaPath = "build/dist/${{ needs.quality.outputs.archive_name }}.sha256"
 
           & gh release view $tag > $null 2>&1
           if ($LASTEXITCODE -eq 0) {

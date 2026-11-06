@@ -514,3 +514,17 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **质量门禁与测试验证**：
   - `SettingsCenter.test.tsx` 更新为 3 Tab 结构断言与常规页精简控件检查，验证历史路由兼容性；
   - `tools/quality.ps1 -Mode Full` 全流程 20 项阶段全部通过（PASS 20 / WARN 0 / FAIL 0）。
+
+## 第三十九轮 构建与发行输出收拢为单一 `build` 目录 — complete
+
+- **背景与目标**：
+  - 消除根目录下 `build/`（中间编译物与 CMake 预设）与 `dist/`（CPack 发行包与归档）双输出目录并存的问题，将项目所有构建和发布输出统一收拢至单一顶层目录 `build/`；
+  - 保持 CMake 生态标准惯例，将发布归档收拢至 `build/dist/`，清理根目录旧产物并同步所有脚本、CI 工作流和说明文档。
+- **改造实现**：
+  1. **打包脚本与 CI 工作流路径对齐 (`tools/package.ps1`, `.github/workflows/quality-and-publish.yml`)**：
+     - 将 `tools/package.ps1` 中的 `$distRoot` 从根目录 `dist` 更新为 `build\dist`；
+     - 同步更新 `.github/workflows/quality-and-publish.yml` 中打包产物路径、校验路径、归档上传路径和 GitHub Release 发布包路径至 `build/dist`。
+  2. **说明文档与目录结构对齐 (`README.md`, `docs/development.md`)**：
+     - 更新中英文 README 与开发手册中的便携式 Release 发行包生成指南，将输出路径从 `dist/` 调整为 `build/dist/`。
+  3. **产物迁移与目录收拢**：
+     - 本地已有历史发行包及 CPack 目录安全迁移至 `build/dist/`，移除根目录 `dist/`，根目录恢复仅保留唯一的构建输出根目录 `build/`。

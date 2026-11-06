@@ -32,7 +32,7 @@ if (Test-Path -LiteralPath $frontendManifest) {
 
 $preset = "windows-x64-$($Configuration.ToLowerInvariant())"
 $buildRoot = Join-Path $projectRoot "build\$preset"
-$distRoot = Join-Path $projectRoot 'dist'
+$distRoot = Join-Path $projectRoot 'build\dist'
 
 Invoke-Native $cmake @('--preset', $preset)
 Invoke-Native $cmake @('--build', '--preset', $preset, '--clean-first')

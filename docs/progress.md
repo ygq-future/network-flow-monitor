@@ -494,3 +494,23 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 在 `paint_window` 中按当前 DPI 字体实测最大 4 字符数值 `"88.8"` 的精确像素宽度（`GetTextExtentPoint32W(mem_dc, L"88.8", 4, &max_val_sz)`）加 `1 DIP` 间距计算 `val_right`，并将总窗口宽度 `kDefaultOverlayWidthDip` 从 `80 DIP` 收紧至 `74 DIP`。
 - **回归测试 (`tests/host_tests.cpp`)**：
   - 新增 `TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder`：构造包含任务栏中间容器、`MSTaskSwWClass`、`TrayNotifyWnd` 的经典任务栏窗口树，验证首次开启与反复开关下 `MSTaskSwWClass` 几何零改动、`TrayNotifyWnd` 左侧精确定位、兄弟容器抢占 Z 序后的自动置顶恢复，以及 `74 × 32`（96 DPI 几何）下 `SetParent` 分层子窗口在屏幕 DC 上的真实像素合成渲染。
+
+## 第三十八轮 配置固化默认行为与设置中心三分类精简 — complete
+
+- **背景与目标**：
+  - 滑动统计窗口与快照刷新周期属于普通用户极少关心的底层调优参数，界面过度暴露增加认知负担；
+  - 智能网速单位（自动按量级匹配 `KB/s`、`MB/s`、`GB/s`）已涵盖全部使用场景，无需配置比特/字节等次级单位；
+  - “采集与诊断”页在宿主右键托盘和监控面板已具备原生“重启采集器/重试采集器”菜单项的情况下属于冗余功能，日志级别默认固化为 `LogLevel::Info`。
+- **改造实现**：
+  1. **固化默认行为并移除冗余暴露 (`bridge_dispatcher.cpp`, `product_host.cpp`, `BasicMonitorPanel.tsx`)**：
+     - 滑动统计窗口固化为 `2000 ms`，快照刷新周期固化为 `500 ms`，速率单位固化为智能速度 `Auto`，日志级别固化为 `LogLevel::Info`；
+     - 从 `BridgeDispatcher::serialize_config_changed` 的 Schema 投影中移除 `rankingWindow`、`refreshInterval`、`speedUnits`、`logLevels`；
+     - `ProductHost::on_update_setting` 移除上述 4 项的动态修改分支（直接落入不可修改保护）；
+     - `BasicMonitorPanel.tsx` 速率格式化直接调用智能速度 `formatCompactRate(bytes)`，移除无用的 `speedUnit` 解构。
+  2. **设置中心精简为三大分类 (`SettingsCenter.tsx`, `App.tsx`, `bridgeTypes.ts`, `nativeBridge.ts`)**：
+     - 移除“采集与诊断”整个 Tab 及对应卡片控件，设置中心统一收敛为 **3 大分类**（`常规设置 (General)`、`贴边胶囊 (Capsule)`、`流量历史 (Traffic History)`）；
+     - 清理已无引用的 `Activity`、`RotateCw` 图标组件与 `collectorStatus` 冗余订阅；
+     - 在路由兼容层 `normalizeSettingsTab` 中，将历史可能传入的 `'collector'` 与 `'diagnostics'` 路由平滑归一化至 `'general'`。
+- **质量门禁与测试验证**：
+  - `SettingsCenter.test.tsx` 更新为 3 Tab 结构断言与常规页精简控件检查，验证历史路由兼容性；
+  - `tools/quality.ps1 -Mode Full` 全流程 20 项阶段全部通过（PASS 20 / WARN 0 / FAIL 0）。

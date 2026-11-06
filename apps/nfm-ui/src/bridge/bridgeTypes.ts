@@ -108,12 +108,12 @@ export interface ConfigSchemaDto {
   opacity: NumericRangeSchema
   blurStrength: NumericRangeSchema
   topN: NumericRangeSchema
-  rankingWindow: NumericRangeSchema
-  refreshInterval: NumericRangeSchema
-  speedUnits: ('auto' | 'bytes' | 'bits')[]
+  rankingWindow?: NumericRangeSchema
+  refreshInterval?: NumericRangeSchema
+  speedUnits?: ('auto' | 'bytes' | 'bits')[]
   themes: ('system' | 'light' | 'dark')[]
   languages: ('system' | 'english' | 'simplified_chinese')[]
-  logLevels: ('off' | 'error' | 'info' | 'debug')[]
+  logLevels?: ('off' | 'error' | 'info' | 'debug')[]
   dockSides: ('left' | 'right')[]
 }
 

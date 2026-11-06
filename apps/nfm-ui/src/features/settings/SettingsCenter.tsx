@@ -2,11 +2,9 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import {
   Sliders,
   Layers,
-  Activity,
   FolderOpen,
   X,
   RefreshCw,
-  RotateCw,
   AlertCircle,
   Download,
   Plus,
@@ -22,7 +20,6 @@ import {
   AppConfigDto,
   ConfigSchemaDto,
   ConfigChangedDto,
-  CollectorStatusDto,
   UpdateStatusDto,
   BridgeErrorDto,
   ConnectedAppDto,
@@ -45,9 +42,8 @@ import { SettingsRow } from '../../shared/components/SettingsRow'
 import { AppLogo } from '../../shared/components/AppLogo'
 import { TrafficHistoryPanel } from './TrafficHistoryPanel'
 
-export type SettingsTab = 'general' | 'capsule' | 'history' | 'collector'
-export type LegacySettingsTab = SettingsTab | 'appearance' | 'monitor' | 'ranking' | 'diagnostics'
-
+export type SettingsTab = 'general' | 'capsule' | 'history'
+export type LegacySettingsTab = SettingsTab | 'appearance' | 'monitor' | 'ranking' | 'diagnostics' | 'collector'
 export interface SettingsCenterProps {
   initialTab?: LegacySettingsTab
   onBack?: () => void
@@ -57,7 +53,6 @@ export interface SettingsCenterProps {
 function normalizeSettingsTab(tab: LegacySettingsTab): SettingsTab {
   if (tab === 'capsule' || tab === 'monitor') return 'capsule'
   if (tab === 'history') return 'history'
-  if (tab === 'collector' || tab === 'diagnostics') return 'collector'
   return 'general'
 }
 
@@ -120,16 +115,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => normalizeSettingsTab(initialTab))
   const [config, setConfig] = useState<AppConfigDto>(defaultMockConfigChanged.config)
   const [schema, setSchema] = useState<ConfigSchemaDto>(defaultMockConfigChanged.schema)
-  const [collectorStatus, setCollectorStatus] = useState<CollectorStatusDto>({
-    monotonicMs: Date.now(),
-    etwSessionActive: true,
-    droppedPackets: 0,
-    activePids: 18,
-    state: 'Running',
-    processId: 2844,
-    instanceId: 'session_active',
-    isElevated: true,
-  })
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusDto>({
     state: 'Idle',
     currentVersion: '0.3.4',
@@ -166,11 +151,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
       setErrorMessage(null)
     })
 
-    const unsubCollector = bridge.on<CollectorStatusDto>('collectorStatus', data => {
-      if (data) {
-        setCollectorStatus(prev => ({ ...prev, ...data }))
-      }
-    })
     const unsubUpdate = bridge.on<UpdateStatusDto>('updateStatus', data => {
       if (data) {
         setUpdateStatus(prev => ({ ...prev, ...data }))
@@ -207,7 +187,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
 
     return () => {
       unsubConfig()
-      unsubCollector()
       unsubUpdate()
       unsubError()
       unsubConnectedApps()
@@ -233,7 +212,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     activeTab,
     bridge,
     config,
-    collectorStatus.lastError,
     updateStatus.state,
     updateStatus.errorMessage,
     errorMessage,
@@ -293,7 +271,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
     { id: 'general', label: t.settings.general, icon: Sliders },
     { id: 'capsule', label: t.settings.capsule, icon: Layers },
     { id: 'history', label: t.settings.history, icon: BarChart3 },
-    { id: 'collector', label: t.settings.collector, icon: Activity },
   ]
   return (
     <div className="flex h-full w-full flex-col select-none">
@@ -386,21 +363,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                 }
               />
               <SettingsRow
-                label={t.settings.speedUnit}
-                description={t.settings.speedUnitDesc}
-                control={
-                  <Select
-                    value={config.general.speedUnit}
-                    onChange={val => handleUpdate('display.speed_unit', val)}
-                    options={[
-                      { value: 'auto', label: t.settings.speedUnitAuto },
-                      { value: 'bytes', label: t.settings.speedUnitBytes },
-                      { value: 'bits', label: t.settings.speedUnitBits },
-                    ]}
-                  />
-                }
-              />
-              <SettingsRow
                 label={t.settings.theme}
                 description={t.settings.themeDesc}
                 control={
@@ -448,36 +410,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
                     max={schema.topN.max}
                     onChange={val => handleUpdate('ranking.top_n', val)}
                     ariaLabel={t.settings.topN}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.rankingWindow}
-                description={t.settings.rankingWindowDesc}
-                control={
-                  <Slider
-                    value={config.ranking.windowMs}
-                    min={schema.rankingWindow.min}
-                    max={schema.rankingWindow.max}
-                    step={schema.rankingWindow.step}
-                    unit={schema.rankingWindow.unit}
-                    onChange={val => handleUpdate('ranking.window_ms', val)}
-                    ariaLabel={t.settings.rankingWindow}
-                  />
-                }
-              />
-              <SettingsRow
-                label={t.settings.refreshInterval}
-                description={t.settings.refreshIntervalDesc}
-                control={
-                  <Slider
-                    value={config.ranking.refreshIntervalMs}
-                    min={schema.refreshInterval.min}
-                    max={schema.refreshInterval.max}
-                    step={schema.refreshInterval.step}
-                    unit={schema.refreshInterval.unit}
-                    onChange={val => handleUpdate('display.refresh_interval_ms', val)}
-                    ariaLabel={t.settings.refreshInterval}
                   />
                 }
               />
@@ -894,129 +826,6 @@ export const SettingsCenter: React.FC<SettingsCenterProps> = ({ initialTab = 'ge
               onRefresh={() => bridge.sendCommand('requestTrafficHistory')}
               onLayoutChange={() => setHistoryLayoutSeq(s => s + 1)}
             />
-          )}
-          {/* 3. Collector & Diagnostics Tab */}
-          {activeTab === 'collector' && (
-            <Card className="flex flex-col divide-y divide-zinc-200/70 px-3 py-2 dark:divide-zinc-800/80">
-              <div className="flex items-center justify-between gap-3 py-1.5 first:pt-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100">
-                    {t.settings.collectorStatus}
-                  </span>
-                  <Badge
-                    variant={
-                      collectorStatus.state === 'Running'
-                        ? 'success'
-                        : collectorStatus.state === 'Starting'
-                          ? 'warning'
-                          : 'danger'
-                    }>
-                    {collectorStatus.state === 'Running'
-                      ? t.settings.statusRunning
-                      : collectorStatus.state === 'Starting'
-                        ? t.settings.statusStarting
-                        : collectorStatus.state === 'Stopped'
-                          ? t.settings.statusStopped
-                          : t.settings.statusFailed}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('restartCollector')}>
-                    <RotateCw className="h-3 w-3" />
-                    <span>
-                      {collectorStatus.state === 'Running' && collectorStatus.etwSessionActive
-                        ? t.settings.restartCollector
-                        : t.settings.retryCollector}
-                    </span>
-                  </Button>
-                </div>
-              </div>
-
-              <SettingsRow
-                label={t.settings.logLevel}
-                description={t.settings.logLevelDesc}
-                control={
-                  <div className="flex items-center gap-1.5">
-                    <Select
-                      value={config.diagnostics.logLevel}
-                      onChange={val => handleUpdate('diagnostics.log_level', val)}
-                      options={[
-                        { value: 'off', label: t.settings.logLevelOff },
-                        { value: 'error', label: t.settings.logLevelError },
-                        { value: 'info', label: t.settings.logLevelInfo },
-                        { value: 'debug', label: t.settings.logLevelDebug },
-                      ]}
-                    />
-                    <Button variant="primary" size="sm" onClick={() => bridge.sendCommand('openLogDirectory')}>
-                      <FolderOpen className="h-3 w-3" />
-                      <span>{t.settings.openLogDirectory}</span>
-                    </Button>
-                  </div>
-                }
-              />
-              <SettingsRow
-                label={t.settings.processId}
-                control={
-                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                    {collectorStatus.processId ? collectorStatus.processId : t.settings.none}
-                  </span>
-                }
-              />
-              <SettingsRow
-                label={t.settings.activeProcesses}
-                control={
-                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                    {collectorStatus.activePids}
-                  </span>
-                }
-              />
-              <SettingsRow
-                label={t.settings.droppedPackets}
-                control={
-                  <span className="font-mono text-xs font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                    {collectorStatus.droppedPackets}
-                  </span>
-                }
-              />
-              <SettingsRow
-                label={t.settings.etwHealth}
-                control={
-                  <Badge variant={collectorStatus.etwSessionActive ? 'success' : 'danger'}>
-                    {collectorStatus.etwSessionActive ? t.settings.etwActive : t.settings.etwInactive}
-                  </Badge>
-                }
-              />
-              <SettingsRow
-                label={t.settings.elevation}
-                control={
-                  <Badge variant={collectorStatus.isElevated ? 'default' : 'warning'}>
-                    {collectorStatus.isElevated ? t.settings.elevationYes : t.settings.elevationNo}
-                  </Badge>
-                }
-              />
-              {collectorStatus.lastError && (
-                <SettingsRow
-                  label={t.settings.lastError}
-                  control={
-                    <span className="font-mono text-xs text-red-600 dark:text-red-400">
-                      {collectorStatus.lastError}
-                    </span>
-                  }
-                />
-              )}
-              <SettingsRow
-                label={t.settings.webviewRuntime}
-                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-              />
-              <SettingsRow
-                label={t.settings.assetsState}
-                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-              />
-              <SettingsRow
-                label={t.settings.bridgeProtocol}
-                control={<Badge variant="success">{t.settings.stateOk}</Badge>}
-              />
-            </Card>
           )}
         </div>
       </div>

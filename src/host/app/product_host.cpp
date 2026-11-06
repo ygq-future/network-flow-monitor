@@ -1584,24 +1584,6 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected boolean for ui_at_login";
         }
-    } else if (key == "display.speed_unit" || key == "general.speedUnit" || key == "speedUnit") {
-        if (yyjson_is_str(val)) {
-            std::string_view str = yyjson_get_str(val);
-            if (str == "auto") {
-                current_config_.display.speed_unit = config::SpeedUnit::Auto;
-                updated = true;
-            } else if (str == "bytes") {
-                current_config_.display.speed_unit = config::SpeedUnit::Bytes;
-                updated = true;
-            } else if (str == "bits") {
-                current_config_.display.speed_unit = config::SpeedUnit::Bits;
-                updated = true;
-            } else {
-                err_msg = "Invalid speed_unit: " + std::string(str);
-            }
-        } else {
-            err_msg = "Expected string for speed_unit";
-        }
     } else if (key == "display.show_taskbar_speed" || key == "general.showTaskbarSpeed" ||
                key == "showTaskbarSpeed") {
         if (yyjson_is_bool(val)) {
@@ -1841,29 +1823,6 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         } else {
             err_msg = "Expected integer for top_n";
         }
-    } else if (key == "ranking.window_ms" || key == "ranking.windowMs" || key == "windowMs") {
-        if (yyjson_is_int(val)) {
-            std::int64_t ms = 0;
-            if (check_int_range(key, yyjson_get_sint(val), config::kMinimumRankingWindow.count(),
-                                config::kMaximumRankingWindow.count(), ms)) {
-                current_config_.ranking.window = std::chrono::milliseconds{ms};
-                updated = true;
-            }
-        } else {
-            err_msg = "Expected integer for window_ms";
-        }
-    } else if (key == "display.refresh_interval_ms" || key == "ranking.refreshIntervalMs" ||
-               key == "refreshIntervalMs") {
-        if (yyjson_is_int(val)) {
-            std::int64_t ms = 0;
-            if (check_int_range(key, yyjson_get_sint(val), config::kMinimumRefreshInterval.count(),
-                                config::kMaximumRefreshInterval.count(), ms)) {
-                current_config_.display.refresh_interval = std::chrono::milliseconds{ms};
-                updated = true;
-            }
-        } else {
-            err_msg = "Expected integer for refresh_interval_ms";
-        }
     } else if (key == "ranking.excluded_programs" || key == "ranking.excludedPrograms" ||
                key == "excludedPrograms") {
         if (yyjson_is_arr(val)) {
@@ -1954,28 +1913,6 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
             }
         } else {
             err_msg = "Expected array of strings for excluded_programs";
-        }
-    } else if (key == "diagnostics.log_level" || key == "diagnostics.logLevel" ||
-               key == "logLevel") {
-        if (yyjson_is_str(val)) {
-            std::string_view str = yyjson_get_str(val);
-            if (str == "off") {
-                current_config_.diagnostics.log_level = config::LogLevel::Off;
-                updated = true;
-            } else if (str == "error") {
-                current_config_.diagnostics.log_level = config::LogLevel::Error;
-                updated = true;
-            } else if (str == "info") {
-                current_config_.diagnostics.log_level = config::LogLevel::Info;
-                updated = true;
-            } else if (str == "debug") {
-                current_config_.diagnostics.log_level = config::LogLevel::Debug;
-                updated = true;
-            } else {
-                err_msg = "Invalid log_level: " + std::string(str);
-            }
-        } else {
-            err_msg = "Expected string for log_level";
         }
     } else {
         err_msg = "Unknown or disallowed setting key: " + std::string(key);

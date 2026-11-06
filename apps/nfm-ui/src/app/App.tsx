@@ -21,10 +21,7 @@ const SettingsSurface: React.FC = () => {
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'Dark'
   const bgStyle = isDark ? '#09090b' : '#ffffff'
-  const initialTab =
-    surface.route === 'history' || surface.route === 'capsule' || surface.route === 'collector'
-      ? surface.route
-      : 'general'
+  const initialTab = surface.route === 'history' || surface.route === 'capsule' ? surface.route : 'general'
 
   return (
     <div

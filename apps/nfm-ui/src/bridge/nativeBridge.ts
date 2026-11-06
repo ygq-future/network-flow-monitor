@@ -389,8 +389,6 @@ export class MockBridge extends NativeBridge {
     const cfg = this.currentMockConfig.config
     if (key === 'startup.ui_at_login' || key === 'general.uiAtLogin' || key === 'uiAtLogin') {
       cfg.general.uiAtLogin = Boolean(value)
-    } else if (key === 'display.speed_unit' || key === 'general.speedUnit' || key === 'speedUnit') {
-      cfg.general.speedUnit = value as 'auto' | 'bytes' | 'bits'
     } else if (
       key === 'display.show_taskbar_speed' ||
       key === 'general.showTaskbarSpeed' ||
@@ -465,22 +463,12 @@ export class MockBridge extends NativeBridge {
       cfg.capsule.hideCapsuleWhenFullscreen = Boolean(value)
     } else if (key === 'ranking.top_n' || key === 'ranking.topN' || key === 'topN') {
       cfg.ranking.topN = Number(value)
-    } else if (key === 'ranking.window_ms' || key === 'ranking.windowMs' || key === 'windowMs') {
-      cfg.ranking.windowMs = Number(value)
-    } else if (
-      key === 'display.refresh_interval_ms' ||
-      key === 'ranking.refreshIntervalMs' ||
-      key === 'refreshIntervalMs'
-    ) {
-      cfg.ranking.refreshIntervalMs = Number(value)
     } else if (
       key === 'ranking.excluded_programs' ||
       key === 'ranking.excludedPrograms' ||
       key === 'excludedPrograms'
     ) {
       cfg.ranking.excludedPrograms = Array.isArray(value) ? value.map(v => String(v)) : []
-    } else if (key === 'diagnostics.log_level' || key === 'diagnostics.logLevel' || key === 'logLevel') {
-      cfg.diagnostics.logLevel = value as 'off' | 'error' | 'info' | 'debug'
     }
   }
 

@@ -26,9 +26,9 @@ export interface BasicMonitorPanelProps {
   className?: string
 }
 
-function formatCompactRate(bytesPerSec: number, unitMode: 'auto' | 'bytes' | 'bits' = 'auto'): string {
+function formatCompactRate(bytesPerSec: number): string {
   if (bytesPerSec <= 0) return '0 B/s'
-  const formatted = formatRate(bytesPerSec, unitMode)
+  const formatted = formatRate(bytesPerSec, 'auto')
   return `${formatted.value} ${formatted.unit}`
 }
 
@@ -59,7 +59,6 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
   }, [])
   const activeTransitionState: MonitorPanelTransitionState = transitionState ?? (selfEntered ? 'entered' : 'entering')
   const isCollectorRunning = status.etwSessionActive && status.state !== 'Stopped' && status.state !== 'Failed'
-  const speedUnit = config.general.speedUnit
   const downloadColorHex = config.capsule.downloadColorHex || '#38bdf8'
   const uploadColorHex = config.capsule.uploadColorHex || '#2dd4bf'
   const hasReadyRanking = isCollectorRunning && ranking !== undefined && ranking.status === 'Ready'
@@ -175,7 +174,7 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
             style={{ color: downloadColorHex }}>
             <span className="font-mono text-[11px] font-semibold">↓</span>
             <span data-testid="total-download-rate" className="font-mono text-[11px] font-semibold tabular-nums">
-              {formatCompactRate(totalDownloadBytesPerSec, speedUnit)}
+              {formatCompactRate(totalDownloadBytesPerSec)}
             </span>
           </div>
           <div
@@ -183,7 +182,7 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
             style={{ color: uploadColorHex }}>
             <span className="font-mono text-[11px] font-semibold">↑</span>
             <span data-testid="total-upload-rate" className="font-mono text-[11px] font-semibold tabular-nums">
-              {formatCompactRate(totalUploadBytesPerSec, speedUnit)}
+              {formatCompactRate(totalUploadBytesPerSec)}
             </span>
           </div>
         </div>
@@ -290,10 +289,10 @@ export const BasicMonitorPanel: React.FC<BasicMonitorPanelProps> = ({
                   </span>
                 </div>
                 <span className="text-right font-mono text-[11px] font-medium text-zinc-900 tabular-nums dark:text-zinc-100">
-                  {formatCompactRate(app.downloadBytesPerSec, speedUnit)}
+                  {formatCompactRate(app.downloadBytesPerSec)}
                 </span>
                 <span className="text-right font-mono text-[11px] text-zinc-500 tabular-nums dark:text-zinc-400">
-                  {formatCompactRate(app.uploadBytesPerSec, speedUnit)}
+                  {formatCompactRate(app.uploadBytesPerSec)}
                 </span>
               </div>
             )

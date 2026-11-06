@@ -18,7 +18,7 @@ function renderWithProviders(ui: React.ReactElement, bridge: MockBridge) {
 }
 
 describe('SettingsCenter', () => {
-  it('renders 4 tabs including Traffic History and default general section', () => {
+  it('renders 3 tabs including Traffic History and default general section', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
@@ -26,20 +26,20 @@ describe('SettingsCenter', () => {
     expect(screen.getByRole('button', { name: /General/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Capsule$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Traffic History/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Collector & Logs/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Collector & Logs/i })).not.toBeInTheDocument()
     expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
     expect(screen.getByText('Show Taskbar Speed')).toBeInTheDocument()
-    expect(screen.getByText('Speed Unit')).toBeInTheDocument()
+    expect(screen.queryByText('Speed Unit')).not.toBeInTheDocument()
     expect(screen.getByText('Application Theme')).toBeInTheDocument()
     expect(screen.getByText('Language')).toBeInTheDocument()
     expect(screen.getByText('Top N Applications')).toBeInTheDocument()
-    expect(screen.getByText('Ranking Sliding Window')).toBeInTheDocument()
-    expect(screen.getByText('Display Refresh Interval')).toBeInTheDocument()
+    expect(screen.queryByText('Ranking Sliding Window')).not.toBeInTheDocument()
+    expect(screen.queryByText('Display Refresh Interval')).not.toBeInTheDocument()
     expect(screen.getByText('Version & Online Update')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Check for Updates/i })).toBeInTheDocument()
   })
 
-  it('switches tabs to Capsule and Collector & Logs', () => {
+  it('switches tabs to Capsule and Traffic History', () => {
     const bridge = new MockBridge(false)
     renderWithProviders(<SettingsCenter />, bridge)
 
@@ -53,16 +53,9 @@ describe('SettingsCenter', () => {
     expect(screen.getByText('Capsule Rate Colors')).toBeInTheDocument()
     expect(screen.getByText('Lock & Click-Through on Full Screen')).toBeInTheDocument()
     expect(screen.getByText('Hide Capsule on Full Screen')).toBeInTheDocument()
-    // 2. Collector & Logs tab
-    fireEvent.click(screen.getByRole('button', { name: /Collector & Logs/i }))
-    expect(screen.getByText('Collector Process Status')).toBeInTheDocument()
-    expect(screen.getByText('Process ID (PID)')).toBeInTheDocument()
-    expect(screen.getByText('ETW Session Health')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Restart Collector/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Retry Connection/i })).not.toBeInTheDocument()
-    expect(screen.getByText('Diagnostics Log Level')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Open Log Folder/i })).toBeInTheDocument()
-    expect(screen.getByText('WebView2 Evergreen Runtime')).toBeInTheDocument()
+    // 2. Traffic History tab
+    fireEvent.click(screen.getByRole('button', { name: /Traffic History/i }))
+    expect(screen.getByText('Period')).toBeInTheDocument()
   })
   it('triggers updateSetting on control changes', () => {
     const bridge = new MockBridge(false)
@@ -103,29 +96,10 @@ describe('SettingsCenter', () => {
     })
   })
 
-  it('triggers collector restart/retry and openLogDirectory commands', () => {
+  it('normalizes legacy collector tab to general', () => {
     const bridge = new MockBridge(false)
-    const spySend = vi.spyOn(bridge, 'sendCommand')
     renderWithProviders(<SettingsCenter initialTab="collector" />, bridge)
-
-    fireEvent.click(screen.getByRole('button', { name: /Restart Collector/i }))
-    expect(spySend).toHaveBeenCalledWith('restartCollector')
-
-    act(() => {
-      bridge.emit('collectorStatus', {
-        monotonicMs: 2000,
-        etwSessionActive: false,
-        droppedPackets: 0,
-        activePids: 0,
-        state: 'Failed',
-      })
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Retry Connection/i }))
-    expect(spySend).toHaveBeenCalledWith('restartCollector')
-
-    fireEvent.click(screen.getByRole('button', { name: /Open Log Folder/i }))
-    expect(spySend).toHaveBeenCalledWith('openLogDirectory')
+    expect(screen.getByText('Launch at Windows startup')).toBeInTheDocument()
   })
   it('handles checkForUpdate and downloadAndApplyUpdate in General tab', () => {
     const bridge = new MockBridge(false)

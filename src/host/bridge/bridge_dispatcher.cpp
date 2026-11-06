@@ -559,8 +559,7 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     yyjson_mut_val* gen = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "general", gen);
     yyjson_mut_obj_add_bool(doc.get(), gen, "uiAtLogin", config.startup.ui_at_login);
-    yyjson_mut_obj_add_str(doc.get(), gen, "speedUnit",
-                           to_speed_unit_str(config.display.speed_unit));
+    yyjson_mut_obj_add_str(doc.get(), gen, "speedUnit", "auto");
     yyjson_mut_obj_add_bool(doc.get(), gen, "showTaskbarSpeed", config.display.show_taskbar_speed);
 
     // appearance
@@ -621,8 +620,7 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     // diagnostics
     yyjson_mut_val* diag = yyjson_mut_obj(doc.get());
     yyjson_mut_obj_add_val(doc.get(), cfg, "diagnostics", diag);
-    yyjson_mut_obj_add_str(doc.get(), diag, "logLevel",
-                           to_log_level_str(config.diagnostics.log_level));
+    yyjson_mut_obj_add_str(doc.get(), diag, "logLevel", "info");
 
     // 2. schema projection
     yyjson_mut_val* schema = yyjson_mut_obj(doc.get());
@@ -657,10 +655,6 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
     add_range("blurStrength", config::kMinimumBlurStrengthPercent,
               config::kMaximumBlurStrengthPercent, 1, "%", 60);
     add_range("topN", config::kMinimumTopN, config::kMaximumTopN, 1, "", 5);
-    add_range("rankingWindow", static_cast<int>(config::kMinimumRankingWindow.count()),
-              static_cast<int>(config::kMaximumRankingWindow.count()), 250, "ms", 2000);
-    add_range("refreshInterval", static_cast<int>(config::kMinimumRefreshInterval.count()),
-              static_cast<int>(config::kMaximumRefreshInterval.count()), 50, "ms", 500);
 
     auto add_enum_array = [&](const char* key, std::span<const char* const> values) {
         yyjson_mut_val* arr = yyjson_mut_arr(doc.get());
@@ -669,19 +663,11 @@ std::string BridgeDispatcher::serialize_config_changed(const config::AppConfig& 
             yyjson_mut_arr_add_str(doc.get(), arr, v);
         }
     };
-
-    constexpr std::array speed_units_arr = {"auto", "bytes", "bits"};
-    add_enum_array("speedUnits", speed_units_arr);
-
     constexpr std::array themes_arr = {"system", "light", "dark"};
     add_enum_array("themes", themes_arr);
 
     constexpr std::array languages_arr = {"system", "english", "simplified_chinese"};
     add_enum_array("languages", languages_arr);
-
-    constexpr std::array log_levels_arr = {"off", "error", "info", "debug"};
-    add_enum_array("logLevels", log_levels_arr);
-
     constexpr std::array dock_sides_arr = {"left", "right"};
     add_enum_array("dockSides", dock_sides_arr);
 

@@ -6,11 +6,13 @@
 
 #include <array>
 #include <commctrl.h>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <windowsx.h>
 #include <wrl/client.h>
 #include <wrl/event.h>
+#include <wrl/implements.h>
 
 using namespace Microsoft::WRL;
 
@@ -69,6 +71,76 @@ void UnsubclassWebViewChildren(HWND parent_hwnd) {
         0);
 }
 
+// Minimal ICoreWebView2EnvironmentOptions implementation. The WebView2 SDK's C++ helper
+// (WebView2EnvironmentOptions.h) relies on template constructs that clang cannot parse, and only
+// AdditionalBrowserArguments is needed here.
+class BrowserEnvironmentOptions final
+    : public RuntimeClass<RuntimeClassFlags<ClassicCom>, ICoreWebView2EnvironmentOptions> {
+  public:
+    BrowserEnvironmentOptions() = default;
+
+    IFACEMETHODIMP get_AdditionalBrowserArguments(LPWSTR* out_arguments) override {
+        return CopyString(additional_browser_arguments_, out_arguments);
+    }
+    IFACEMETHODIMP put_AdditionalBrowserArguments(LPCWSTR arguments) override {
+        additional_browser_arguments_ = arguments != nullptr ? arguments : L"";
+        return S_OK;
+    }
+    IFACEMETHODIMP get_Language(LPWSTR* out_language) override {
+        return CopyString(L"", out_language);
+    }
+    IFACEMETHODIMP put_Language(LPCWSTR /*language*/) override {
+        return S_OK;
+    }
+    IFACEMETHODIMP get_TargetCompatibleBrowserVersion(LPWSTR* out_version) override {
+        if (out_version == nullptr) {
+            return E_POINTER;
+        }
+        LPWSTR version = nullptr;
+        if (SUCCEEDED(GetAvailableCoreWebView2BrowserVersionString(nullptr, &version)) &&
+            version != nullptr) {
+            *out_version = version;
+            return S_OK;
+        }
+        *out_version = nullptr;
+        return S_OK;
+    }
+    IFACEMETHODIMP put_TargetCompatibleBrowserVersion(LPCWSTR /*version*/) override {
+        return S_OK;
+    }
+    IFACEMETHODIMP get_AllowSingleSignOnUsingOSPrimaryAccount(BOOL* out_enabled) override {
+        if (out_enabled == nullptr) {
+            return E_POINTER;
+        }
+        *out_enabled = FALSE;
+        return S_OK;
+    }
+    IFACEMETHODIMP put_AllowSingleSignOnUsingOSPrimaryAccount(BOOL /*enabled*/) override {
+        return S_OK;
+    }
+
+  private:
+    static HRESULT CopyString(const std::wstring& text, LPWSTR* out_value) {
+        if (out_value == nullptr) {
+            return E_POINTER;
+        }
+        if (text.empty()) {
+            *out_value = nullptr;
+            return S_OK;
+        }
+        const std::size_t bytes = (text.size() + 1U) * sizeof(wchar_t);
+        auto* buffer = static_cast<LPWSTR>(CoTaskMemAlloc(bytes));
+        if (buffer == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        std::memcpy(buffer, text.c_str(), bytes);
+        *out_value = buffer;
+        return S_OK;
+    }
+
+    std::wstring additional_browser_arguments_;
+};
+
 ComPtr<ICoreWebView2Environment>& SharedEnvironment() {
     static ComPtr<ICoreWebView2Environment> shared_env;
     return shared_env;
@@ -89,6 +161,7 @@ struct WebView2Controller::Impl {
     bool is_ready_{false};
     bool is_creating_{false};
     bool desired_visible_{true};
+    bool desired_low_memory_{false};
     bool is_suspended_{false};
     int last_width_px_{-1};
     int last_height_px_{-1};
@@ -112,10 +185,23 @@ struct WebView2Controller::Impl {
         environment_.Reset();
     }
 
+    void apply_memory_target_level() const {
+        if (webview_.Get() == nullptr) {
+            return;
+        }
+        ComPtr<ICoreWebView2_19> webview_v19;
+        if (SUCCEEDED(webview_.As(&webview_v19)) && webview_v19.Get() != nullptr) {
+            static_cast<void>(webview_v19->put_MemoryUsageTargetLevel(
+                desired_low_memory_ ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+                                    : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL));
+        }
+    }
+
     void apply_memory_and_suspension_state() {
         if (webview_.Get() == nullptr) {
             return;
         }
+        apply_memory_target_level();
         ComPtr<ICoreWebView2_3> webview_v3;
         if (SUCCEEDED(webview_.As(&webview_v3)) && webview_v3.Get() != nullptr) {
             if (desired_visible_) {
@@ -164,15 +250,15 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
     }
     impl_->is_creating_ = true;
 
-    static bool env_vars_set = false;
-    if (!env_vars_set) {
-        SetEnvironmentVariableW(
-            L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            L"--disable-background-timer-throttling "
-            L"--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling "
-            L"--js-flags=--lite-mode");
-        env_vars_set = true;
-    }
+    // Browser flags must be supplied through ICoreWebView2EnvironmentOptions instead of
+    // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: elevated hosts ignore the environment variable.
+    // Chromium may keep a warm spare renderer per site; this surface only needs the renderer that
+    // is actually showing content, so the spare is disabled. Native window occlusion detection
+    // stays disabled because the stage toggles WS_EX_LAYERED for click-through, and V8 lite mode
+    // trades JIT throughput for a smaller renderer heap.
+    constexpr wchar_t kAdditionalBrowserArguments[] =
+        L"--disable-features=CalculateNativeWinOcclusion,SpareRendererForSitePerProcess "
+        L"--js-flags=--lite-mode";
 
     auto create_controller_with_env = [this](ICoreWebView2Environment* env) -> HRESULT {
         if (impl_->parent_hwnd_ == nullptr || IsWindow(impl_->parent_hwnd_) == FALSE) {
@@ -384,13 +470,22 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
     }
 
     std::wstring user_data_dir = platform::WebView2Environment::get_user_data_directory();
+    ComPtr<BrowserEnvironmentOptions> environment_options = Make<BrowserEnvironmentOptions>();
+    if (environment_options.Get() != nullptr) {
+        static_cast<void>(
+            environment_options->put_AdditionalBrowserArguments(kAdditionalBrowserArguments));
+    }
     HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, user_data_dir.c_str(), nullptr,
+        nullptr, user_data_dir.c_str(), environment_options.Get(),
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this, create_controller_with_env](HRESULT env_hr,
                                                ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(env_hr) || env == nullptr) {
                     impl_->is_creating_ = false;
+                    if (impl_->diagnostic_cb_) {
+                        impl_->diagnostic_cb_("WebView2 environment creation failed (hr=" +
+                                              std::to_string(static_cast<long long>(env_hr)) + ")");
+                    }
                     return env_hr;
                 }
                 SharedEnvironment() = env;
@@ -400,6 +495,10 @@ bool WebView2Controller::initialize(HWND parent_hwnd,
 
     if (FAILED(hr)) {
         impl_->is_creating_ = false;
+        if (impl_->diagnostic_cb_) {
+            impl_->diagnostic_cb_("CreateCoreWebView2EnvironmentWithOptions failed (hr=" +
+                                  std::to_string(static_cast<long long>(hr)) + ")");
+        }
     }
     return SUCCEEDED(hr);
 }
@@ -450,8 +549,9 @@ void WebView2Controller::set_visible(bool visible) {
     }
 }
 
-void WebView2Controller::set_memory_target_low(bool /*low_memory*/) {
-    impl_->apply_memory_and_suspension_state();
+void WebView2Controller::set_memory_target_low(bool low_memory) {
+    impl_->desired_low_memory_ = low_memory;
+    impl_->apply_memory_target_level();
 }
 void WebView2Controller::navigate(std::wstring_view url) {
     if (!url.empty()) {

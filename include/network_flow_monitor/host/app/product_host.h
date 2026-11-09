@@ -131,6 +131,7 @@ class ProductHost : public platform::IWindowEventListener,
     void push_traffic_history_to_settings(bool force);
     void warm_executable_icons();
     void ensure_settings_window();
+    void create_settings_webview();
     void close_settings_window();
     void apply_settings_window_chrome();
     void broadcast_to_all_bridges(const std::function<void(bridge::INativeBridge&)>& fn);

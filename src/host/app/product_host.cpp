@@ -838,6 +838,101 @@ void ProductHost::apply_settings_window_chrome() {
     }
     settings_window_->configure_surface_chrome(true, dark_mode);
 }
+void ProductHost::create_settings_webview() {
+    if (!settings_window_ || settings_webview_) {
+        return;
+    }
+    settings_webview_ = std::make_shared<webview::WebView2Controller>();
+    settings_webview_->set_memory_target_low(!settings_surface_visible_);
+    settings_webview_->set_visible(settings_surface_visible_);
+    settings_webview_->set_diagnostic_callback(
+        [this](std::string_view diag) { write_diagnostic_log(config::LogLevel::Error, diag); });
+    settings_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
+        if (settings_webview_ && settings_webview_->is_ready()) {
+            settings_webview_->post_web_message_json(json);
+        }
+    });
+    settings_webview_->set_message_callback([this](std::string_view json) {
+        if (window_ != nullptr) {
+            std::string msg(json);
+            window_->post_ui_task([this, m = std::move(msg)]() noexcept {
+                try {
+                    if (!is_shutting_down_ && bridge_dispatcher_) {
+                        bridge::BridgeErrorDto err;
+                        bridge::CommandResponseDto resp;
+                        if (!bridge_dispatcher_->dispatch_web_message(m, &err, &resp)) {
+                            if (settings_bridge_) {
+                                settings_bridge_->post_error(err);
+                            }
+                        } else if (!resp.command_id.empty() && settings_bridge_) {
+                            settings_bridge_->post_command_response(resp);
+                        }
+                    }
+                } catch (...) {
+                }
+            });
+        }
+    });
+    settings_webview_->set_navigation_callback([this](bool /*is_success*/, int /*http_status*/) {
+        if (window_ != nullptr) {
+            window_->post_ui_task([this]() noexcept {
+                try {
+                    if (settings_window_ && settings_bridge_) {
+                        if (settings_surface_visible_) {
+                            if (settings_webview_) {
+                                settings_webview_->set_memory_target_low(false);
+                                settings_webview_->set_visible(true);
+                            }
+                        }
+                        settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
+                            .surface = bridge::SurfaceKind::Settings,
+                            .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
+                            .dock_side = coordinator_ ? coordinator_->state().anchor_side
+                                                      : config::DockSide::Right,
+                            .auto_hidden = false,
+                            .route = settings_active_route_,
+                        });
+                        settings_bridge_->post_config_changed(current_config_);
+                        if (latest_collector_status_.has_value()) {
+                            settings_bridge_->post_collector_status(*latest_collector_status_);
+                        }
+                        if (app_updater_) {
+                            settings_bridge_->post_update_status(app_updater_->status());
+                        }
+                        if (collector_companion_) {
+                            settings_bridge_->post_connected_applications(
+                                collector_companion_->connected_applications());
+                        }
+                        if (traffic_history_store_) {
+                            settings_bridge_->post_traffic_history(
+                                traffic_history_store_->export_dto(
+                                    current_config_.ranking.excluded_programs));
+                        }
+                        if (settings_surface_visible_) {
+                            settings_window_->show(SW_SHOW);
+                            SetForegroundWindow(settings_window_->hwnd());
+                        } else if (settings_webview_) {
+                            settings_webview_->set_memory_target_low(true);
+                            settings_webview_->set_visible(false);
+                        }
+                    }
+                } catch (...) {
+                }
+            });
+        }
+    });
+    if (!settings_webview_->initialize(settings_window_->hwnd(), options_.static_assets_dir)) {
+        write_diagnostic_log(config::LogLevel::Error,
+                             "Failed to initialize the settings WebView2 controller");
+        settings_webview_.reset();
+        settings_bridge_.reset();
+        return;
+    }
+    if (!options_.dev_server_url.empty()) {
+        settings_webview_->navigate(options_.dev_server_url);
+    }
+}
+
 void ProductHost::ensure_settings_window() {
     const auto* monitor = coordinator_ ? coordinator_->active_monitor() : nullptr;
     const double scale = monitor != nullptr ? monitor->dpi_scale() : 1.0;
@@ -926,92 +1021,13 @@ void ProductHost::ensure_settings_window() {
         }
         settings_window_->set_taskbar_visibility(true);
         apply_settings_window_chrome();
-        settings_webview_ = std::make_shared<webview::WebView2Controller>();
-        settings_webview_->set_memory_target_low(!settings_surface_visible_);
-        settings_webview_->set_visible(settings_surface_visible_);
-        settings_webview_->set_diagnostic_callback(
-            [this](std::string_view diag) { write_diagnostic_log(config::LogLevel::Error, diag); });
-        settings_bridge_ = std::make_shared<bridge::NativeBridge>([this](std::string_view json) {
-            if (settings_webview_ && settings_webview_->is_ready()) {
-                settings_webview_->post_web_message_json(json);
-            }
-        });
-        settings_webview_->set_message_callback([this](std::string_view json) {
-            if (window_ != nullptr) {
-                std::string msg(json);
-                window_->post_ui_task([this, m = std::move(msg)]() noexcept {
-                    try {
-                        if (!is_shutting_down_ && bridge_dispatcher_) {
-                            bridge::BridgeErrorDto err;
-                            bridge::CommandResponseDto resp;
-                            if (!bridge_dispatcher_->dispatch_web_message(m, &err, &resp)) {
-                                if (settings_bridge_) {
-                                    settings_bridge_->post_error(err);
-                                }
-                            } else if (!resp.command_id.empty() && settings_bridge_) {
-                                settings_bridge_->post_command_response(resp);
-                            }
-                        }
-                    } catch (...) {
-                    }
-                });
-            }
-        });
-        settings_webview_->set_navigation_callback([this](bool /*is_success*/,
-                                                          int /*http_status*/) {
-            if (window_ != nullptr) {
-                window_->post_ui_task([this]() noexcept {
-                    try {
-                        if (settings_window_ && settings_bridge_) {
-                            if (settings_surface_visible_) {
-                                if (settings_webview_) {
-                                    settings_webview_->set_memory_target_low(false);
-                                    settings_webview_->set_visible(true);
-                                }
-                            }
-                            settings_bridge_->post_surface_changed(bridge::SurfaceChangedDto{
-                                .surface = bridge::SurfaceKind::Settings,
-                                .pinned = coordinator_ ? coordinator_->state().is_pinned : false,
-                                .dock_side = coordinator_ ? coordinator_->state().anchor_side
-                                                          : config::DockSide::Right,
-                                .auto_hidden = false,
-                                .route = settings_active_route_,
-                            });
-                            settings_bridge_->post_config_changed(current_config_);
-                            if (latest_collector_status_.has_value()) {
-                                settings_bridge_->post_collector_status(*latest_collector_status_);
-                            }
-                            if (app_updater_) {
-                                settings_bridge_->post_update_status(app_updater_->status());
-                            }
-                            if (collector_companion_) {
-                                settings_bridge_->post_connected_applications(
-                                    collector_companion_->connected_applications());
-                            }
-                            if (traffic_history_store_) {
-                                settings_bridge_->post_traffic_history(
-                                    traffic_history_store_->export_dto(
-                                        current_config_.ranking.excluded_programs));
-                            }
-                            if (settings_surface_visible_) {
-                                settings_window_->show(SW_SHOW);
-                                SetForegroundWindow(settings_window_->hwnd());
-                            } else if (settings_webview_) {
-                                settings_webview_->set_memory_target_low(true);
-                                settings_webview_->set_visible(false);
-                            }
-                        }
-                    } catch (...) {
-                    }
-                });
-            }
-        });
-        static_cast<void>(
-            settings_webview_->initialize(settings_window_->hwnd(), options_.static_assets_dir));
-        if (!options_.dev_server_url.empty()) {
-            settings_webview_->navigate(options_.dev_server_url);
-        }
-    } else if (settings_surface_visible_) {
+    }
+    if (!settings_webview_) {
+        // The settings renderer is torn down when the window closes, so recreate it on demand.
+        create_settings_webview();
+        return;
+    }
+    if (settings_surface_visible_) {
         apply_settings_window_chrome();
         RECT rc{};
         if (GetWindowRect(settings_window_->hwnd(), &rc) == FALSE ||
@@ -1060,8 +1076,11 @@ void ProductHost::ensure_settings_window() {
 void ProductHost::close_settings_window() {
     settings_surface_visible_ = false;
     if (settings_webview_) {
-        settings_webview_->set_memory_target_low(true);
-        settings_webview_->set_visible(false);
+        // Destroy the controller so the settings renderer process is released while closed;
+        // it is recreated on the next open. A suspended renderer still holds tens of MB of
+        // private commit, so suspension alone does not reclaim the process.
+        settings_webview_.reset();
+        settings_bridge_.reset();
     }
     if (settings_window_) {
         settings_window_->hide();

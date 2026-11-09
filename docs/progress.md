@@ -577,3 +577,19 @@ Product Host and frontend implementation remain Ticket 01 work.
 - **实机验证（125% DPI，`PrintWindow` 抓图）**：
   - 默认 6 项全开：第 2 列 `CPU:` 冒号止于 `x=111`、`RAM:` 止于 `x=113`，两行标签墨迹高度均为 11px；`W` 墨迹止于 `x=149`，列右边界 `x=151`，2px 余量不再溢出；
   - 关闭 `CPU 功耗` 让 `RAM:` 与 `GPU:` 配对：三列 `%` 墨迹分别止于 `x=70 / 147 / 224`，列内偏移一致（各列左边界 `2 / 79 / 155`），证明标签槽不随配对变化。
+
+## 第四十四轮 WebView2 内存占用来回收敛（浏览器参数、内存目标级别、设置渲染进程回收） — complete
+
+- **问题定位（`mem NetworkFlowMonitor` 实测 539 MB WS / 282 MB Commit）**：
+  - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 在宿主以高完整性级别运行时会被 WebView2 忽略，因此 `--js-flags=--lite-mode`、`--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling` 从未真正进入浏览器进程；实测浏览器命令行只有 WebView2 自身参数。
+  - `WebView2Controller::set_memory_target_low` 忽略入参，只做 `TrySuspend`，架构文档承诺的 `COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW` 实际从未生效。
+  - 设置窗口关闭后仅 `put_IsVisible(FALSE)` + `TrySuspend`，渲染进程仍存活；实测关闭后该渲染进程 WS 降至 7 MB，但私有提交仍约 50 MB，进程槽位常驻。
+- **改造实现 (`webview_controller.cpp`)**：
+  - 浏览器参数改由 `ICoreWebView2EnvironmentOptions::AdditionalBrowserArguments` 传入（`Make<CoreWebView2EnvironmentOptions>()`），高权限与标准权限宿主都会生效；参数收敛为 `--disable-features=CalculateNativeWinOcclusion,SpareRendererForSitePerProcess --js-flags=--lite-mode`，移除与节能相悖的 `--disable-background-timer-throttling` 与 `IntensiveWakeUpThrottling` 禁用项。
+  - 通过 `ICoreWebView2_19::put_MemoryUsageTargetLevel` 实现真实的 `NORMAL`/`LOW` 切换，并在 `reset_controller()` 重建后按 `desired_low_memory_` 重新应用。
+- **设置渲染进程按需回收 (`product_host.cpp`, `product_host.h`)**：抽出 `create_settings_webview()`；`close_settings_window()` 关闭时直接 `reset()` 控制器与 bridge，释放设置渲染进程，下次打开设置时重建控制器并重新导航，首次启动仍保留预热的“零等待”打开路径。
+- **实机 A/B（本机 125% DPI，启动后 60 s 稳定态，同机同数据目录）**：
+  - 无参数：总 WS 429.6 MB / 私有 213.7 MB，主渲染进程 84.7 MB / 40.5 MB；
+  - 最终参数：总 WS 421.2 MB / 私有 208.5 MB，主渲染进程 74.4 MB / 35.6 MB（`--lite-mode` 生效后渲染进程下降约 10 MB WS / 5 MB 私有）；
+  - 仅用于评估的 `--disable-gpu`：391.0 MB / 153.7 MB（GPU 进程 38.8 MB / 13.2 MB），`--enable-low-end-device-mode`：401.8 MB，两者均未采纳为默认。
+  - 设置窗口关闭后渲染进程数由 2 → 1，重新打开后 2，验证控制器销毁与重建路径可用。

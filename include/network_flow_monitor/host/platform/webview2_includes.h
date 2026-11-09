@@ -12,9 +12,6 @@
 #include <windows.h>
 #include <unknwn.h>
 #include <WebView2.h>
-#ifndef __clang__
-#include <WebView2EnvironmentOptions.h>
-#endif
 // clang-format on
 
 #endif // NETWORK_FLOW_MONITOR_HOST_PLATFORM_WEBVIEW2_INCLUDES_H

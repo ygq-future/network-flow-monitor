@@ -1,12 +1,30 @@
+#include "test_headless_runtime.h"
+
 #include <windows.h>
 
 #include <array>
 #include <crtdbg.h>
+#include <cstdio>
 #include <cstdlib>
+#include <cwchar>
 #include <iostream>
 #include <string_view>
 
 namespace {
+
+HDESK& headless_desktop_slot() noexcept {
+    static HDESK desktop = nullptr;
+    return desktop;
+}
+
+HDESK create_headless_desktop() noexcept {
+    std::array<wchar_t, 64> name{};
+    if (std::swprintf(name.data(), name.size(), L"NFM_Headless_Test_Desktop_%lu",
+                      static_cast<unsigned long>(GetCurrentProcessId())) < 0) {
+        return nullptr;
+    }
+    return CreateDesktopW(name.data(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+}
 
 int HeadlessCrtReportHook(int /*report_type*/, char* message, int* return_value) noexcept {
     if (message != nullptr) {
@@ -26,8 +44,7 @@ struct HeadlessTestRuntimeInitializer {
 
     HeadlessTestRuntimeInitializer() noexcept
         : original_desktop_(GetThreadDesktop(GetCurrentThreadId())),
-          headless_desktop_(CreateDesktopW(L"NFM_Headless_Test_Desktop", nullptr, nullptr, 0,
-                                           GENERIC_ALL, nullptr)) {
+          headless_desktop_(create_headless_desktop()) {
         static_cast<void>(SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS |
                                        SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX));
         static_cast<void>(_set_abort_behavior(0U, _WRITE_ABORT_MSG | _CALL_REPORTFAULT));
@@ -40,8 +57,22 @@ struct HeadlessTestRuntimeInitializer {
         static_cast<void>(_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE));
         static_cast<void>(_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR));
 #endif
-        if (headless_desktop_ != nullptr) {
-            static_cast<void>(SetThreadDesktop(headless_desktop_));
+        if (headless_desktop_ == nullptr) {
+            static_cast<void>(std::fprintf(
+                stderr,
+                "Failed to create the headless test desktop (error %lu); refusing to run tests "
+                "on the interactive desktop\n",
+                static_cast<unsigned long>(GetLastError())));
+            std::_Exit(2);
+        }
+        headless_desktop_slot() = headless_desktop_;
+        if (SetThreadDesktop(headless_desktop_) == FALSE) {
+            static_cast<void>(std::fprintf(
+                stderr,
+                "Failed to bind the test thread to the headless desktop (error %lu); refusing to "
+                "run tests on the interactive desktop\n",
+                static_cast<unsigned long>(GetLastError())));
+            std::_Exit(2);
         }
     }
 
@@ -51,6 +82,7 @@ struct HeadlessTestRuntimeInitializer {
     HeadlessTestRuntimeInitializer& operator=(HeadlessTestRuntimeInitializer&&) = delete;
 
     ~HeadlessTestRuntimeInitializer() {
+        headless_desktop_slot() = nullptr;
         if (original_desktop_ != nullptr) {
             static_cast<void>(SetThreadDesktop(original_desktop_));
         }
@@ -63,6 +95,40 @@ struct HeadlessTestRuntimeInitializer {
 const HeadlessTestRuntimeInitializer kHeadlessTestRuntimeInitializer{};
 
 } // namespace
+
+HDESK headless_test_desktop() noexcept {
+    return headless_desktop_slot();
+}
+
+bool is_on_headless_test_desktop() noexcept {
+    HDESK expected = headless_desktop_slot();
+    HDESK current = GetThreadDesktop(GetCurrentThreadId());
+    if (expected == nullptr || current == nullptr) {
+        return false;
+    }
+    std::array<wchar_t, 64> expected_name{};
+    std::array<wchar_t, 64> current_name{};
+    DWORD needed = 0;
+    if (GetUserObjectInformationW(expected, UOI_NAME, expected_name.data(),
+                                  static_cast<DWORD>(expected_name.size() * sizeof(wchar_t)),
+                                  &needed) == FALSE) {
+        return false;
+    }
+    if (GetUserObjectInformationW(current, UOI_NAME, current_name.data(),
+                                  static_cast<DWORD>(current_name.size() * sizeof(wchar_t)),
+                                  &needed) == FALSE) {
+        return false;
+    }
+    return std::wcscmp(expected_name.data(), current_name.data()) == 0;
+}
+
+bool enter_headless_test_desktop() noexcept {
+    HDESK desktop = headless_desktop_slot();
+    if (desktop == nullptr || SetThreadDesktop(desktop) == FALSE) {
+        return false;
+    }
+    return is_on_headless_test_desktop();
+}
 
 // NOLINTBEGIN(readability-identifier-naming)
 int nfm_suite_app_runtime_tests();

@@ -12,6 +12,7 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 
+#include "test_headless_runtime.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -1299,11 +1300,56 @@ void CheckContextMenuExposesTaskbarMonitorSwitch(TestContext& context) {
                   "menu offers showing the taskbar monitor while it is hidden");
     context.Check(listener.opened(), "context menu open notification reaches the listener");
 }
+
+struct DesktopIsolationProbe {
+    HANDLE done{nullptr};
+    bool on_headless_desktop{false};
+    bool window_created{false};
+};
+
+DWORD WINAPI DesktopIsolationThread(LPVOID param) {
+    auto* probe = static_cast<DesktopIsolationProbe*>(param);
+    probe->on_headless_desktop = enter_headless_test_desktop();
+    if (probe->on_headless_desktop) {
+        HWND hwnd = CreateWindowExW(0, L"Static", L"NFM_HeadlessDesktopProbe", WS_POPUP, 0, 0, 1, 1,
+                                    nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        probe->window_created = hwnd != nullptr;
+        if (hwnd != nullptr) {
+            DestroyWindow(hwnd);
+        }
+    }
+    SetEvent(probe->done);
+    return 0;
+}
+
+void CheckHeadlessDesktopIsolation(TestContext& context) {
+    context.Check(headless_test_desktop() != nullptr, "headless test desktop exists");
+    context.Check(is_on_headless_test_desktop(), "test runner thread runs on the headless desktop");
+
+    DesktopIsolationProbe probe{.done = CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    if (probe.done == nullptr) {
+        context.Check(false, "desktop isolation probe event creates");
+        return;
+    }
+    HANDLE thread = CreateThread(nullptr, 0, DesktopIsolationThread, &probe, 0, nullptr);
+    context.Check(thread != nullptr, "desktop isolation probe thread starts");
+    if (thread != nullptr) {
+        context.Check(WaitForSingleObject(probe.done, 3000) == WAIT_OBJECT_0,
+                      "desktop isolation probe thread completes");
+        static_cast<void>(WaitForSingleObject(thread, 1000));
+        CloseHandle(thread);
+    }
+    CloseHandle(probe.done);
+    context.Check(probe.on_headless_desktop,
+                  "worker thread joins the headless desktop before creating windows");
+    context.Check(probe.window_created, "worker thread creates a window on the headless desktop");
+}
 } // namespace
 
 int Run() {
     TestContext context;
     CheckCollectorCompanionInjections(context);
+    CheckHeadlessDesktopIsolation(context);
     CheckWindowPresentationRecovery(context);
     CheckTickElapsedConversion(context);
     CheckCollapseFinishedDoesNotSuppressSurfacePublish(context);
@@ -2704,6 +2750,7 @@ struct MenuDismissProbe {
     HANDLE menu_tracking{nullptr};
     HANDLE done{nullptr};
     nfm::host::platform::TaskbarSpeedWindow* overlay{nullptr};
+    bool desktop_ready{false};
     bool returned{false};
     bool menu_gone{false};
     int left_clicks{0};
@@ -2712,6 +2759,13 @@ struct MenuDismissProbe {
 DWORD WINAPI MenuDismissThread(LPVOID param) {
     using namespace nfm::host::platform;
     auto* probe = static_cast<MenuDismissProbe*>(param);
+    if (!enter_headless_test_desktop()) {
+        SetEvent(probe->ready);
+        SetEvent(probe->menu_tracking);
+        SetEvent(probe->done);
+        return 0;
+    }
+    probe->desktop_ready = true;
     HINSTANCE hinst = GetModuleHandleW(nullptr);
     EnsureTaskbarTestClassesRegistered(hinst);
     HWND fake_taskbar =
@@ -2789,6 +2843,7 @@ void TestOverlayPressDismissesOpenMenu(TestContext& ctx) {
         thread != nullptr && WaitForSingleObject(probe.ready, 3000) == WAIT_OBJECT_0 &&
         probe.overlay != nullptr && WaitForSingleObject(probe.menu_tracking, 3000) == WAIT_OBJECT_0;
     ctx.Check(started, "overlay context menu starts tracking on right click");
+    ctx.Check(probe.desktop_ready, "menu dismiss thread runs on the headless desktop");
     if (started) {
         // Give the menu time to create and show its popup window before pressing the overlay.
         Sleep(150);

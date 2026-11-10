@@ -2641,6 +2641,179 @@ void TestMasterSwitchGatesOverlay(TestContext& ctx) {
     DestroyWindow(fake_taskbar);
 }
 
+void TestContextMenuClickPairing(TestContext& ctx) {
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+
+    HWND fake_taskbar =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40, nullptr,
+                        nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar != nullptr, "synthetic taskbar for menu click test created");
+    if (fake_taskbar == nullptr) {
+        return;
+    }
+    HWND notify_hwnd = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700, 0,
+                                       220, 40, fake_taskbar, nullptr, hinst, nullptr);
+
+    int left_clicks = 0;
+    int right_clicks = 0;
+    TaskbarSpeedWindow speed_wnd;
+    ctx.Check(speed_wnd.create([&left_clicks]() { ++left_clicks; },
+                               [&right_clicks](int, int) { ++right_clicks; }),
+              "TaskbarSpeedWindow creates for menu click test");
+    speed_wnd.set_target_taskbar_for_testing(fake_taskbar);
+    speed_wnd.set_enabled(true);
+    HWND overlay = speed_wnd.hwnd();
+
+    SendMessageW(overlay, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+    SendMessageW(overlay, WM_LBUTTONUP, 0, 0);
+    ctx.Check(left_clicks == 1, "paired left click toggles the monitor once");
+
+    SendMessageW(overlay, WM_LBUTTONUP, 0, 0);
+    ctx.Check(left_clicks == 1, "release without a preceding press is ignored");
+
+    // The press that dismisses an open menu is swallowed by the overlay; the matching release
+    // still arrives afterwards and must not toggle the monitor panel.
+    speed_wnd.set_context_menu_open(true);
+    SendMessageW(overlay, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+    SendMessageW(overlay, WM_LBUTTONUP, 0, 0);
+    ctx.Check(left_clicks == 1, "left click while the context menu is open is ignored");
+    SendMessageW(overlay, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+    SendMessageW(overlay, WM_RBUTTONUP, 0, 0);
+    ctx.Check(right_clicks == 0, "right click while the context menu is open does not reopen it");
+    speed_wnd.set_context_menu_open(false);
+    SendMessageW(overlay, WM_LBUTTONUP, 0, 0);
+    ctx.Check(left_clicks == 1, "release after the menu closed does not toggle the monitor");
+
+    SendMessageW(overlay, WM_RBUTTONDOWN, MK_RBUTTON, 0);
+    SendMessageW(overlay, WM_RBUTTONUP, 0, 0);
+    ctx.Check(right_clicks == 1, "paired right click opens the context menu once");
+
+    speed_wnd.close();
+    if (notify_hwnd != nullptr) {
+        DestroyWindow(notify_hwnd);
+    }
+    DestroyWindow(fake_taskbar);
+}
+
+struct MenuDismissProbe {
+    HANDLE ready{nullptr};
+    HANDLE menu_tracking{nullptr};
+    HANDLE done{nullptr};
+    nfm::host::platform::TaskbarSpeedWindow* overlay{nullptr};
+    bool returned{false};
+    bool menu_gone{false};
+    int left_clicks{0};
+};
+
+DWORD WINAPI MenuDismissThread(LPVOID param) {
+    using namespace nfm::host::platform;
+    auto* probe = static_cast<MenuDismissProbe*>(param);
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+    HWND fake_taskbar =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40, nullptr,
+                        nullptr, hinst, nullptr);
+    WindowConfig config{
+        .title = L"NFM Menu Dismiss Main",
+        .class_name = L"NFM_MenuDismissMainWindow",
+        .initial_x = 100,
+        .initial_y = 100,
+        .initial_width = 340,
+        .initial_height = 64,
+        .frameless = true,
+        .topmost = true,
+        .tool_window = true,
+        .transparent_backdrop = false,
+    };
+    Win32Window main_window(config);
+    TaskbarSpeedWindow overlay;
+    if (fake_taskbar == nullptr || !main_window.create(nullptr) || main_window.hwnd() == nullptr ||
+        !overlay.create([probe] { ++probe->left_clicks; },
+                        [probe, &main_window](int x, int y) {
+                            probe->overlay->set_context_menu_open(true);
+                            HMENU menu = CreatePopupMenu();
+                            AppendMenuW(menu, MF_STRING, 1, L"Probe");
+                            SetEvent(probe->menu_tracking);
+                            TrackPopupMenu(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, x,
+                                           y, 0, main_window.hwnd(), nullptr);
+                            DestroyMenu(menu);
+                            probe->menu_gone = FindWindowW(L"#32768", nullptr) == nullptr;
+                            probe->overlay->set_context_menu_open(false);
+                            probe->returned = true;
+                            SetEvent(probe->done);
+                        })) {
+        SetEvent(probe->ready);
+        SetEvent(probe->menu_tracking);
+        SetEvent(probe->done);
+        return 0;
+    }
+    probe->overlay = &overlay;
+    overlay.set_target_taskbar_for_testing(fake_taskbar);
+    overlay.set_enabled(true);
+    SetEvent(probe->ready);
+    PostMessageW(overlay.hwnd(), WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(8, 8));
+    PostMessageW(overlay.hwnd(), WM_RBUTTONUP, 0, MAKELPARAM(8, 8));
+    MSG msg{};
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return 0;
+}
+
+void TestOverlayPressDismissesOpenMenu(TestContext& ctx) {
+    MenuDismissProbe probe;
+    probe.ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    probe.menu_tracking = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    probe.done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (probe.ready == nullptr || probe.menu_tracking == nullptr || probe.done == nullptr) {
+        ctx.Check(false, "menu dismiss probe events create");
+        if (probe.ready != nullptr) {
+            CloseHandle(probe.ready);
+        }
+        if (probe.menu_tracking != nullptr) {
+            CloseHandle(probe.menu_tracking);
+        }
+        if (probe.done != nullptr) {
+            CloseHandle(probe.done);
+        }
+        return;
+    }
+    HANDLE thread = CreateThread(nullptr, 0, MenuDismissThread, &probe, 0, nullptr);
+    const bool started =
+        thread != nullptr && WaitForSingleObject(probe.ready, 3000) == WAIT_OBJECT_0 &&
+        probe.overlay != nullptr && WaitForSingleObject(probe.menu_tracking, 3000) == WAIT_OBJECT_0;
+    ctx.Check(started, "overlay context menu starts tracking on right click");
+    if (started) {
+        // Give the menu time to create and show its popup window before pressing the overlay.
+        Sleep(150);
+        HWND overlay_hwnd = probe.overlay->hwnd();
+        SendMessageW(overlay_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4));
+        SendMessageW(overlay_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(4, 4));
+    }
+    const DWORD wait = WaitForSingleObject(probe.done, 2000);
+    ctx.Check(wait == WAIT_OBJECT_0 && probe.returned,
+              "pressing the overlay dismisses the open context menu");
+    ctx.Check(probe.menu_gone, "context menu window is gone after the overlay press");
+    ctx.Check(probe.left_clicks == 0, "the dismissing press does not toggle the monitor panel");
+    const DWORD thread_id = (thread != nullptr) ? GetThreadId(thread) : 0;
+    if (thread_id != 0) {
+        PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
+        static_cast<void>(WaitForSingleObject(thread, 1000));
+    }
+    if (thread != nullptr) {
+        CloseHandle(thread);
+    }
+    CloseHandle(probe.ready);
+    CloseHandle(probe.menu_tracking);
+    CloseHandle(probe.done);
+}
+
 } // namespace
 
 int Run() {
@@ -2651,6 +2824,8 @@ int Run() {
     TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(ctx);
     TestTooltipRequiresPointerDwell(ctx);
     TestMasterSwitchGatesOverlay(ctx);
+    TestContextMenuClickPairing(ctx);
+    TestOverlayPressDismissesOpenMenu(ctx);
     return ctx.failures();
 }
 } // namespace taskbar_speed_window_suite

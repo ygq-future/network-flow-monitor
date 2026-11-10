@@ -6,6 +6,7 @@
 #include <cwchar>
 #include <dwmapi.h>
 #include <string_view>
+#include <windowsx.h>
 
 namespace nfm::host::platform {
 
@@ -35,6 +36,26 @@ constexpr DWORD kDwmwaSystemBackdropType = DWMWA_SYSTEMBACKDROP_TYPE;
 #endif
 constexpr int kDwmwcpRoundSmall = 3;
 constexpr int kDwmsbtDisable = 1;
+constexpr std::uint64_t kSuppressedClickWindowMs = 500;
+
+// Consumes a one-shot suppression flag if it is still fresh.
+[[nodiscard]] bool consume_suppressed_click(std::uint64_t& deadline) noexcept {
+    if (deadline == 0) {
+        return false;
+    }
+    if (GetTickCount64() > deadline) {
+        deadline = 0;
+        return false;
+    }
+    deadline = 0;
+    return true;
+}
+
+// Anchors the overlay menu at the click that requested it. WM_CONTEXTMENU already carries screen
+// coordinates, while WM_RBUTTONUP carries client coordinates that the caller converts.
+[[nodiscard]] POINT point_from_lparam(LPARAM lparam) noexcept {
+    return POINT{.x = GET_X_LPARAM(lparam), .y = GET_Y_LPARAM(lparam)};
+}
 [[nodiscard]] bool is_windows_11_or_greater() noexcept {
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
@@ -636,6 +657,27 @@ void TaskbarSpeedWindow::close() noexcept {
     attached_parent_hwnd_ = nullptr;
     visible_ = false;
     mouse_tracking_ = false;
+}
+
+void TaskbarSpeedWindow::set_context_menu_open(bool open) noexcept {
+    context_menu_open_ = open;
+    if (open) {
+        left_button_down_ = false;
+        right_button_down_ = false;
+        suppress_left_click_until_ = 0;
+        suppress_right_click_until_ = 0;
+        return;
+    }
+    // A popup menu dismissed by an outside click ends on that press, and the same press is then
+    // delivered to this overlay. Swallow the pending press so dismissing the menu never toggles
+    // the monitor panel or reopens the menu.
+    const std::uint64_t deadline = GetTickCount64() + kSuppressedClickWindowMs;
+    if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) {
+        suppress_left_click_until_ = deadline;
+    }
+    if ((GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0) {
+        suppress_right_click_until_ = deadline;
+    }
 }
 
 void TaskbarSpeedWindow::set_enabled(bool enabled) {
@@ -1456,7 +1498,15 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     case WM_MOUSELEAVE: {
         self->mouse_tracking_ = false;
         POINT pt{};
-        if (GetCursorPos(&pt) != FALSE && self->contains_screen_point(pt)) {
+        HWND under = nullptr;
+        if (GetCursorPos(&pt) != FALSE) {
+            under = WindowFromPoint(pt);
+        }
+        // Re-arm only for a spurious leave caused by the overlay being repositioned under a
+        // stationary cursor. A popup menu keeps the cursor inside the overlay rect while the
+        // window is no longer under it; re-arming then posts WM_MOUSELEAVE again immediately and
+        // spins the UI thread, so leaves during an open menu are always treated as real.
+        if (!self->context_menu_open_ && under == hwnd) {
             TRACKMOUSEEVENT tme{};
             tme.cbSize = sizeof(TRACKMOUSEEVENT);
             tme.dwFlags = TME_LEAVE;
@@ -1479,8 +1529,33 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK:
         self->cancel_tooltip_hover_timer();
+        // A background popup menu cannot capture clicks outside its own window, so presses on the
+        // overlay reach this window instead of the menu; end the menu here and swallow the press.
+        if (self->context_menu_open_) {
+            EndMenu();
+            return 0;
+        }
+        if (consume_suppressed_click(self->suppress_left_click_until_)) {
+            return 0;
+        }
+        self->left_button_down_ = true;
+        return 0;
+    case WM_MBUTTONDOWN:
+        if (self->context_menu_open_) {
+            EndMenu();
+        }
         return 0;
     case WM_LBUTTONUP: {
+        const bool had_press = self->left_button_down_;
+        self->left_button_down_ = false;
+        if (consume_suppressed_click(self->suppress_left_click_until_)) {
+            return 0;
+        }
+        // The press that dismissed the menu was swallowed above; its release must not toggle the
+        // monitor panel.
+        if (self->context_menu_open_ || !had_press) {
+            return 0;
+        }
         if (self->on_left_click_) {
             self->on_left_click_();
         }
@@ -1490,11 +1565,45 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
         }
         return 0;
     }
-    case WM_RBUTTONUP:
-    case WM_CONTEXTMENU: {
+    case WM_RBUTTONDOWN:
+        if (self->context_menu_open_) {
+            EndMenu();
+            return 0;
+        }
+        if (consume_suppressed_click(self->suppress_right_click_until_)) {
+            return 0;
+        }
+        self->right_button_down_ = true;
+        return 0;
+    case WM_RBUTTONUP: {
+        const bool had_press = self->right_button_down_;
+        self->right_button_down_ = false;
+        if (consume_suppressed_click(self->suppress_right_click_until_)) {
+            return 0;
+        }
+        if (self->context_menu_open_ || !had_press) {
+            return 0;
+        }
         self->hide_tooltip();
-        POINT pt{};
-        if (GetCursorPos(&pt) != FALSE && self->on_right_click_) {
+        POINT pt = point_from_lparam(lparam);
+        ClientToScreen(hwnd, &pt);
+        if (self->on_right_click_) {
+            self->on_right_click_(pt.x, pt.y);
+        }
+        return 0;
+    }
+    case WM_CONTEXTMENU: {
+        const bool had_press = self->right_button_down_;
+        self->right_button_down_ = false;
+        if (self->context_menu_open_ || !had_press) {
+            return 0;
+        }
+        self->hide_tooltip();
+        POINT pt = point_from_lparam(lparam);
+        if (pt.x == -1 && pt.y == -1) {
+            GetCursorPos(&pt);
+        }
+        if (self->on_right_click_) {
             self->on_right_click_(pt.x, pt.y);
         }
         return 0;

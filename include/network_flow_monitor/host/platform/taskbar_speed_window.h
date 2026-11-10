@@ -110,6 +110,9 @@ class TaskbarSpeedWindow {
     void update_telemetry(const SystemTelemetrySnapshot& telemetry);
     void sync_with_taskbar();
     void set_target_taskbar_for_testing(HWND taskbar_hwnd) noexcept;
+    // While a native popup menu is open, clicks on the overlay only dismiss that menu; they must
+    // not toggle the monitor panel or open a second menu.
+    void set_context_menu_open(bool open) noexcept;
 
     [[nodiscard]] HWND hwnd() const noexcept {
         return hwnd_;
@@ -171,6 +174,11 @@ class TaskbarSpeedWindow {
     bool mouse_tracking_{false};
     bool tooltip_visible_{false};
     bool tooltip_hover_timer_active_{false};
+    bool context_menu_open_{false};
+    bool left_button_down_{false};
+    bool right_button_down_{false};
+    std::uint64_t suppress_left_click_until_{0};
+    std::uint64_t suppress_right_click_until_{0};
     config::DisplayConfig display_config_{};
     config::ThemeMode theme_mode_{config::ThemeMode::System};
     config::LanguageMode language_mode_{config::LanguageMode::System};

@@ -622,3 +622,21 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 浮层侧：`TestMasterSwitchGatesOverlay` 验证主开关关闭时即使有监控项也不渲染、重新打开后恢复、无监控项时保持隐藏；
   - 菜单侧：`CheckContextMenuExposesTaskbarMonitorSwitch` 通过 `MN_GETHMENU` 抓取真实 `#32768` 弹出菜单内容，断言中英文标签随状态翻转且 `on_context_menu_opened` 正常回调。
 - **质量门禁**：`tools/quality.ps1 -Mode Fast` 13/13 通过（C++ Debug 0 警告）。
+
+## 第四十七轮 任务栏监控右键菜单点击菜单外立即关闭 — complete
+
+- **问题定位**：
+  - `TrackPopupMenu` 的 owner 不是前台窗口时（托盘态主窗口隐藏，`SetForegroundWindow` 无法把隐藏窗口带到前台），菜单不会因点击菜单外而自行关闭；任务栏监控浮层是 `WS_EX_NOACTIVATE`，点击它不切换前台，后台菜单的鼠标捕获又只覆盖菜单自身可见区域，因此点击浮层的消息实际投递到浮层窗口，菜单既看不到该点击也不会关闭。
+  - 浮层的 `WM_MOUSELEAVE` 处理只用"光标是否仍在浮层屏幕矩形内"判断是否需要重挂 `TrackMouseEvent`。菜单盖住光标时，光标在矩形内但已不在浮层窗口上，重挂后系统立即再发 `WM_MOUSELEAVE`，形成每毫秒上百条的自激循环，占满 UI 线程 —— 这就是"菜单打开后数值冻结、鼠标移出浮层才恢复"的根因。
+  - 菜单在外部按下时结束，这次按下随后才投递到浮层（此时菜单状态已关闭），旧逻辑会把它当成普通点击，导致"关闭菜单的同时展开监控面板"。
+- **菜单关闭语义 (`taskbar_speed_window.h`, `taskbar_speed_window.cpp`)**：
+  - Host 在 `on_context_menu_opened/closed` 中通过 `set_context_menu_open()` 同步菜单状态；
+  - 菜单开启期间浮层的 `WM_LBUTTONDOWN` / `WM_LBUTTONDBLCLK` / `WM_MBUTTONDOWN` / `WM_RBUTTONDOWN` 直接 `EndMenu()` 并吞掉该次按下，不再依赖菜单是否前台；
+  - 菜单关闭时若左/右键仍处于物理按下状态（即当前点击正是关闭菜单的那一次），记录 500 ms 的一次性抑制窗口，浮层吞掉这次按下/抬起，避免误展开监控面板或立刻重开菜单；
+  - 左键/右键改为仅在成对 down→up 时生效，迟到的孤立抬起不会触发任何动作；
+  - 右键菜单坐标改由消息坐标给出（`WM_RBUTTONUP` 客户端坐标 `ClientToScreen`、`WM_CONTEXTMENU` 屏幕坐标，键盘调用回退 `GetCursorPos`）。
+- **悬浮状态自激循环 (`taskbar_speed_window.cpp`)**：`WM_MOUSELEAVE` 仅在"菜单未开启且 `WindowFromPoint(pt) == hwnd`"（光标确实在浮层窗口上，而非仅落在浮层矩形内）时才重挂 `TrackMouseEvent`，否则按真实离开处理并隐藏 Tooltip。
+- **测试 (`tests/host_tests.cpp`)**：
+  - 新增 `TestOverlayPressDismissesOpenMenu`：在「合成任务栏容器 + 隐藏主窗口 owner + 真实 `TrackPopupMenu`」拓扑下向浮层投递按下/抬起，断言 `TrackPopupMenu` 返回、菜单窗口消失且不触发浮层左键回调；
+  - 新增 `TestContextMenuClickPairing`：成对点击触发一次、无按下的孤立抬起被忽略、菜单开启期间左右键被忽略、菜单关闭后的孤立抬起不触发、右键成对打开菜单一次。
+- **质量门禁**：`tools/quality.ps1 -Mode Full` 通过。

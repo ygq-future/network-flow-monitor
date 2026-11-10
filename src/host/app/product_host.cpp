@@ -610,12 +610,18 @@ void ProductHost::on_context_menu_exit() {
 }
 
 void ProductHost::on_context_menu_opened() {
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->set_context_menu_open(true);
+    }
     if (coordinator_) {
         coordinator_->on_context_menu_opened();
     }
 }
 
 void ProductHost::on_context_menu_closed(bool cursor_inside) {
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->set_context_menu_open(false);
+    }
     if (coordinator_) {
         coordinator_->on_context_menu_closed(cursor_inside);
         apply_coordinator_state();

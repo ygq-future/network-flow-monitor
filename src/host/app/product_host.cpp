@@ -1019,7 +1019,6 @@ void ProductHost::ensure_settings_window() {
         apply_settings_window_chrome();
     }
     if (!settings_webview_) {
-        // The settings renderer is torn down when the window closes, so recreate it on demand.
         create_settings_webview();
         return;
     }
@@ -1072,11 +1071,8 @@ void ProductHost::ensure_settings_window() {
 void ProductHost::close_settings_window() {
     settings_surface_visible_ = false;
     if (settings_webview_) {
-        // Destroy the controller so the settings renderer process is released while closed;
-        // it is recreated on the next open. A suspended renderer still holds tens of MB of
-        // private commit, so suspension alone does not reclaim the process.
-        settings_webview_.reset();
-        settings_bridge_.reset();
+        settings_webview_->set_memory_target_low(true);
+        settings_webview_->set_visible(false);
     }
     if (settings_window_) {
         settings_window_->hide();

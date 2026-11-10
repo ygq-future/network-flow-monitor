@@ -4,6 +4,7 @@
 #include "network_flow_monitor/config/app_config.h"
 #include "network_flow_monitor/host/platform/system_telemetry_sampler.h"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -83,6 +84,9 @@ class TaskbarSpeedWindow {
     static constexpr int kColumnGapDip = 4;
     static constexpr int kDefaultOverlayHeightDip = 32;
     static constexpr int kHorizontalMarginDip = 2;
+    // Minimum pointer dwell time before the metrics tooltip is allowed to appear.
+    static constexpr std::chrono::milliseconds kTooltipHoverDelay{500};
+    static constexpr UINT_PTR kTooltipHoverTimerId = 1;
 
     TaskbarSpeedWindow();
     ~TaskbarSpeedWindow();
@@ -111,6 +115,12 @@ class TaskbarSpeedWindow {
         return hwnd_;
     }
     [[nodiscard]] bool contains_screen_point(POINT pt) const noexcept;
+    [[nodiscard]] bool is_tooltip_visible() const noexcept {
+        return tooltip_visible_;
+    }
+    [[nodiscard]] bool is_tooltip_hover_timer_active() const noexcept {
+        return tooltip_hover_timer_active_;
+    }
 
     [[nodiscard]] static TaskbarFormattedRate format_rate_parts(std::uint64_t bytes_per_sec,
                                                                 config::SpeedUnit unit_mode);
@@ -137,6 +147,9 @@ class TaskbarSpeedWindow {
     [[nodiscard]] bool resolve_tooltip_light_mode() const noexcept;
     [[nodiscard]] bool resolve_chinese_locale() const noexcept;
     void refresh_if_needed();
+    void start_tooltip_hover_timer();
+    void cancel_tooltip_hover_timer() noexcept;
+    void on_tooltip_hover_timer_fired();
     void show_or_update_tooltip();
     void hide_tooltip() noexcept;
     void sample_and_apply_taskbar_background_color(HWND taskbar_hwnd, const RECT& taskbar_rect,
@@ -157,6 +170,7 @@ class TaskbarSpeedWindow {
     bool visible_{false};
     bool mouse_tracking_{false};
     bool tooltip_visible_{false};
+    bool tooltip_hover_timer_active_{false};
     config::DisplayConfig display_config_{};
     config::ThemeMode theme_mode_{config::ThemeMode::System};
     config::LanguageMode language_mode_{config::LanguageMode::System};

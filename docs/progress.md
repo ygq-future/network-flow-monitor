@@ -593,3 +593,14 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 最终参数：总 WS 421.2 MB / 私有 208.5 MB，主渲染进程 74.4 MB / 35.6 MB（`--lite-mode` 生效后渲染进程下降约 10 MB WS / 5 MB 私有）；
   - 仅用于评估的 `--disable-gpu`：391.0 MB / 153.7 MB（GPU 进程 38.8 MB / 13.2 MB），`--enable-low-end-device-mode`：401.8 MB，两者均未采纳为默认。
   - 设置窗口关闭后渲染进程数由 2 → 1，重新打开后 2，验证控制器销毁与重建路径可用。
+
+## 第四十五轮 任务栏监控悬浮 Tooltip 增加 500 ms 停留判定 (`TaskbarSpeedWindow`) — complete
+
+- **问题定位 (`src/host/platform/taskbar_speed_window.cpp`)**：`WM_MOUSEMOVE` 一旦收到就同步调用 `show_or_update_tooltip()`，指针只是扫过任务栏监控浮层（74×32 DIP）也会立刻弹出详情卡片，并在离开瞬间消失，形成闪烁。
+- **改造实现 (`taskbar_speed_window.h`, `taskbar_speed_window.cpp`)**：
+  - 新增 `kTooltipHoverDelay{500 ms}` 与 `kTooltipHoverTimerId`，`WM_MOUSEMOVE` 改为 `start_tooltip_hover_timer()`：仅当浮层已可见且当前无待触发计时器时 `SetTimer`，因此窗口内持续移动不会重置停留时间，进入浮层后满 500 ms 才展示；
+  - `WM_TIMER` 处理 `on_tooltip_hover_timer_fired()`：先清除计时器，再校验 `enabled_` / `visible_` 与 `GetCursorPos` + `contains_screen_point`（防止丢失 `WM_MOUSELEAVE` 时误弹），通过后才调用 `show_or_update_tooltip()`；
+  - `hide_tooltip()` 统一取消待触发计时器，覆盖指针离开、右键菜单、禁用浮层与 `close()`；`WM_LBUTTONDOWN` / `WM_LBUTTONDBLCLK` 同样取消，点击期间不会迟到弹出；
+  - 新增只读状态访问器 `is_tooltip_visible()` / `is_tooltip_hover_timer_active()` 供测试断言。
+- **测试 (`tests/host_tests.cpp`)**：新增 `TestTooltipRequiresPointerDwell`——合成任务栏容器上创建浮层并启用后，`WM_MOUSEMOVE` 不立即显示 Tooltip 且计时器已武装，重复 `WM_MOUSEMOVE` 不重置计时器，`set_enabled(false)` 取消待触发计时器，并断言停留阈值不低于 500 ms。
+- **质量门禁**：`tools/quality.ps1 -Mode Fast` 13/13 通过（C++ Debug 0 警告，`host.suite` 8 个测试全绿）。

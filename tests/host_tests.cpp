@@ -2436,6 +2436,53 @@ void TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(TestContext& ctx) {
     DestroyWindow(fake_taskbar);
 }
 
+void TestTooltipRequiresPointerDwell(TestContext& ctx) {
+    using namespace std::chrono_literals;
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+
+    HWND fake_taskbar =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40, nullptr,
+                        nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar != nullptr, "synthetic taskbar for dwell test created");
+    if (fake_taskbar == nullptr) {
+        return;
+    }
+    HWND notify_hwnd = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700, 0,
+                                       220, 40, fake_taskbar, nullptr, hinst, nullptr);
+
+    TaskbarSpeedWindow speed_wnd;
+    ctx.Check(speed_wnd.create(nullptr, nullptr), "TaskbarSpeedWindow creates for dwell test");
+    speed_wnd.set_target_taskbar_for_testing(fake_taskbar);
+    speed_wnd.set_enabled(true);
+
+    ctx.Check(TaskbarSpeedWindow::kTooltipHoverDelay >= 500ms,
+              "tooltip dwell requirement is at least 500ms");
+
+    SendMessageW(speed_wnd.hwnd(), WM_MOUSEMOVE, 0, 0);
+    ctx.Check(!speed_wnd.is_tooltip_visible(),
+              "pointer movement alone does not reveal the tooltip immediately");
+    ctx.Check(speed_wnd.is_tooltip_hover_timer_active(),
+              "pointer movement arms the tooltip dwell timer");
+
+    SendMessageW(speed_wnd.hwnd(), WM_MOUSEMOVE, 0, 0);
+    ctx.Check(speed_wnd.is_tooltip_hover_timer_active(),
+              "continued pointer movement keeps the pending dwell timer armed");
+
+    speed_wnd.set_enabled(false);
+    ctx.Check(!speed_wnd.is_tooltip_hover_timer_active(),
+              "disabling the overlay cancels the pending dwell timer");
+
+    speed_wnd.close();
+    if (notify_hwnd != nullptr) {
+        DestroyWindow(notify_hwnd);
+    }
+    DestroyWindow(fake_taskbar);
+}
+
 } // namespace
 
 int Run() {
@@ -2444,6 +2491,7 @@ int Run() {
     TestHardwareColumnSubstitutionAndPairedNetworkRates(ctx);
     TestAdaptivePlacementWin11AndWin10(ctx);
     TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(ctx);
+    TestTooltipRequiresPointerDwell(ctx);
     return ctx.failures();
 }
 } // namespace taskbar_speed_window_suite

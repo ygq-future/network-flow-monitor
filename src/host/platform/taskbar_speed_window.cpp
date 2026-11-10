@@ -731,7 +731,38 @@ void TaskbarSpeedWindow::update_telemetry(const SystemTelemetrySnapshot& telemet
     refresh_if_needed();
 }
 
+void TaskbarSpeedWindow::start_tooltip_hover_timer() {
+    if (tooltip_hover_timer_active_ || hwnd_ == nullptr) {
+        return;
+    }
+    if (SetTimer(hwnd_, kTooltipHoverTimerId, static_cast<UINT>(kTooltipHoverDelay.count()),
+                 nullptr) != 0U) {
+        tooltip_hover_timer_active_ = true;
+    }
+}
+
+void TaskbarSpeedWindow::cancel_tooltip_hover_timer() noexcept {
+    if (!tooltip_hover_timer_active_) {
+        return;
+    }
+    tooltip_hover_timer_active_ = false;
+    if (hwnd_ != nullptr) {
+        KillTimer(hwnd_, kTooltipHoverTimerId);
+    }
+}
+
+void TaskbarSpeedWindow::on_tooltip_hover_timer_fired() {
+    cancel_tooltip_hover_timer();
+    POINT pt{};
+    if (GetCursorPos(&pt) == FALSE || !contains_screen_point(pt)) {
+        mouse_tracking_ = false;
+        return;
+    }
+    show_or_update_tooltip();
+}
+
 void TaskbarSpeedWindow::hide_tooltip() noexcept {
+    cancel_tooltip_hover_timer();
     if (tooltip_hwnd_ != nullptr && tooltip_visible_) {
         ShowWindow(tooltip_hwnd_, SW_HIDE);
     }
@@ -1418,7 +1449,7 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
             }
         }
         if (!self->tooltip_visible_) {
-            self->show_or_update_tooltip();
+            self->start_tooltip_hover_timer();
         }
         return 0;
     }
@@ -1438,8 +1469,16 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
         self->hide_tooltip();
         return 0;
     }
+    case WM_TIMER: {
+        if (wparam == kTooltipHoverTimerId) {
+            self->on_tooltip_hover_timer_fired();
+            return 0;
+        }
+        break;
+    }
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK:
+        self->cancel_tooltip_hover_timer();
         return 0;
     case WM_LBUTTONUP: {
         if (self->on_left_click_) {

@@ -21,7 +21,13 @@ int HeadlessCrtReportHook(int /*report_type*/, char* message, int* return_value)
 }
 
 struct HeadlessTestRuntimeInitializer {
-    HeadlessTestRuntimeInitializer() noexcept {
+    HDESK original_desktop_{nullptr};
+    HDESK headless_desktop_{nullptr};
+
+    HeadlessTestRuntimeInitializer() noexcept
+        : original_desktop_(GetThreadDesktop(GetCurrentThreadId())),
+          headless_desktop_(CreateDesktopW(L"NFM_Headless_Test_Desktop", nullptr, nullptr, 0,
+                                           GENERIC_ALL, nullptr)) {
         static_cast<void>(SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS |
                                        SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX));
         static_cast<void>(_set_abort_behavior(0U, _WRITE_ABORT_MSG | _CALL_REPORTFAULT));
@@ -34,9 +40,25 @@ struct HeadlessTestRuntimeInitializer {
         static_cast<void>(_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE));
         static_cast<void>(_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR));
 #endif
+        if (headless_desktop_ != nullptr) {
+            static_cast<void>(SetThreadDesktop(headless_desktop_));
+        }
+    }
+
+    HeadlessTestRuntimeInitializer(const HeadlessTestRuntimeInitializer&) = delete;
+    HeadlessTestRuntimeInitializer& operator=(const HeadlessTestRuntimeInitializer&) = delete;
+    HeadlessTestRuntimeInitializer(HeadlessTestRuntimeInitializer&&) = delete;
+    HeadlessTestRuntimeInitializer& operator=(HeadlessTestRuntimeInitializer&&) = delete;
+
+    ~HeadlessTestRuntimeInitializer() {
+        if (original_desktop_ != nullptr) {
+            static_cast<void>(SetThreadDesktop(original_desktop_));
+        }
+        if (headless_desktop_ != nullptr) {
+            static_cast<void>(CloseDesktop(headless_desktop_));
+        }
     }
 };
-
 // NOLINTNEXTLINE(cert-err58-cpp,cppcoreguidelines-avoid-non-const-global-variables)
 const HeadlessTestRuntimeInitializer kHeadlessTestRuntimeInitializer{};
 

@@ -640,3 +640,20 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 新增 `TestOverlayPressDismissesOpenMenu`：在「合成任务栏容器 + 隐藏主窗口 owner + 真实 `TrackPopupMenu`」拓扑下向浮层投递按下/抬起，断言 `TrackPopupMenu` 返回、菜单窗口消失且不触发浮层左键回调；
   - 新增 `TestContextMenuClickPairing`：成对点击触发一次、无按下的孤立抬起被忽略、菜单开启期间左右键被忽略、菜单关闭后的孤立抬起不触发、右键成对打开菜单一次。
 - **质量门禁**：`tools/quality.ps1 -Mode Full` 通过。
+
+## 第四十八轮 v0.3.6 测试窗口闪现根因修复与补丁版本发布 — complete
+
+- **现象与根因 (`tests/test_headless_runtime.cpp`, `tests/host_tests.cpp`)**：
+  - 质量门禁运行期间在交互桌面出现一闪而过的窗口；`nfm_tests.exe` 的 headless 隔离只对主线程调用了 `SetThreadDesktop`，而 Windows 新建线程不会继承创建者的桌面；
+  - 第 47 轮新增的 `MenuDismissThread` 因此在默认交互桌面创建合成任务栏与顶层窗口，并调用真实 `TrackPopupMenu`，菜单在屏幕上短暂显示，构成唯一可见窗口来源；
+  - 原实现使用固定桌面名且忽略 `SetThreadDesktop` 的失败返回值，隔离失效时测试仍会继续在交互桌面创建窗口。
+- **修复 (`tests/test_headless_runtime.h`, `tests/test_headless_runtime.cpp`, `tests/host_tests.cpp`)**：
+  - 新增 `test_headless_runtime.h`，暴露 `headless_test_desktop()`、`is_on_headless_test_desktop()` 与 `enter_headless_test_desktop()`；桌面名按进程 PID 唯一化，避免并行 CTest 进程相互影响；
+  - 桌面创建或主线程绑定失败时输出诊断并以 `_Exit(2)` 终止测试进程，绝不在交互桌面继续运行；
+  - `MenuDismissThread` 在创建任何窗口或菜单前显式调用 `enter_headless_test_desktop()`，并记录 `desktop_ready` 供主测试线程断言；
+  - 新增 `CheckHeadlessDesktopIsolation` 回归用例：校验主线程位于 headless 桌面，且工作线程显式绑定后才能创建窗口，防止后续新增线程再次泄漏到交互桌面。
+- **v0.3.6 版本发布 (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `docs/development.md`, `.github/release-note/v0.3.6.md`)**：
+  - 全仓版本号升级至 `0.3.6`（`FILEVERSION`/`PRODUCTVERSION` 为 `0,3,6,0` / `"0.3.6"`），撰写中英双语发布说明，汇总任务栏单位与标签字格对齐、Tooltip 500 ms 停留、右键菜单任务栏监控总开关与外部点击关闭、WebView2 内存目标水位与设置页低内存挂起；
+  - `tools/quality.ps1 -Mode Full` 20/20 通过（clang-format 111 文件、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug/Release 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、CPack 打包）；
+  - `tools/package.ps1 -Configuration Release` 生成 `build/dist/NetworkFlowMonitor-0.3.6-win-x64.zip`（921937 字节，SHA256 `F205BBDCC3343F3178CBCA2554D8744A72A833B6CD9CDE9E82851AA7C39A58CE`），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.6.0`；
+  - 提交版本升级与发布说明后推送 `v0.3.6` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。

@@ -120,6 +120,7 @@ export interface ConfigSchemaDto {
 export interface GeneralConfigDto {
   uiAtLogin: boolean
   speedUnit: 'auto' | 'bytes' | 'bits'
+  showTaskbarMonitor?: boolean
   showTaskbarSpeed?: boolean
   showTaskbarCpuUsage?: boolean
   showTaskbarCpuTemp?: boolean

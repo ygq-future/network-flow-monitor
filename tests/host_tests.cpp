@@ -12,6 +12,7 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 #include "network_flow_monitor/host/platform/win32_window.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -1189,6 +1190,115 @@ void CheckTickElapsedConversion(TestContext& context) {
     context.Check(tick_elapsed_from_counter_delta(80'000, 0).count() == 0,
                   "invalid counter frequency yields zero elapsed");
 }
+
+struct ContextMenuSnapshot {
+    std::vector<std::wstring> labels;
+    bool captured{false};
+};
+
+constexpr wchar_t kContextMenuProbeProp[] = L"nfm_context_menu_content_probe";
+constexpr UINT_PTR kContextMenuProbeTimerId = 0x7002;
+constexpr UINT kContextMenuProbeDelayMs = 150;
+
+VOID CALLBACK ContextMenuProbeTimer(HWND owner, UINT, UINT_PTR timer_id, DWORD) {
+    KillTimer(owner, timer_id);
+    auto* probe = static_cast<ContextMenuSnapshot*>(GetPropW(owner, kContextMenuProbeProp));
+    if (probe != nullptr) {
+        HWND menu_window = FindWindowW(L"#32768", nullptr);
+        if (menu_window != nullptr) {
+            // NOLINTNEXTLINE(performance-no-int-to-ptr)
+            auto* menu = reinterpret_cast<HMENU>(SendMessageW(menu_window, MN_GETHMENU, 0, 0));
+            if (menu != nullptr) {
+                const int count = GetMenuItemCount(menu);
+                for (int index = 0; index < count; ++index) {
+                    wchar_t label[128]{};
+                    GetMenuStringW(menu, static_cast<UINT>(index), label, 128, MF_BYPOSITION);
+                    probe->labels.emplace_back(label);
+                }
+                probe->captured = true;
+            }
+        }
+    }
+    EndMenu();
+}
+
+class ContextMenuRecordingListener : public nfm::host::platform::IWindowEventListener {
+  public:
+    void on_window_created(HWND /*hwnd*/) override {}
+    void on_window_size_changed(int /*width_px*/, int /*height_px*/) override {}
+    void on_window_dpi_changed(std::uint32_t /*new_dpi*/, const RECT* /*suggested_rect*/) override {
+    }
+    void on_window_close_requested() override {}
+    void on_window_destroyed() override {}
+    void on_context_menu_opened() override {
+        opened_ = true;
+    }
+
+    [[nodiscard]] bool opened() const noexcept {
+        return opened_;
+    }
+
+  private:
+    bool opened_{false};
+};
+
+ContextMenuSnapshot CaptureContextMenu(nfm::host::platform::Win32Window& window,
+                                       const nfm::host::platform::ContextMenuOptions& options) {
+    ContextMenuSnapshot snapshot;
+    SetPropW(window.hwnd(), kContextMenuProbeProp, &snapshot);
+    SetTimer(window.hwnd(), kContextMenuProbeTimerId, kContextMenuProbeDelayMs,
+             ContextMenuProbeTimer);
+    window.show_context_menu(options);
+    RemovePropW(window.hwnd(), kContextMenuProbeProp);
+    return snapshot;
+}
+
+[[nodiscard]] bool HasMenuLabel(const ContextMenuSnapshot& snapshot, std::wstring_view label) {
+    return std::ranges::any_of(snapshot.labels,
+                               [label](const std::wstring& item) { return item == label; });
+}
+
+void CheckContextMenuExposesTaskbarMonitorSwitch(TestContext& context) {
+    using namespace nfm::host::platform;
+
+    WindowConfig config{
+        .title = L"Network Flow Monitor Context Menu Test",
+        .class_name = L"NetworkFlowMonitor_ContextMenuTestWindow",
+        .initial_x = 100,
+        .initial_y = 100,
+        .initial_width = 340,
+        .initial_height = 64,
+        .frameless = true,
+        .topmost = true,
+        .tool_window = true,
+        .transparent_backdrop = true,
+    };
+    ContextMenuRecordingListener listener;
+    Win32Window window(config);
+    context.Check(window.create(&listener), "context menu test window creates headlessly");
+    if (window.hwnd() == nullptr) {
+        return;
+    }
+
+    const auto visible_menu =
+        CaptureContextMenu(window, ContextMenuOptions{.screen_x = 120,
+                                                      .screen_y = 120,
+                                                      .is_taskbar_monitor_visible = true,
+                                                      .is_chinese = true});
+    context.Check(visible_menu.captured, "context menu captured while the overlay is shown");
+    context.Check(HasMenuLabel(visible_menu, L"隐藏任务栏监控"),
+                  "menu offers hiding the taskbar monitor while it is shown");
+
+    const auto hidden_menu =
+        CaptureContextMenu(window, ContextMenuOptions{.screen_x = 120,
+                                                      .screen_y = 120,
+                                                      .is_taskbar_monitor_visible = false,
+                                                      .is_chinese = false});
+    context.Check(hidden_menu.captured, "context menu captured while the overlay is hidden");
+    context.Check(HasMenuLabel(hidden_menu, L"Show Taskbar Monitor"),
+                  "menu offers showing the taskbar monitor while it is hidden");
+    context.Check(listener.opened(), "context menu open notification reaches the listener");
+}
 } // namespace
 
 int Run() {
@@ -1197,6 +1307,7 @@ int Run() {
     CheckWindowPresentationRecovery(context);
     CheckTickElapsedConversion(context);
     CheckCollapseFinishedDoesNotSuppressSurfacePublish(context);
+    CheckContextMenuExposesTaskbarMonitorSwitch(context);
     return context.failures();
 }
 } // namespace host_lifecycle_suite
@@ -2483,6 +2594,53 @@ void TestTooltipRequiresPointerDwell(TestContext& ctx) {
     DestroyWindow(fake_taskbar);
 }
 
+void TestMasterSwitchGatesOverlay(TestContext& ctx) {
+    using nfm::config::DisplayConfig;
+    using nfm::config::LanguageMode;
+    using nfm::config::ThemeMode;
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+
+    HWND fake_taskbar =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40, nullptr,
+                        nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar != nullptr, "synthetic taskbar for master switch test created");
+    if (fake_taskbar == nullptr) {
+        return;
+    }
+    HWND notify_hwnd = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700, 0,
+                                       220, 40, fake_taskbar, nullptr, hinst, nullptr);
+
+    TaskbarSpeedWindow speed_wnd;
+    ctx.Check(speed_wnd.create(nullptr, nullptr),
+              "TaskbarSpeedWindow creates for master switch test");
+    speed_wnd.set_target_taskbar_for_testing(fake_taskbar);
+
+    DisplayConfig display{};
+    display.show_taskbar_speed = true;
+    display.show_taskbar_monitor = false;
+    speed_wnd.update_config(display, ThemeMode::System, LanguageMode::English);
+    ctx.Check(!speed_wnd.is_enabled(),
+              "master switch off hides the overlay even with monitored items enabled");
+
+    display.show_taskbar_monitor = true;
+    speed_wnd.update_config(display, ThemeMode::System, LanguageMode::English);
+    ctx.Check(speed_wnd.is_enabled(), "master switch on renders the overlay again");
+
+    display.show_taskbar_speed = false;
+    speed_wnd.update_config(display, ThemeMode::System, LanguageMode::English);
+    ctx.Check(!speed_wnd.is_enabled(), "overlay stays hidden when no monitored item is selected");
+
+    speed_wnd.close();
+    if (notify_hwnd != nullptr) {
+        DestroyWindow(notify_hwnd);
+    }
+    DestroyWindow(fake_taskbar);
+}
+
 } // namespace
 
 int Run() {
@@ -2492,6 +2650,7 @@ int Run() {
     TestAdaptivePlacementWin11AndWin10(ctx);
     TestClassicalTaskbarNonIntrusiveEmbeddingAndZOrder(ctx);
     TestTooltipRequiresPointerDwell(ctx);
+    TestMasterSwitchGatesOverlay(ctx);
     return ctx.failures();
 }
 } // namespace taskbar_speed_window_suite

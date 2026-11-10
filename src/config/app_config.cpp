@@ -12,6 +12,7 @@ AppConfig DefaultAppConfig() noexcept {
                 .speed_unit = SpeedUnit::Auto,
                 .show_upload = true,
                 .show_download = true,
+                .show_taskbar_monitor = true,
                 .show_taskbar_speed = false,
                 .show_taskbar_cpu_usage = false,
                 .show_taskbar_cpu_temp = false,

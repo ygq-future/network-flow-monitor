@@ -457,11 +457,7 @@ bool ProductHost::initialize() {
     static_cast<void>(taskbar_speed_window_->create(
         [this]() { on_context_menu_show_monitor(); },
         [this](int screen_x, int screen_y) { on_open_context_menu(screen_x, screen_y); }));
-    taskbar_speed_window_->update_config(current_config_.display, current_config_.appearance.theme,
-                                         current_config_.appearance.language);
-    if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
-        taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
-    }
+    apply_taskbar_monitor_config();
     icon_warmup_thread_ = std::thread([this]() noexcept {
         try {
             warm_executable_icons();
@@ -781,7 +777,7 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
         }
         ensure_window_presentation();
         if (taskbar_speed_window_) {
-            if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
+            if (config::IsTaskbarMonitorActive(current_config_.display) && telemetry_sampler_) {
                 taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
             } else {
                 taskbar_speed_window_->sync_with_taskbar();
@@ -1421,6 +1417,26 @@ void ProductHost::on_set_pin(bool pinned) {
     }
 }
 
+void ProductHost::on_context_menu_toggle_taskbar_monitor() {
+    current_config_.display.show_taskbar_monitor = !current_config_.display.show_taskbar_monitor;
+    static_cast<void>(config::SaveConfigFile(options_.config_file_path, current_config_,
+                                             config::ConfigDocumentKind::User));
+    apply_taskbar_monitor_config();
+    broadcast_to_all_bridges(
+        [this](bridge::INativeBridge& b) { b.post_config_changed(current_config_); });
+}
+
+void ProductHost::apply_taskbar_monitor_config() {
+    if (!taskbar_speed_window_) {
+        return;
+    }
+    taskbar_speed_window_->update_config(current_config_.display, current_config_.appearance.theme,
+                                         current_config_.appearance.language);
+    if (config::IsTaskbarMonitorActive(current_config_.display) && telemetry_sampler_) {
+        taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
+    }
+}
+
 void ProductHost::on_open_context_menu(int screen_x, int screen_y) {
     if (!window_ || !coordinator_) {
         return;
@@ -1442,6 +1458,7 @@ void ProductHost::on_open_context_menu(int screen_x, int screen_y) {
         .is_pinned = state.is_pinned,
         .is_panel_visible =
             (state.presentation_state == coordinator::PresentationState::PanelVisible),
+        .is_taskbar_monitor_visible = current_config_.display.show_taskbar_monitor,
         .collector_status = std::move(status),
         .can_retry_collector = !is_running,
         .is_chinese = is_chinese,
@@ -1612,6 +1629,14 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
             }
         } else {
             err_msg = "Expected boolean for ui_at_login";
+        }
+    } else if (key == "display.show_taskbar_monitor" || key == "general.showTaskbarMonitor" ||
+               key == "showTaskbarMonitor") {
+        if (yyjson_is_bool(val)) {
+            current_config_.display.show_taskbar_monitor = yyjson_get_bool(val);
+            updated = true;
+        } else {
+            err_msg = "Expected boolean for show_taskbar_monitor";
         }
     } else if (key == "display.show_taskbar_speed" || key == "general.showTaskbarSpeed" ||
                key == "showTaskbarSpeed") {
@@ -2044,14 +2069,7 @@ void ProductHost::on_update_setting(std::string_view key, std::string_view value
         publish_surface_state();
     }
     apply_settings_window_chrome();
-    if (taskbar_speed_window_) {
-        if (config::HasAnyTaskbarMonitorItem(current_config_.display) && telemetry_sampler_) {
-            taskbar_speed_window_->update_telemetry(telemetry_sampler_->sample());
-        }
-        taskbar_speed_window_->update_config(current_config_.display,
-                                             current_config_.appearance.theme,
-                                             current_config_.appearance.language);
-    }
+    apply_taskbar_monitor_config();
 
     // Broadcast authoritative snapshot
     broadcast_to_all_bridges(

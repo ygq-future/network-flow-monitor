@@ -69,6 +69,7 @@ class ProductHost : public platform::IWindowEventListener,
 
     void on_context_menu_show_monitor() override;
     void on_context_menu_toggle_pin() override;
+    void on_context_menu_toggle_taskbar_monitor() override;
     void on_context_menu_settings() override;
     void on_context_menu_traffic_history() override;
     void on_context_menu_retry_collector() override;
@@ -134,6 +135,7 @@ class ProductHost : public platform::IWindowEventListener,
     void create_settings_webview();
     void close_settings_window();
     void apply_settings_window_chrome();
+    void apply_taskbar_monitor_config();
     void broadcast_to_all_bridges(const std::function<void(bridge::INativeBridge&)>& fn);
     [[nodiscard]] std::filesystem::path log_directory_path() const;
     void write_diagnostic_log(config::LogLevel level, std::string_view message) const noexcept;

@@ -47,10 +47,11 @@ constexpr std::array<std::string_view, 8> kUserRootKeys{
     "schema_version", "ranking",    "display", "interaction",
     "floating",       "appearance", "startup", "diagnostics"};
 constexpr std::array<std::string_view, 3> kRankingKeys{"top_n", "window_ms", "excluded_programs"};
-constexpr std::array<std::string_view, 11> kDisplayKeys{"refresh_interval_ms",
+constexpr std::array<std::string_view, 12> kDisplayKeys{"refresh_interval_ms",
                                                         "speed_unit",
                                                         "show_upload",
                                                         "show_download",
+                                                        "show_taskbar_monitor",
                                                         "show_taskbar_speed",
                                                         "show_taskbar_cpu_usage",
                                                         "show_taskbar_cpu_temp",
@@ -421,6 +422,14 @@ std::optional<ConfigError> ParseDisplay(yyjson_val* root, AppConfig& config, boo
     if (auto error = ReadBoolean(group, "show_download", "display.show_download",
                                  config.display.show_download, &complete)) {
         return error;
+    }
+    // Optional for backward compatibility: configs written before the master switch existed keep
+    // their documented default instead of being treated as incomplete.
+    if (yyjson_obj_get(group, "show_taskbar_monitor") != nullptr) {
+        if (auto error = ReadBoolean(group, "show_taskbar_monitor", "display.show_taskbar_monitor",
+                                     config.display.show_taskbar_monitor, &complete)) {
+            return error;
+        }
     }
     if (auto error = ReadBoolean(group, "show_taskbar_speed", "display.show_taskbar_speed",
                                  config.display.show_taskbar_speed, &complete)) {
@@ -805,6 +814,8 @@ bool AddDisplay(yyjson_mut_doc* document, yyjson_mut_val* root, const AppConfig&
            yyjson_mut_obj_add_bool(document, group, "show_upload", config.display.show_upload) &&
            yyjson_mut_obj_add_bool(document, group, "show_download",
                                    config.display.show_download) &&
+           yyjson_mut_obj_add_bool(document, group, "show_taskbar_monitor",
+                                   config.display.show_taskbar_monitor) &&
            yyjson_mut_obj_add_bool(document, group, "show_taskbar_speed",
                                    config.display.show_taskbar_speed) &&
            yyjson_mut_obj_add_bool(document, group, "show_taskbar_cpu_usage",

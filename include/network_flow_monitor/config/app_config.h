@@ -82,6 +82,8 @@ struct DisplayConfig {
     SpeedUnit speed_unit{SpeedUnit::Auto};
     bool show_upload{true};
     bool show_download{true};
+    // Master switch for the taskbar monitor overlay itself; independent of the per-item flags.
+    bool show_taskbar_monitor{true};
     bool show_taskbar_speed{false};
     bool show_taskbar_cpu_usage{false};
     bool show_taskbar_cpu_temp{false};
@@ -98,6 +100,12 @@ struct DisplayConfig {
            display.show_taskbar_cpu_temp || display.show_taskbar_cpu_power ||
            display.show_taskbar_memory_usage || display.show_taskbar_gpu_usage ||
            display.show_taskbar_gpu_memory;
+}
+
+// The taskbar overlay is rendered only when its master switch is on and at least one monitored item
+// is selected; this is the single authoritative gate for rendering and telemetry sampling.
+[[nodiscard]] constexpr bool IsTaskbarMonitorActive(const DisplayConfig& display) noexcept {
+    return display.show_taskbar_monitor && HasAnyTaskbarMonitorItem(display);
 }
 
 struct InteractionConfig {

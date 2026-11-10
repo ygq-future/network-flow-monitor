@@ -43,6 +43,7 @@ constexpr int kCmdTrayRetryCollector = 1003;
 constexpr int kCmdTrayExit = 1004;
 constexpr int kCmdTrayPinMonitor = 1005;
 constexpr int kCmdTrayTrafficHistory = 1006;
+constexpr int kCmdTrayToggleTaskbarMonitor = 1007;
 constexpr UINT_PTR kSurfaceClockTimerId = 1;
 constexpr UINT kSurfaceClockPeriodMs = 8;
 constexpr int kAutoHideTaskbarReservationDip = 4;
@@ -426,6 +427,15 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
         pin_label = options.is_pinned ? L"Unpin" : L"Pin";
     }
 
+    std::wstring taskbar_monitor_label;
+    if (options.is_chinese) {
+        taskbar_monitor_label =
+            options.is_taskbar_monitor_visible ? L"隐藏任务栏监控" : L"显示任务栏监控";
+    } else {
+        taskbar_monitor_label =
+            options.is_taskbar_monitor_visible ? L"Hide Taskbar Monitor" : L"Show Taskbar Monitor";
+    }
+
     const std::wstring settings_label = options.is_chinese ? L"设置" : L"Settings";
     const std::wstring history_label = options.is_chinese ? L"流量统计" : L"Traffic History";
     std::wstring collector_label;
@@ -440,6 +450,8 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayShowMonitor),
                 show_monitor_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayPinMonitor), pin_label.c_str());
+    AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayToggleTaskbarMonitor),
+                taskbar_monitor_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTraySettings), settings_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayTrafficHistory),
                 history_label.c_str());
@@ -471,6 +483,8 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
             listener_->on_context_menu_show_monitor();
         } else if (cmd == kCmdTrayPinMonitor) {
             listener_->on_context_menu_toggle_pin();
+        } else if (cmd == kCmdTrayToggleTaskbarMonitor) {
+            listener_->on_context_menu_toggle_taskbar_monitor();
         } else if (cmd == kCmdTraySettings) {
             listener_->on_context_menu_settings();
         } else if (cmd == kCmdTrayTrafficHistory) {

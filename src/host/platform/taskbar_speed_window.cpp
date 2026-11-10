@@ -660,7 +660,7 @@ void TaskbarSpeedWindow::update_config(const config::DisplayConfig& display_conf
     display_config_ = display_config;
     theme_mode_ = theme_mode;
     language_mode_ = language_mode;
-    const bool next_enabled = config::HasAnyTaskbarMonitorItem(display_config_);
+    const bool next_enabled = config::IsTaskbarMonitorActive(display_config_);
     if (enabled_ != next_enabled) {
         enabled_ = next_enabled;
         if (!enabled_) {

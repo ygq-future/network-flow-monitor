@@ -106,6 +106,7 @@ export const defaultMockConfigChanged: ConfigChangedDto = {
     general: {
       uiAtLogin: false,
       speedUnit: 'auto',
+      showTaskbarMonitor: true,
       showTaskbarSpeed: false,
       showTaskbarCpuUsage: false,
       showTaskbarCpuTemp: false,
@@ -395,6 +396,12 @@ export class MockBridge extends NativeBridge {
     const cfg = this.currentMockConfig.config
     if (key === 'startup.ui_at_login' || key === 'general.uiAtLogin' || key === 'uiAtLogin') {
       cfg.general.uiAtLogin = Boolean(value)
+    } else if (
+      key === 'display.show_taskbar_monitor' ||
+      key === 'general.showTaskbarMonitor' ||
+      key === 'showTaskbarMonitor'
+    ) {
+      cfg.general.showTaskbarMonitor = Boolean(value)
     } else if (
       key === 'display.show_taskbar_speed' ||
       key === 'general.showTaskbarSpeed' ||

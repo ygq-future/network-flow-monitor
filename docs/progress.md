@@ -604,3 +604,21 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 新增只读状态访问器 `is_tooltip_visible()` / `is_tooltip_hover_timer_active()` 供测试断言。
 - **测试 (`tests/host_tests.cpp`)**：新增 `TestTooltipRequiresPointerDwell`——合成任务栏容器上创建浮层并启用后，`WM_MOUSEMOVE` 不立即显示 Tooltip 且计时器已武装，重复 `WM_MOUSEMOVE` 不重置计时器，`set_enabled(false)` 取消待触发计时器，并断言停留阈值不低于 500 ms。
 - **质量门禁**：`tools/quality.ps1 -Mode Fast` 13/13 通过（C++ Debug 0 警告，`host.suite` 8 个测试全绿）。
+
+## 第四十六轮 右键菜单新增任务栏监控整体显示/隐藏开关 — complete
+
+- **需求边界**：右键菜单需要一个**整体**开关，控制任务栏监控浮层本身的渲染，而不是设置中心「任务栏监控」页里的逐项数据开关。
+- **配置与规则 (`app_config.h`, `app_config.cpp`, `config_codec.cpp`)**：
+  - `DisplayConfig` 新增主开关 `show_taskbar_monitor`（默认 `true`），与 `show_taskbar_speed` 等逐项开关相互独立；
+  - 新增唯一权威判定 `IsTaskbarMonitorActive(display) = show_taskbar_monitor && HasAnyTaskbarMonitorItem(display)`，渲染与遥测采样共用同一规则；
+  - `display.show_taskbar_monitor` 加入编解码键表与序列化；解析侧按既有「后加键可选」约定包裹，旧配置缺失该键时保持 `LoadedWithDefaults` 并沿用可见默认值，不会被判定为不完整文档。
+- **右键菜单 (`win32_window.h`, `win32_window.cpp`, `product_host.cpp`)**：
+  - `ContextMenuOptions` 新增 `is_taskbar_monitor_visible`，菜单在「固定显示」之后插入 `隐藏任务栏监控` / `显示任务栏监控`（英文 `Hide/Show Taskbar Monitor`），命令号 `kCmdTrayToggleTaskbarMonitor`，回调 `on_context_menu_toggle_taskbar_monitor()`；
+  - Host 侧翻转 `current_config_.display.show_taskbar_monitor` → `SaveConfigFile(User)` → `apply_taskbar_monitor_config()` → 广播 `configChanged`，与 `nfm_pinned` 的持久化模式一致，重启后保持；
+  - 抽出 `apply_taskbar_monitor_config()` 统一「先 `update_config` 再按需采样遥测」的顺序，替换启动、设置应用、1 秒看门狗三处重复逻辑；1 秒采样与 `TaskbarSpeedWindow::update_config` 的启用判定改走 `IsTaskbarMonitorActive`，浮层隐藏时停止 PDH 采样。
+- **契约同步 (`bridge_dispatcher.cpp`, `bridgeTypes.ts`, `nativeBridge.ts`)**：`configChanged.general.showTaskbarMonitor` 随配置下发，前端类型与 mock 默认值/键映射同步（未新增设置中心控件，开关仅由右键菜单操作）。
+- **测试 (`tests/config_tests.cpp`, `tests/host_tests.cpp`)**：
+  - 配置侧：默认可见、`IsTaskbarMonitorActive` 组合语义、完整文档解码、序列化往返、旧文档缺失该键仍按可见默认值加载；
+  - 浮层侧：`TestMasterSwitchGatesOverlay` 验证主开关关闭时即使有监控项也不渲染、重新打开后恢复、无监控项时保持隐藏；
+  - 菜单侧：`CheckContextMenuExposesTaskbarMonitorSwitch` 通过 `MN_GETHMENU` 抓取真实 `#32768` 弹出菜单内容，断言中英文标签随状态翻转且 `on_context_menu_opened` 正常回调。
+- **质量门禁**：`tools/quality.ps1 -Mode Fast` 13/13 通过（C++ Debug 0 警告）。

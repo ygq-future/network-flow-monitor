@@ -44,6 +44,7 @@ struct ContextMenuOptions {
     int screen_y{-1};
     bool is_pinned{false};
     bool is_panel_visible{false};
+    bool is_taskbar_monitor_visible{true};
     std::wstring collector_status{L"Running"};
     bool can_retry_collector{false};
     bool is_chinese{false};
@@ -88,6 +89,7 @@ class IWindowEventListener {
 
     virtual void on_context_menu_show_monitor() {}
     virtual void on_context_menu_toggle_pin() {}
+    virtual void on_context_menu_toggle_taskbar_monitor() {}
     virtual void on_context_menu_settings() {}
     virtual void on_context_menu_traffic_history() {}
     virtual void on_context_menu_retry_collector() {}

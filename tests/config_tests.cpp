@@ -65,6 +65,10 @@ void CheckDefaults(TestContext& context) {
     context.Check(config.display.show_upload, "default show upload");
     context.Check(config.display.show_download, "default show download");
     context.Check(!config.display.show_taskbar_speed, "default show taskbar speed is false");
+    context.Check(config.display.show_taskbar_monitor,
+                  "taskbar monitor master switch defaults to visible");
+    context.Check(!nfm::config::IsTaskbarMonitorActive(config.display),
+                  "taskbar monitor stays inactive until an item is selected");
     context.Check(
         !config.display.show_taskbar_cpu_usage && !config.display.show_taskbar_cpu_temp &&
             !config.display.show_taskbar_cpu_power && !config.display.show_taskbar_memory_usage &&
@@ -239,7 +243,7 @@ using nfm::config::ConfigLoadStatus;
 constexpr std::string_view kCompleteUserJson = R"json({
   "schema_version": 2,
   "ranking": {"top_n": 7, "window_ms": 1750, "excluded_programs": ["mihomo-multi.exe", "clash.exe"]},
-  "display": {"refresh_interval_ms": 250, "speed_unit": "bits", "show_upload": false, "show_download": true, "show_taskbar_speed": true, "show_taskbar_cpu_usage": true, "show_taskbar_cpu_temp": false, "show_taskbar_cpu_power": true, "show_taskbar_memory_usage": true, "show_taskbar_gpu_usage": false, "show_taskbar_gpu_memory": true},
+  "display": {"refresh_interval_ms": 250, "speed_unit": "bits", "show_upload": false, "show_download": true, "show_taskbar_monitor": false, "show_taskbar_speed": true, "show_taskbar_cpu_usage": true, "show_taskbar_cpu_temp": false, "show_taskbar_cpu_power": true, "show_taskbar_memory_usage": true, "show_taskbar_gpu_usage": false, "show_taskbar_gpu_memory": true},
   "interaction": {"hover_delay_ms": 100, "dismiss_delay_ms": 200},
   "floating": {"auto_hide_enabled": false, "auto_hide_delay_ms": 300, "opacity_percent": 85, "blur_strength_percent": 75, "capsule_width_dip": 12, "capsule_height_dip": 96, "capsule_end_rounding_dip": 6, "nfm_pinned": true, "ignore_hover_when_fullscreen": false, "hide_capsule_when_fullscreen": true, "anchor_monitor_id": "DISPLAY-1", "anchor_side": "left", "anchor_vertical_offset_dip": 72},
   "appearance": {"language": "simplified_chinese", "theme": "dark"},
@@ -340,6 +344,14 @@ void CheckSchemaStates(TestContext& context) {
     context.Check(partial.config.ranking.top_n == 6U, "present field overlays default");
     context.Check(partial.config.ranking.window == std::chrono::milliseconds{2000},
                   "missing field retains default");
+
+    const auto legacy_display = nfm::config::ParseConfigJson(
+        R"json({"schema_version":2,"display":{"show_taskbar_speed":true}})json",
+        ConfigDocumentKind::User);
+    context.Check(legacy_display.status == ConfigLoadStatus::LoadedWithDefaults,
+                  "configs written before the master switch still load");
+    context.Check(legacy_display.config.display.show_taskbar_monitor,
+                  "missing master switch keeps the documented visible default");
 }
 
 void CheckEnums(TestContext& context) {
@@ -464,6 +476,8 @@ void CheckCompleteDocuments(TestContext& context) {
     context.Check(user.config.ranking.excluded_programs.size() == 2U &&
                       user.config.ranking.excluded_programs[0] == "mihomo-multi.exe",
                   "excluded_programs decoded");
+    context.Check(!user.config.display.show_taskbar_monitor,
+                  "taskbar monitor master switch decoded");
     context.Check(user.config.display.show_taskbar_speed &&
                       user.config.display.show_taskbar_cpu_usage &&
                       !user.config.display.show_taskbar_cpu_temp &&

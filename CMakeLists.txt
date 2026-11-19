@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 
 project(
     NetworkFlowMonitor
-    VERSION 0.3.6
+    VERSION 0.3.7
     DESCRIPTION "Lightweight Windows 11 per-application network flow monitor"
     LANGUAGES C CXX
 )

@@ -743,3 +743,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 移除 `ContextMenuOptions::collector_status` 冗余字段及 `ProductHost::build_context_menu_options` 中的状态字符串拼装。
 - **测试 (`tests/host_tests.cpp`)**：
   - 扩展 `ContextMenuSnapshot` 采集各菜单项 `GetMenuState`，校验运行中与未运行状态下中英文标签及非灰显可点击状态。
+
+## 第五十五轮 v0.3.7 版本发布准备与质量门禁验收 — complete
+
+- **v0.3.7 版本同步 (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `docs/development.md`, `.github/release-note/v0.3.7.md`)**：
+  - 全仓版本号升级至 `0.3.7`（`FILEVERSION`/`PRODUCTVERSION` 为 `0,3,7,0` / `"0.3.7"`），撰写中英双语发布说明，汇总流量数据链路自愈与采集器本地日志、启动期未处理异常捕获与单实例诊断、贴边胶囊速率响应与回落阻尼校准、原生右键菜单与文件对话框「跟随系统」中文解析以及右键菜单「重启采集器」直达操作；
+  - `tools/quality.ps1 -Mode Full` 20/20 通过（clang-format 115 文件、ESLint 0 warnings、`tsc --noEmit` 0 errors、Vitest 10 passed、Debug/Release 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、CPack 打包）；
+  - `tools/package.ps1 -Configuration Release` 与 CPack 生成 `build/dist/NetworkFlowMonitor-0.3.7-win-x64.zip`（948450 字节），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.7.0`。

@@ -126,6 +126,9 @@ class ProductHost : public platform::IWindowEventListener,
     [[nodiscard]] bridge::SurfaceKind last_published_surface() const noexcept {
         return last_published_surface_;
     }
+    [[nodiscard]] platform::ContextMenuOptions build_context_menu_options(
+        surface::ScreenPoint screen_point,
+        LANGID system_ui_language = GetUserDefaultUILanguage()) const;
 
   private:
     void apply_coordinator_state();

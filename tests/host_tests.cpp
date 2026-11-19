@@ -1303,6 +1303,87 @@ void CheckContextMenuExposesTaskbarMonitorSwitch(TestContext& context) {
     context.Check(listener.opened(), "context menu open notification reaches the listener");
 }
 
+void CheckContextMenuLocalizationFollowsSetting(TestContext& context) {
+    using nfm::config::LanguageMode;
+    using nfm::host::app::ProductHost;
+    using nfm::host::app::ProductHostOptions;
+    using namespace nfm::host::platform;
+
+    const LANGID zh_cn = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
+    const LANGID zh_tw = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL);
+    const LANGID en_us = MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
+
+    context.Check(resolve_chinese_locale(LanguageMode::SimplifiedChinese, en_us),
+                  "explicit SimplifiedChinese overrides English OS language");
+    context.Check(!resolve_chinese_locale(LanguageMode::English, zh_cn),
+                  "explicit English overrides Chinese OS language");
+    context.Check(resolve_chinese_locale(LanguageMode::System, zh_cn),
+                  "System language resolves to Chinese on zh-CN OS");
+    context.Check(resolve_chinese_locale(LanguageMode::System, zh_tw),
+                  "System language resolves to Chinese on zh-TW OS");
+    context.Check(!resolve_chinese_locale(LanguageMode::System, en_us),
+                  "System language resolves to English on en-US OS");
+
+    const auto temp_dir = std::filesystem::temp_directory_path() / "nfm_context_menu_locale_test";
+    std::error_code ec;
+    std::filesystem::remove_all(temp_dir, ec);
+    std::filesystem::create_directories(temp_dir, ec);
+
+    ProductHost host(ProductHostOptions{
+        .config_file_path = temp_dir / "config.json",
+    });
+
+    WindowConfig win_cfg{
+        .title = L"NFM Locale Context Menu Test",
+        .class_name = L"NetworkFlowMonitor_LocaleContextMenuTestWindow",
+        .initial_x = 100,
+        .initial_y = 100,
+        .initial_width = 340,
+        .initial_height = 64,
+        .frameless = true,
+        .topmost = true,
+        .tool_window = true,
+        .transparent_backdrop = true,
+    };
+    ContextMenuRecordingListener listener;
+    Win32Window window(win_cfg);
+    context.Check(window.create(&listener), "locale context menu test window creates");
+    if (window.hwnd() != nullptr) {
+        const nfm::host::surface::ScreenPoint pt{.x_px = 120, .y_px = 120};
+
+        host.on_update_setting("appearance.language", R"("system")");
+        const auto sys_zh_opts = host.build_context_menu_options(pt, zh_cn);
+        context.Check(sys_zh_opts.is_chinese && sys_zh_opts.collector_status == L"已停止",
+                      "System language yields Chinese context menu options on zh-CN OS");
+        const auto sys_zh_menu = CaptureContextMenu(window, sys_zh_opts);
+        context.Check(sys_zh_menu.captured && HasMenuLabel(sys_zh_menu, L"设置") &&
+                          HasMenuLabel(sys_zh_menu, L"流量统计") &&
+                          HasMenuLabel(sys_zh_menu, L"退出"),
+                      "System language renders Chinese menu items on zh-CN OS");
+
+        const auto sys_en_opts = host.build_context_menu_options(pt, en_us);
+        context.Check(!sys_en_opts.is_chinese && sys_en_opts.collector_status == L"Stopped",
+                      "System language yields English context menu options on en-US OS");
+        const auto sys_en_menu = CaptureContextMenu(window, sys_en_opts);
+        context.Check(sys_en_menu.captured && HasMenuLabel(sys_en_menu, L"Settings") &&
+                          HasMenuLabel(sys_en_menu, L"Traffic History") &&
+                          HasMenuLabel(sys_en_menu, L"Exit"),
+                      "System language renders English menu items on en-US OS");
+
+        host.on_update_setting("appearance.language", R"("simplified_chinese")");
+        const auto explicit_zh_opts = host.build_context_menu_options(pt, en_us);
+        context.Check(explicit_zh_opts.is_chinese && explicit_zh_opts.collector_status == L"已停止",
+                      "SimplifiedChinese setting overrides en-US OS for context menu");
+
+        host.on_set_locale("English");
+        const auto set_locale_en_opts = host.build_context_menu_options(pt, zh_cn);
+        context.Check(!set_locale_en_opts.is_chinese &&
+                          set_locale_en_opts.collector_status == L"Stopped",
+                      "setLocale English updates host context menu language");
+    }
+    std::filesystem::remove_all(temp_dir, ec);
+}
+
 struct DesktopIsolationProbe {
     HANDLE done{nullptr};
     bool on_headless_desktop{false};
@@ -1356,6 +1437,7 @@ int Run() {
     CheckTickElapsedConversion(context);
     CheckCollapseFinishedDoesNotSuppressSurfacePublish(context);
     CheckContextMenuExposesTaskbarMonitorSwitch(context);
+    CheckContextMenuLocalizationFollowsSetting(context);
     return context.failures();
 }
 } // namespace host_lifecycle_suite

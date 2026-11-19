@@ -89,6 +89,21 @@ std::chrono::milliseconds tick_elapsed_from_counter_delta(
     return std::chrono::milliseconds{std::min(elapsed_ms, max_elapsed.count())};
 }
 
+bool resolve_chinese_locale(config::LanguageMode language_mode,
+                            LANGID system_ui_language) noexcept {
+    if (language_mode == config::LanguageMode::SimplifiedChinese) {
+        return true;
+    }
+    if (language_mode == config::LanguageMode::English) {
+        return false;
+    }
+    return PRIMARYLANGID(system_ui_language) == LANG_CHINESE;
+}
+
+bool resolve_chinese_locale(config::LanguageMode language_mode) noexcept {
+    return resolve_chinese_locale(language_mode, GetUserDefaultUILanguage());
+}
+
 Win32Window::Win32Window(WindowConfig config) : config_(std::move(config)) {}
 
 Win32Window::~Win32Window() {

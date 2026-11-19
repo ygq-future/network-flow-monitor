@@ -1,6 +1,7 @@
 #ifndef NETWORK_FLOW_MONITOR_HOST_PLATFORM_WIN32_WINDOW_H
 #define NETWORK_FLOW_MONITOR_HOST_PLATFORM_WIN32_WINDOW_H
 
+#include "network_flow_monitor/config/app_config.h"
 #include "network_flow_monitor/host/surface/surface_types.h"
 
 #include <chrono>
@@ -38,6 +39,10 @@ inline constexpr std::chrono::milliseconds kMaximumObservedTickGap{10'000};
 [[nodiscard]] std::chrono::milliseconds tick_elapsed_from_counter_delta(
     std::int64_t delta_ticks, std::int64_t counter_frequency,
     std::chrono::milliseconds max_elapsed = kMaximumTickElapsed) noexcept;
+
+[[nodiscard]] bool resolve_chinese_locale(config::LanguageMode language_mode,
+                                          LANGID system_ui_language) noexcept;
+[[nodiscard]] bool resolve_chinese_locale(config::LanguageMode language_mode) noexcept;
 
 struct ContextMenuOptions {
     int screen_x{-1};

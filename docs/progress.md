@@ -724,3 +724,14 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 将 `getRateTransition` 上升/回落 CSS 过渡分别收紧至 `200 ms` 与 `250 ms`，使单帧插值在 250 ms `TrafficTick` 节拍内完成，兼顾平滑过渡与即时跟随任务栏/监控面板的变化与回落。
 - **测试与质量门禁 (`rateMapping.test.ts`, `DockCapsule.test.tsx`)**：
   - 更新过渡时间窗口与上升/回落响应契约测试，并校验多 Tick 归零不再长时间拖尾。
+
+## 第五十三轮 原生右键菜单与文件对话框「跟随系统」语言解析修复 — complete
+
+- **现象与根因 (`product_host.cpp`, `taskbar_speed_window.cpp`)**：
+  - `ProductHost::on_open_context_menu` 与 `ProductHost::on_browse_excluded_program` 仅判断 `current_config_.appearance.language == LanguageMode::SimplifiedChinese`，未处理 `LanguageMode::System`；当语言设置为「跟随系统」时，React 界面与任务栏监控 Tooltip 会按系统语言呈现中文，而原生右键菜单及排除程序选择框始终回退为英文。
+  - 此外，`ProductHost::on_set_locale` 仅回传 `localeChanged` 事件而未同步更新 `current_config_.appearance.language`。
+- **修复 (`win32_window.h`, `win32_window.cpp`, `taskbar_speed_window.cpp`, `product_host.h`, `product_host.cpp`)**：
+  - 在 `nfm::host::platform` 抽取单一权威实现 `resolve_chinese_locale(LanguageMode, LANGID)`（`SimplifiedChinese -> true`，`English -> false`，`System -> PRIMARYLANGID(system_ui_language) == LANG_CHINESE`），`TaskbarSpeedWindow::resolve_chinese_locale()`、`ProductHost::build_context_menu_options()` 与 `ProductHost::on_browse_excluded_program()` 共用该规则；
+  - `ProductHost::on_set_locale` 同步更新 `current_config_.appearance.language`、持久化配置并刷新任务栏监控配置。
+- **测试 (`tests/host_tests.cpp`)**：
+  - 新增 `CheckContextMenuLocalizationFollowsSetting`，覆盖 `resolve_chinese_locale` 在 `System` / `English` / `SimplifiedChinese` 与 `zh-CN` / `zh-TW` / `en-US` `LANGID` 下的组合语义，以及 `on_update_setting("appearance.language", ...)` / `on_set_locale(...)` 驱动 `CaptureContextMenu` 输出对应中英文菜单项。

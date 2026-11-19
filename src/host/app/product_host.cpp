@@ -6,6 +6,7 @@
 #include "network_flow_monitor/host/platform/webview2_environment.h"
 
 #include <cmath>
+#include <optional>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -1525,33 +1526,38 @@ void ProductHost::apply_taskbar_monitor_config() {
     }
 }
 
-void ProductHost::on_open_context_menu(int screen_x, int screen_y) {
-    if (!window_ || !coordinator_) {
-        return;
-    }
-    const auto& state = coordinator_->state();
-    bool is_chinese =
-        (current_config_.appearance.language == config::LanguageMode::SimplifiedChinese);
-    bool is_running = collector_companion_ && collector_companion_->is_running();
+platform::ContextMenuOptions ProductHost::build_context_menu_options(
+    surface::ScreenPoint screen_point, LANGID system_ui_language) const {
+    const bool is_chinese =
+        platform::resolve_chinese_locale(current_config_.appearance.language, system_ui_language);
+    const bool is_running = collector_companion_ && collector_companion_->is_running();
     std::wstring status;
     if (is_running) {
         status = is_chinese ? L"运行中" : L"Running";
     } else {
         status = is_chinese ? L"已停止" : L"Stopped";
     }
-
-    platform::ContextMenuOptions opts{
-        .screen_x = screen_x,
-        .screen_y = screen_y,
-        .is_pinned = state.is_pinned,
-        .is_panel_visible =
-            (state.presentation_state == coordinator::PresentationState::PanelVisible),
+    const bool is_pinned = coordinator_ ? coordinator_->state().is_pinned : false;
+    const bool is_panel_visible = coordinator_ && coordinator_->state().presentation_state ==
+                                                      coordinator::PresentationState::PanelVisible;
+    return platform::ContextMenuOptions{
+        .screen_x = screen_point.x_px,
+        .screen_y = screen_point.y_px,
+        .is_pinned = is_pinned,
+        .is_panel_visible = is_panel_visible,
         .is_taskbar_monitor_visible = current_config_.display.show_taskbar_monitor,
         .collector_status = std::move(status),
         .can_retry_collector = !is_running,
         .is_chinese = is_chinese,
     };
-    window_->show_context_menu(opts);
+}
+
+void ProductHost::on_open_context_menu(int screen_x, int screen_y) {
+    if (!window_ || !coordinator_) {
+        return;
+    }
+    window_->show_context_menu(
+        build_context_menu_options(surface::ScreenPoint{.x_px = screen_x, .y_px = screen_y}));
 }
 
 void ProductHost::on_resize_panel(int height_dip) {
@@ -2235,9 +2241,40 @@ void ProductHost::on_set_theme(std::string_view theme) {
 }
 
 void ProductHost::on_set_locale(std::string_view locale) {
-    const std::string l_str(locale);
-    broadcast_to_all_bridges([&l_str](bridge::INativeBridge& b) {
-        b.post_locale_changed(bridge::LocaleChangedDto{.locale = l_str});
+    std::optional<config::LanguageMode> next_mode;
+    std::string normalized_locale(locale);
+    if (locale == "System" || locale == "system") {
+        next_mode = config::LanguageMode::System;
+        normalized_locale = "System";
+    } else if (locale == "English" || locale == "english") {
+        next_mode = config::LanguageMode::English;
+        normalized_locale = "English";
+    } else if (locale == "SimplifiedChinese" || locale == "simplified_chinese") {
+        next_mode = config::LanguageMode::SimplifiedChinese;
+        normalized_locale = "SimplifiedChinese";
+    }
+
+    if (next_mode.has_value() && current_config_.appearance.language != *next_mode) {
+        current_config_.appearance.language = *next_mode;
+        if (!options_.config_file_path.empty()) {
+            const auto save_res = config::SaveConfigFile(options_.config_file_path, current_config_,
+                                                         config::ConfigDocumentKind::User);
+            if (!save_res.saved && save_res.error.has_value()) {
+                write_diagnostic_log(
+                    config::LogLevel::Error,
+                    "Failed to persist configuration: " + save_res.error->detail +
+                        " (win32_error=" + std::to_string(save_res.error->system_error) + ")");
+            }
+        }
+        apply_taskbar_monitor_config();
+    }
+
+    const bool has_mode = next_mode.has_value();
+    broadcast_to_all_bridges([&normalized_locale, this, has_mode](bridge::INativeBridge& b) {
+        b.post_locale_changed(bridge::LocaleChangedDto{.locale = normalized_locale});
+        if (has_mode) {
+            b.post_config_changed(current_config_);
+        }
     });
 }
 
@@ -2303,8 +2340,7 @@ void ProductHost::on_browse_excluded_program() {
         static_cast<void>(dialog->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST |
                                              FOS_PATHMUSTEXIST));
     }
-    const bool is_zh =
-        (current_config_.appearance.language == config::LanguageMode::SimplifiedChinese);
+    const bool is_zh = platform::resolve_chinese_locale(current_config_.appearance.language);
     const COMDLG_FILTERSPEC filter_specs[] = {
         {is_zh ? L"可执行程序 (*.exe)" : L"Executable Files (*.exe)", L"*.exe"},
         {is_zh ? L"所有文件 (*.*)" : L"All Files (*.*)", L"*.*"},

@@ -1,5 +1,7 @@
 #include "network_flow_monitor/host/platform/taskbar_speed_window.h"
 
+#include "network_flow_monitor/host/platform/win32_window.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -569,13 +571,7 @@ bool TaskbarSpeedWindow::resolve_tooltip_light_mode() const noexcept {
     return is_taskbar_light_theme();
 }
 bool TaskbarSpeedWindow::resolve_chinese_locale() const noexcept {
-    if (language_mode_ == config::LanguageMode::SimplifiedChinese) {
-        return true;
-    }
-    if (language_mode_ == config::LanguageMode::English) {
-        return false;
-    }
-    return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE;
+    return platform::resolve_chinese_locale(language_mode_);
 }
 
 bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback on_right_click) {

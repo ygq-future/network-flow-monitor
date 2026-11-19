@@ -125,6 +125,9 @@ struct CollectorStatusMessage {
     bool etw_session_active{true};
     std::uint64_t dropped_packets{};
     std::uint32_t active_pids{};
+    // Empty while the collector is healthy. Carries the first failure the collector can name so
+    // the host can log and react to a stalled ETW pipeline instead of showing a silent 0 B/s.
+    std::string reason;
 
     bool operator==(const CollectorStatusMessage&) const = default;
 };

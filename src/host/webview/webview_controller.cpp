@@ -6,6 +6,7 @@
 
 #include <array>
 #include <commctrl.h>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -163,6 +164,7 @@ struct WebView2Controller::Impl {
     bool desired_visible_{true};
     bool desired_low_memory_{false};
     bool is_suspended_{false};
+    bool post_failing_{false};
     int last_width_px_{-1};
     int last_height_px_{-1};
     EventRegistrationToken message_token_{};
@@ -207,7 +209,14 @@ struct WebView2Controller::Impl {
             if (desired_visible_) {
                 if (is_suspended_) {
                     is_suspended_ = false;
-                    static_cast<void>(webview_v3->Resume());
+                    const HRESULT resume_result = webview_v3->Resume();
+                    if (FAILED(resume_result) && diagnostic_cb_) {
+                        // A rejected resume leaves the surface rendering its last frame, so the
+                        // failure must reach the diagnostic log.
+                        diagnostic_cb_("WebView2 resume failed (hr=" +
+                                       std::to_string(static_cast<std::uint32_t>(resume_result)) +
+                                       ")");
+                    }
                 }
             } else if (is_ready_ && !is_suspended_) {
                 is_suspended_ = true;
@@ -215,8 +224,15 @@ struct WebView2Controller::Impl {
                     Callback<ICoreWebView2TrySuspendCompletedHandler>([this](HRESULT error_code,
                                                                              BOOL is_successful)
                                                                           -> HRESULT {
+                        // WebView2 rejects a suspend while the webview is still visible; only a
+                        // real failure is worth a diagnostic line.
                         if (FAILED(error_code) || is_successful == FALSE) {
                             is_suspended_ = false;
+                        }
+                        if (FAILED(error_code) && diagnostic_cb_) {
+                            diagnostic_cb_("WebView2 suspend failed (hr=" +
+                                           std::to_string(static_cast<std::uint32_t>(error_code)) +
+                                           ")");
                         }
                         return S_OK;
                     }).Get()));
@@ -571,8 +587,32 @@ void WebView2Controller::post_web_message_json(std::string_view json) {
             std::wstring w_json(w_size, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, json.data(), static_cast<int>(json.size()),
                                 w_json.data(), w_size);
-            impl_->webview_->PostWebMessageAsJson(w_json.c_str());
+            const HRESULT post_result = impl_->webview_->PostWebMessageAsJson(w_json.c_str());
+            if (FAILED(post_result)) {
+                if (!impl_->post_failing_ && impl_->diagnostic_cb_) {
+                    impl_->post_failing_ = true;
+                    impl_->diagnostic_cb_("WebView2 PostWebMessageAsJson failed (hr=" +
+                                          std::to_string(static_cast<std::uint32_t>(post_result)) +
+                                          ")");
+                }
+            } else if (impl_->post_failing_) {
+                impl_->post_failing_ = false;
+                if (impl_->diagnostic_cb_) {
+                    impl_->diagnostic_cb_("WebView2 PostWebMessageAsJson recovered");
+                }
+            }
         }
+    }
+}
+
+void WebView2Controller::reload() {
+    if (impl_->webview_.Get() == nullptr) {
+        return;
+    }
+    const HRESULT reload_result = impl_->webview_->Reload();
+    if (FAILED(reload_result) && impl_->diagnostic_cb_) {
+        impl_->diagnostic_cb_("WebView2 reload failed (hr=" +
+                              std::to_string(static_cast<std::uint32_t>(reload_result)) + ")");
     }
 }
 

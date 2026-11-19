@@ -1,11 +1,15 @@
 #include "network_flow_monitor/app/collector_runtime.h"
 
+#include "network_flow_monitor/collector/collector_log.h"
+#include "network_flow_monitor/config/config_paths.h"
+
 #include <windows.h>
 
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <thread>
@@ -17,6 +21,50 @@ namespace {
 std::atomic<std::stop_source*>& PortableStopSource() noexcept {
     static std::atomic<std::stop_source*> source{};
     return source;
+}
+
+std::filesystem::path ExecutablePath() noexcept {
+    try {
+        std::array<wchar_t, 1024> buffer{};
+        const auto length =
+            ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0U || length >= buffer.size()) {
+            return {};
+        }
+        return std::filesystem::path{std::wstring_view{buffer.data(), length}};
+    } catch (...) {
+        return {};
+    }
+}
+
+void LogHostResult(std::string_view stage, const collector::CollectorHostResult& result) noexcept {
+    try {
+        collector::WriteCollectorLog(
+            collector::CollectorLogSeverity::Error,
+            std::string{stage} +
+                " failed (error=" + std::to_string(static_cast<int>(result.error)) +
+                ", source_error=" + std::to_string(result.source_error) + ")");
+    } catch (...) {
+    }
+}
+
+void LogRuntimeStart(std::uint32_t parent_pid) noexcept {
+    try {
+        collector::WriteCollectorLog(
+            collector::CollectorLogSeverity::Info,
+            "Collector runtime starting (pid=" + std::to_string(::GetCurrentProcessId()) +
+                ", parent_pid=" + std::to_string(parent_pid) + ")");
+    } catch (...) {
+    }
+}
+
+void LogStopSignalFailure(std::uint32_t win32_error) noexcept {
+    try {
+        collector::WriteCollectorLog(
+            collector::CollectorLogSeverity::Error,
+            "Stop signal open failed (win32_error=" + std::to_string(win32_error) + ")");
+    } catch (...) {
+    }
 }
 
 BOOL WINAPI PortableControlHandler(DWORD control) noexcept {
@@ -216,9 +264,18 @@ collector::CollectorHostResult CollectorRuntime::Stop() noexcept {
 
 collector::CollectorHostResult CollectorRuntime::RunPortable(std::wstring_view stop_event_name,
                                                              std::uint32_t parent_pid) noexcept {
+    try {
+        collector::OpenCollectorLog(config::PortableLogDirectory(ExecutablePath()) /
+                                    L"nfm-collector.log");
+    } catch (...) {
+    }
+    LogRuntimeStart(parent_pid);
+
     std::uint32_t event_error{};
     auto stop_event = OpenStopEvent(stop_event_name, event_error);
     if (!stop_event_name.empty() && stop_event.get() == nullptr) {
+        LogStopSignalFailure(event_error);
+        collector::CloseCollectorLog();
         return {.error = collector::CollectorHostError::StopSignalFailed,
                 .source_error = event_error};
     }
@@ -230,6 +287,8 @@ collector::CollectorHostResult CollectorRuntime::RunPortable(std::wstring_view s
 
     const auto started = Start();
     if (!started.ok()) {
+        LogHostResult("Collector host start", started);
+        collector::CloseCollectorLog();
         return started;
     }
 
@@ -272,6 +331,15 @@ collector::CollectorHostResult CollectorRuntime::RunPortable(std::wstring_view s
             }
             PortableStopSource().store(nullptr, std::memory_order_release);
             const auto stop_result = Stop();
+            if (!run_result.ok()) {
+                LogHostResult("Collector host run", run_result);
+            }
+            if (!stop_result.ok()) {
+                LogHostResult("Collector host stop", stop_result);
+            }
+            collector::WriteCollectorLog(collector::CollectorLogSeverity::Info,
+                                         "Collector runtime stopped");
+            collector::CloseCollectorLog();
             return run_result.ok() ? stop_result : run_result;
         }();
     } catch (...) {
@@ -280,6 +348,12 @@ collector::CollectorHostResult CollectorRuntime::RunPortable(std::wstring_view s
         }
         PortableStopSource().store(nullptr, std::memory_order_release);
         static_cast<void>(Stop());
+        LogHostResult("Collector host run",
+                      {.error = collector::CollectorHostError::StopSignalFailed,
+                       .source_error = ERROR_NOT_ENOUGH_MEMORY});
+        collector::WriteCollectorLog(collector::CollectorLogSeverity::Info,
+                                     "Collector runtime stopped");
+        collector::CloseCollectorLog();
         return {.error = collector::CollectorHostError::StopSignalFailed,
                 .source_error = ERROR_NOT_ENOUGH_MEMORY};
     }

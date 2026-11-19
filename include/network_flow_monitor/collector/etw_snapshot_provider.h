@@ -4,6 +4,9 @@
 #include "network_flow_monitor/collector/windows_etw_session.h"
 #include "network_flow_monitor/ipc/snapshot_publisher.h"
 
+#include <chrono>
+#include <optional>
+
 namespace nfm::collector {
 
 class EtwSnapshotProvider final : public ipc::SnapshotProvider {
@@ -19,6 +22,11 @@ class EtwSnapshotProvider final : public ipc::SnapshotProvider {
 
   private:
     WindowsEtwSession* session_;
+    // Capture runs every 250 ms; only the healthy<->failed edges are worth a log line.
+    bool capture_failing_{false};
+    // Cross-check that the realtime session still matches the OS network stack.
+    std::optional<EtwDeliverySample> delivery_sample_;
+    std::optional<std::chrono::steady_clock::time_point> delivery_check_at_;
 };
 
 } // namespace nfm::collector

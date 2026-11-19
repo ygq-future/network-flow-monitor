@@ -40,6 +40,8 @@ class IWebViewController {
     virtual void navigate(std::wstring_view url) = 0;
     virtual void post_web_message_json(std::string_view json) = 0;
     virtual void execute_script(std::wstring_view script) = 0;
+    // Reloads the packaged document; the recovery path for a page that stopped consuming frames.
+    virtual void reload() {}
     virtual void set_message_callback(WebMessageReceivedCallback callback) = 0;
     virtual void set_navigation_callback(NavigationCompletedCallback callback) = 0;
     virtual void set_diagnostic_callback(const WebViewDiagnosticCallback& /*callback*/) {}
@@ -65,6 +67,7 @@ class WebView2Controller : public IWebViewController {
     void navigate(std::wstring_view url) override;
     void post_web_message_json(std::string_view json) override;
     void execute_script(std::wstring_view script) override;
+    void reload() override;
     void set_message_callback(WebMessageReceivedCallback callback) override;
     void set_navigation_callback(NavigationCompletedCallback callback) override;
     void set_diagnostic_callback(const WebViewDiagnosticCallback& callback) override;

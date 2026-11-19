@@ -1,5 +1,6 @@
 #include "network_flow_monitor/collector/windows_etw_session.h"
 
+#include "network_flow_monitor/collector/collector_log.h"
 #include "network_flow_monitor/collector/etw_authorization.h"
 #include "network_flow_monitor/process/windows_process_probe.h"
 
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <string>
 #include <system_error>
 #include <utility>
 #include <variant>
@@ -16,6 +18,9 @@ namespace nfm::collector {
 namespace {
 
 constexpr wchar_t kSessionName[] = L"NetworkFlowMonitor.SystemTrace";
+// 64 TCP segments/datagrams over one check window is far above what an idle desktop produces and
+// far below what a realtime consumer would silently swallow.
+constexpr std::uint64_t kMinimumStackActivityForStall = 64U;
 constexpr GUID kSessionId = {.Data1 = 0x1473ea71U,
                              .Data2 = 0xa063U,
                              .Data3 = 0x4396U,
@@ -62,6 +67,16 @@ void RecordSchema(const SchemaMaskWriters masks, const EVENT_DESCRIPTOR& descrip
         RecordSchemaValue(masks.version3_opcodes, descriptor.Opcode);
     } else if (descriptor.Version == 4U) {
         RecordSchemaValue(masks.version4_opcodes, descriptor.Opcode);
+    }
+}
+
+// Logging allocates; these call sites live in noexcept ETW entry points, so the formatting must
+// never escape as an exception.
+void LogSessionError(std::string_view what, ULONG code) noexcept {
+    try {
+        WriteCollectorLog(CollectorLogSeverity::Error,
+                          std::string{what} + " (code=" + std::to_string(code) + ")");
+    } catch (...) {
     }
 }
 
@@ -155,6 +170,7 @@ WindowsEtwSessionResult WindowsEtwSession::Start() noexcept {
             api_.StartController(&controller_handle_, kSessionName, Properties(properties_buffer_));
     }
     if (status != ERROR_SUCCESS) {
+        LogSessionError("ETW session start failed", status);
         std::scoped_lock core_lock{core_mutex_};
         core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
                                    .stage = CollectorErrorStage::StartSession,
@@ -218,6 +234,7 @@ WindowsEtwSessionResult WindowsEtwSession::Start() noexcept {
         const std::scoped_lock core_lock{core_mutex_};
         core_.SetState(CollectorState::Running);
     }
+    WriteCollectorLog(CollectorLogSeverity::Info, "ETW realtime session started");
     return {};
 }
 
@@ -231,22 +248,34 @@ WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
         api_.ControlController(controller_handle_, kSessionName, Properties(properties_buffer_),
                                EVENT_TRACE_CONTROL_FLUSH);
     if (status != ERROR_SUCCESS) {
+        const bool session_lost = status == ERROR_WMI_INSTANCE_NOT_FOUND;
+        if (session_lost) {
+            WriteCollectorLog(
+                CollectorLogSeverity::Error,
+                "ETW session disappeared (flush returned ERROR_WMI_INSTANCE_NOT_FOUND)");
+        }
         const std::scoped_lock core_lock{core_mutex_};
         core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
                                    .stage = CollectorErrorStage::FlushSession,
                                    .code = status},
-                                  false, false, false);
+                                  session_lost, false, session_lost);
         return {.error = WindowsEtwSessionError::FlushFailed, .win32_error = status};
     }
     PrepareProperties();
     status = api_.ControlController(controller_handle_, kSessionName,
                                     Properties(properties_buffer_), EVENT_TRACE_CONTROL_QUERY);
     if (status != ERROR_SUCCESS) {
+        const bool session_lost = status == ERROR_WMI_INSTANCE_NOT_FOUND;
+        if (session_lost) {
+            WriteCollectorLog(
+                CollectorLogSeverity::Error,
+                "ETW session disappeared (query returned ERROR_WMI_INSTANCE_NOT_FOUND)");
+        }
         const std::scoped_lock core_lock{core_mutex_};
         core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
                                    .stage = CollectorErrorStage::QuerySession,
                                    .code = status},
-                                  false, false, false);
+                                  session_lost, false, session_lost);
         return {.error = WindowsEtwSessionError::QueryFailed, .win32_error = status};
     }
     const auto* properties = Properties(properties_buffer_);
@@ -260,6 +289,32 @@ WindowsEtwSessionResult WindowsEtwSession::FlushAndQuery() noexcept {
     const std::scoped_lock core_lock{core_mutex_};
     core_.UpdateEtwStatistics(statistics_.loss);
     return {};
+}
+
+bool IsEtwDeliveryStalled(const EtwDeliverySample& previous,
+                          const EtwDeliverySample& current) noexcept {
+    if (current.stack_activity < previous.stack_activity ||
+        current.events_received < previous.events_received) {
+        // A counter reset means a new session epoch, not a stall.
+        return false;
+    }
+    const auto stack_delta = current.stack_activity - previous.stack_activity;
+    const auto event_delta = current.events_received - previous.events_received;
+    return stack_delta >= kMinimumStackActivityForStall && event_delta == 0U;
+}
+
+void WindowsEtwSession::MarkDeliveryStalled(std::uint64_t stack_activity_delta) noexcept {
+    try {
+        WriteCollectorLog(CollectorLogSeverity::Error, "ETW delivery stalled (stack_activity=" +
+                                                           std::to_string(stack_activity_delta) +
+                                                           ", events_received=0)");
+    } catch (...) {
+    }
+    const std::scoped_lock lock{core_mutex_};
+    core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
+                               .stage = CollectorErrorStage::ProcessTrace,
+                               .code = ERROR_NO_DATA},
+                              true, false, true);
 }
 
 WindowsEtwSessionResult WindowsEtwSession::Stop() noexcept {
@@ -300,6 +355,7 @@ WindowsEtwSessionResult WindowsEtwSession::Stop() noexcept {
         return {.error = WindowsEtwSessionError::StopFailed, .win32_error = first_error};
     }
     core_.SetState(CollectorState::Stopped);
+    WriteCollectorLog(CollectorLogSeverity::Info, "ETW realtime session stopped");
     return {};
 }
 
@@ -360,13 +416,18 @@ ULONG WINAPI WindowsEtwSession::BufferCallback(PEVENT_TRACE_LOGFILEW logfile) no
 
 void WindowsEtwSession::ProcessWorker(TRACEHANDLE processing_handle) noexcept {
     const ULONG status = api_.ProcessConsumer(&processing_handle);
-    if (status != ERROR_SUCCESS && status != ERROR_CANCELLED && status != ERROR_CTX_CLOSE_PENDING) {
-        std::scoped_lock lock{core_mutex_};
-        core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
-                                   .stage = CollectorErrorStage::ProcessTrace,
-                                   .code = status},
-                                  true, false, true);
+    if (stop_requested_.load() || fatal_callback_.load()) {
+        // Shutdown closed the consumer, or a callback already recorded its own fatal error.
+        return;
     }
+    // A realtime consumer returns only when the session stops delivering events; unless our own
+    // Stop() asked for it, that is a fatal session end and must be recorded.
+    LogSessionError("ETW consumer returned unexpectedly", status);
+    std::scoped_lock lock{core_mutex_};
+    core_.RecordExternalError({.domain = CollectorErrorDomain::Etw,
+                               .stage = CollectorErrorStage::ProcessTrace,
+                               .code = status},
+                              true, false, true);
 }
 
 void WindowsEtwSession::OnEvent(const EVENT_RECORD& record) noexcept {

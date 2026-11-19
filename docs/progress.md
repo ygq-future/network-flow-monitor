@@ -657,3 +657,59 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `tools/quality.ps1 -Mode Full` 20/20 通过（clang-format 111 文件、ESLint 0 warning、`tsc --noEmit`、Vitest 10 passed、Debug/Release 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、CPack 打包）；
   - `tools/package.ps1 -Configuration Release` 生成 `build/dist/NetworkFlowMonitor-0.3.6-win-x64.zip`（921937 字节，SHA256 `F205BBDCC3343F3178CBCA2554D8744A72A833B6CD9CDE9E82851AA7C39A58CE`），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.6.0`；
   - 提交版本升级与发布说明后推送 `v0.3.6` tag，由 `.github/workflows/quality-and-publish.yml` 在 CI 上重跑 Full 门禁、重新打包并以该归档与发布说明创建 GitHub Release。
+
+## 第四十九轮 流量数据停更根因定位与链路自愈 — complete
+
+- **现场证据（v0.3.6 装机实例，2026-11-14）**：
+  - 用户报告"胶囊浮动正常、面板与任务栏网速定格在非零值、其他指标正常"，重启后恢复；`nfm-host.log` 在该时间窗内**没有任何记录**（无 `UI thread stalled`、无 `Collector IPC stream lost`、无 `WebView2 ProcessFailed`、无 WER 崩溃/挂起事件）。
+  - 旧进程在 11:07:49 写出 `icon_cache.json`，说明其 `shutdown()` 正常执行、UI 线程全程存活；由此排除 UI 线程阻塞，把故障收敛到"流量帧停止推进/停止被消费"。
+  - 面板可正常打开并不能证明数据在流动：`publish_surface_state()` 会用 `latest_ranking_snapshot_` 重放缓存快照（`product_host.cpp`）。
+  - 代码级根因：该链路每个失败点都静默——`ProcessTrace` 返回 `ERROR_SUCCESS`/`ERROR_CANCELLED` 时不改状态（`windows_etw_session.cpp`）、采集失败只发布尔没有原因字段（`snapshot_publisher.cpp`）、Collector 进程零日志、`is_ready()` 为假直接跳过推送、`PostWebMessageAsJson` 的 HRESULT 被丢弃、页面无任何回执。
+- **协议与状态归因 (`protocol_types.h`, `frame_codec.cpp`, `snapshot_publisher.cpp`)**：
+  - `CollectorStatus` 新增可选 `reason`（健康时不编码，保持旧帧字节不变），由 `DescribeHealthFailure()` 输出 `<domain> <stage> failed (code=N)`；
+  - 宿主按"每个不同 reason 只记一次"写入日志，并在恢复时记录 `Collector pipeline reported healthy`。
+- **采集端健康自检 (`windows_etw_session.cpp`, `etw_snapshot_provider.cpp`, `collector_companion.cpp`)**：
+  - 非 `Stop()` 请求导致的 `ProcessTrace` 返回（含 `ERROR_SUCCESS`）一律记为致命会话失败；`Flush`/`Query` 返回 `ERROR_WMI_INSTANCE_NOT_FOUND` 同样致命；
+  - 新增投递交叉校验（`IsEtwDeliveryStalled`）：每 5 s 比较 OS TCP/UDP 计数与 `events_received`，栈上有活动而追踪零事件即判定会话已停投递（空闲桌面两项都不动，不会误判），避免"会话仍活着但不投递事件"这一残留静默态；
+  - `inject_collector_status` 把 `reason` 透传为 `last_error`，并把 3 处重复的状态字符串映射收敛为 `lifecycle::to_string(CollectorState)` 单一权威实现。
+- **链路自愈与停顿诊断 (`data_liveness_monitor.{h,cpp}`, `product_host.{h,cpp}`, `bridge_types.*`, `bridge_dispatcher.cpp`, `webview_controller.*`, `BridgeContext.tsx`, `bridgeTypes.ts`)**：
+  - 新增纯逻辑 `DataLivenessMonitor`（可在 UI 线程 1 秒看门狗中求值、可单元测试）：3 s 无帧记 `Traffic data stream stalled`，10 s 无帧或 ETW 持续 3 s 报 inactive 时自动 `restart()` Collector；
+  - 前端每个 tick 的第 1 帧与每第 4 帧回发新增的 `trafficFrameAck` 命令（1 Hz 心跳）；宿主 5 s 未收到回执记 `UI stopped acknowledging traffic frames`，10 s 未收到则 `reload()` 打包文档，用于区分"采集停了"与"页面不消费"；
+  - 两条恢复路径各自 60 s 冷却，避免环境异常导致重启/重载风暴；
+  - `PostWebMessageAsJson`、`Resume`、`TrySuspend`、`Reload` 的失败与恢复均记录诊断，补齐此前完全静默的跨进程调用。
+- **Collector 本地日志 (`collector_log.{h,cpp}`, `collector_runtime.cpp`, `src/CMakeLists.txt`)**：
+  - 新增进程级 append-only 日志 `<app_root>/logs/nfm-collector.log`（1 MiB 上限、超限归档为 `.1`），记录启动/停止、ETW 会话启动与消失、采集失败与恢复；日志不记录网络载荷、远端地址或命令行参数。
+- **测试与质量门禁**：
+  - `host_tests.cpp` 新增 `host_liveness_suite`（6 组用例：升级时序、恢复冷却、ETW inactive 重启、页面回执停顿/重载、无流不误报、采集停顿时不误判页面停顿）；
+  - `collector_tests.cpp` 新增 `collector_log_suite`（写入/截断/超长消息上限/轮转）与 `IsEtwDeliveryStalled` 判定用例；`ipc_protocol_tests.cpp` 覆盖带与不带 `reason` 的往返；前端新增 tick 回执用例；
+  - ETW 测试假体改为"消费者阻塞到 stop"以贴近真实语义，并保留 `exit_immediately` 以验证非请求返回的致命标记。
+
+## 第五十轮 宿主启动崩溃取证与启动期诊断 — complete
+
+- **现象**：`build\windows-x64-debug\NetworkFlowMonitor.exe` 启动后无窗口、无日志。
+- **取证 (`%LOCALAPPDATA%\CrashDumps`)**：
+  - 两份 minidump（13:19:11 / 13:20:28）指向同一故障：`0xC0000005`（读，目标地址 `0xFFFFFFFFFFFFFFFF`），出错模块为本进程 exe，RVA `0x32b2b`；
+  - 解析 dump 的异常线程栈与模块列表后，该 RVA 落在 `std::_Container_base12::_Orphan_all_unlocked_v3`（Debug 迭代器代理解链），属容器调试代理被破坏的症状，而非可复现的业务分支；
+  - 重新构建后连续 11 次启动（含清空 `data/icon_cache.json` 的冷缓存路径）0 崩溃、0 新 dump，Release 构建亦正常，故该崩溃与当前工作树不可复现，无法再定位到具体调用点。
+- **启动期诊断 (`main.cpp`)**：
+  - `wWinMain` 在任何宿主对象创建前解析日志目录并安装 `SetUnhandledExceptionFilter`，崩溃时写入 `Unhandled exception 0x%08lX at <module>+0x%llX (read|write address=0x%llX)` 并继续交回 WER，使启动崩溃不再需要反查 dump；
+  - 单实例分支不再静默退出：命中既有实例时记录 `Host startup skipped: another instance owns the single-instance mutex; activated its window (pid=…)`，持有互斥量却找不到宿主窗口时记录错误；
+  - 启动时记录 `Host process starting (pid=…)`，与 `Host ready` 配对即可判定"启动到哪一步"。
+- **诊断噪声收敛 (`webview_controller.cpp`)**：`TrySuspend` 在 WebView 仍可见时被拒绝属正常路径，不再记日志；仅在 HRESULT 真正失败时记录 `WebView2 suspend failed (hr=…)`。
+- **验证**：`tools/quality.ps1 -Mode Fast` 13/13；连续 3 次启动存活 + 第二实例按预期激活既有窗口并写入日志；新增启动诊断不产生额外崩溃转储。
+
+## 第五十一轮 流量停更自愈的真机验证 — complete
+
+- **归属核对（确认停更与本轮改动无关）**：
+  - 停更窗口 `2026-11-14 10:53:33 – 11:07:49` 记录在装机实例 `D:\Program Files\NetworkFlowMonitor\logs\nfm-host.log`；该目录内的 `NetworkFlowMonitor.exe` / `nfm-collector.exe` 均为 **2026-11-10 21:03:33**（HEAD `3f81e25` v0.3.6 构建），sha256 `468e1d70…`；
+  - 本轮改动首次落盘为 **2026-11-14 11:49:28**（`product_host.cpp`），其后 12:02–12:04 继续编辑；构建产物 `build\windows-x64-release\NetworkFlowMonitor.exe`（13:37:40，sha256 `794c5eec…`）与装机文件不同。
+  - 结论：停更发生在改动落地前约 1 小时，运行的是 4 天前构建的二进制，不可能由本轮代码引入。
+- **真机验证（`build\windows-x64-debug` 重建后实测）**：
+  - **采集器存活但静默**（`NtSuspendProcess` 挂起 Collector）：3 s 后记录 `Traffic data stream stalled for 3042 ms (collector pid=292052, instance=…, state=Running, etw_active=true)`——即本次线上停更的同一特征；10 s 后触发 `Restarting collector…`；
+  - **采集器进程消失**（`Stop-Process` 强杀）：记录 `Collector is not producing traffic (state=Failed, error=Collector process exited …)`，10 s 后自动重启并重新握手成功（`Collector companion launched` + `Collector IPC handshake established`）；
+  - 两次重启期间若 UAC 提权路径失败（`collector_exit_code=5`，由被挂起的旧进程占用环境导致），60 s 冷却后的重试成功拉起采集器，说明失败重试闭环有效；
+  - 正常使用时段（14:00–14:03 用户实际运行）无任何停顿/回执告警，页面 ack 链路未出现 `UI stopped acknowledging traffic frames`。
+- **验证中发现并修复的缺口**：
+  - 原先采集器**进程退出后不会自动重启**（只在 IPC 层重连），画面会一直冻结到手动重启；`DataLivenessMonitor` 新增 `collector_expected` 观测与 `CollectorUnavailable` 动作，10 s 未恢复即重启采集器（60 s 冷却，失败按冷却重试）；
+  - `nfm-collector.log` 以独占方式打开，运行中无法读取；改为 `_wfsopen(..., _SH_DENYNO)`，实测运行中可直接读取 `ETW realtime session started`。
+- **测试**：`host_liveness_suite` 新增 `TestCollectorDownRestart`（缺失采集器的记录/重启阈值、每轮只重启一次、重连后清除、无期望时不误报）。

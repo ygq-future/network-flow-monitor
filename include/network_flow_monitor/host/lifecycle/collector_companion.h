@@ -37,6 +37,9 @@ using CollectorStatusCallback = std::function<void(const bridge::CollectorStatus
 using SessionResetCallback = std::function<void(const bridge::SessionResetDto&)>;
 using DiagnosticCallback = std::function<void(bool is_error, std::string_view message)>;
 
+// Single authority for the wire/UI state label of a companion state.
+[[nodiscard]] std::string_view to_string(CollectorState state) noexcept;
+
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 [[nodiscard]] bool is_application_excluded(std::string_view app_id,
                                            std::string_view executable_path,
@@ -110,6 +113,7 @@ class CollectorCompanion : public ipc::IpcClientObserver {
     void* collector_process_handle_{nullptr};
     void* stop_event_handle_{nullptr};
     std::string stop_event_name_;
+    std::string last_reported_reason_;
     std::vector<std::string> excluded_programs_;
     std::uint64_t excluded_download_bytes_per_sec_{0U};
     std::uint64_t excluded_upload_bytes_per_sec_{0U};

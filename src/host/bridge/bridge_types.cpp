@@ -50,6 +50,8 @@ std::string_view to_string(WebCommandType type) noexcept {
         return "browseExcludedProgram";
     case WebCommandType::RequestTrafficHistory:
         return "requestTrafficHistory";
+    case WebCommandType::TrafficFrameAck:
+        return "trafficFrameAck";
     case WebCommandType::Unknown:
     default:
         return "unknown";
@@ -125,6 +127,9 @@ WebCommandType parse_web_command_type(std::string_view name) noexcept {
     }
     if (name == "requestTrafficHistory") {
         return WebCommandType::RequestTrafficHistory;
+    }
+    if (name == "trafficFrameAck") {
+        return WebCommandType::TrafficFrameAck;
     }
     return WebCommandType::Unknown;
 }

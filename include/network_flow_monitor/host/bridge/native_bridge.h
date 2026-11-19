@@ -70,6 +70,8 @@ class IBridgeCommandHandler {
     virtual void on_request_connected_applications() {}
     virtual void on_browse_excluded_program() {}
     virtual void on_request_traffic_history() {}
+    // Page acknowledged consuming a traffic frame; keeps the host's liveness watchdog honest.
+    virtual void on_traffic_frame_ack() {}
 };
 
 using WebMessageSender = std::function<void(std::string_view json)>;

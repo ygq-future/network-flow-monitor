@@ -240,6 +240,7 @@ bool ProductHost::initialize() {
 
     collector_companion_->set_excluded_programs(current_config_.ranking.excluded_programs);
     collector_companion_->set_traffic_tick_callback([this](const bridge::TrafficTickDto& tick) {
+        frames_received_.fetch_add(1U, std::memory_order_relaxed);
         if (window_ != nullptr) {
             window_->post_ui_task([this, tick]() noexcept {
                 try {
@@ -248,6 +249,7 @@ bool ProductHost::initialize() {
                             coordinator::PresentationState::TrayOnly &&
                         !coordinator_->state().is_fullscreen_hidden) {
                         native_bridge_->post_traffic_tick(tick);
+                        frames_delivered_since_poll_ = true;
                     }
                     if (taskbar_speed_window_ && !latest_ranking_snapshot_.has_value()) {
                         taskbar_speed_window_->update_rates(platform::TaskbarRatePair{
@@ -263,6 +265,7 @@ bool ProductHost::initialize() {
 
     collector_companion_->set_ranking_snapshot_callback(
         [this](const bridge::RankingSnapshotDto& snapshot) {
+            frames_received_.fetch_add(1U, std::memory_order_relaxed);
             if (window_ != nullptr) {
                 auto snap_ptr = std::make_shared<bridge::RankingSnapshotDto>(snapshot);
                 window_->post_ui_task([this, snap_ptr]() noexcept {
@@ -273,6 +276,7 @@ bool ProductHost::initialize() {
                                 coordinator_->state().presentation_state ==
                                     coordinator::PresentationState::PanelVisible) {
                                 native_bridge_->post_ranking_snapshot(*snap_ptr);
+                                frames_delivered_since_poll_ = true;
                             }
                             if (taskbar_speed_window_) {
                                 taskbar_speed_window_->update_rates(platform::TaskbarRatePair{
@@ -789,6 +793,7 @@ void ProductHost::on_surface_clock_tick(std::chrono::milliseconds elapsed) {
                 taskbar_speed_window_->sync_with_taskbar();
             }
         }
+        evaluate_data_liveness();
     }
     history_persist_elapsed_ += elapsed;
     if (history_persist_elapsed_ >= kTrafficHistoryAutoSaveInterval) {
@@ -1105,6 +1110,87 @@ void ProductHost::push_traffic_history_to_settings(bool force) {
     history_push_cooldown_ = kHistoryPushInterval;
     settings_bridge_->post_traffic_history(
         traffic_history_store_->export_dto(current_config_.ranking.excluded_programs));
+}
+
+void ProductHost::evaluate_data_liveness() {
+    const auto observation = lifecycle::DataLivenessObservation{
+        .now = std::chrono::steady_clock::now(),
+        .collector_streaming =
+            collector_companion_ != nullptr && collector_companion_->is_running(),
+        .frames_received = frames_received_.load(std::memory_order_relaxed),
+        .etw_active =
+            !latest_collector_status_.has_value() || latest_collector_status_->etw_session_active,
+        .webview_ready = webview_ != nullptr && webview_->is_ready(),
+        .page_acks = page_frame_acks_.load(std::memory_order_relaxed),
+        .frames_delivered = std::exchange(frames_delivered_since_poll_, false),
+        .collector_expected = collector_companion_ != nullptr && !is_shutting_down_,
+    };
+
+    for (const auto action : liveness_monitor_.Observe(observation)) {
+        switch (action) {
+        case lifecycle::DataLivenessAction::CollectorStallDetected: {
+            lifecycle::CollectorInfo info;
+            if (collector_companion_ != nullptr) {
+                info = collector_companion_->get_info();
+            }
+            write_diagnostic_log(
+                config::LogLevel::Error,
+                "Traffic data stream stalled for " +
+                    std::to_string(liveness_monitor_.last_stall_duration().count()) +
+                    " ms (collector pid=" + std::to_string(info.process_id) + ", instance=" +
+                    info.instance_id + ", state=" + std::string{lifecycle::to_string(info.state)} +
+                    ", etw_active=" + (observation.etw_active ? "true" : "false") + ")");
+            break;
+        }
+        case lifecycle::DataLivenessAction::CollectorStallCleared:
+            write_diagnostic_log(config::LogLevel::Info,
+                                 "Traffic data stream recovered (" +
+                                     std::to_string(observation.frames_received) +
+                                     " frames accepted)");
+            break;
+        case lifecycle::DataLivenessAction::CollectorUnavailable: {
+            lifecycle::CollectorInfo info;
+            if (collector_companion_ != nullptr) {
+                info = collector_companion_->get_info();
+            }
+            write_diagnostic_log(
+                config::LogLevel::Error,
+                "Collector is not producing traffic (state=" +
+                    std::string{lifecycle::to_string(info.state)} +
+                    ", pid=" + std::to_string(info.process_id) + ", error=" +
+                    (info.error_message.empty() ? std::string{"none"} : info.error_message) + ")");
+            break;
+        }
+        case lifecycle::DataLivenessAction::CollectorRestartRequested:
+            write_diagnostic_log(
+                config::LogLevel::Error,
+                "Restarting collector: traffic stopped advancing, the collector is unavailable, or "
+                "it reported an inactive ETW session");
+            if (collector_companion_ != nullptr) {
+                const bool restarted = collector_companion_->restart();
+                write_diagnostic_log(restarted ? config::LogLevel::Info : config::LogLevel::Error,
+                                     restarted ? "Collector restart completed"
+                                               : "Collector restart failed");
+            }
+            break;
+        case lifecycle::DataLivenessAction::PageStallDetected:
+            write_diagnostic_log(
+                config::LogLevel::Error,
+                "UI stopped acknowledging traffic frames; the surface is not consuming data");
+            break;
+        case lifecycle::DataLivenessAction::PageStallCleared:
+            write_diagnostic_log(config::LogLevel::Info,
+                                 "UI traffic frame acknowledgements resumed");
+            break;
+        case lifecycle::DataLivenessAction::WebViewReloadRequested:
+            write_diagnostic_log(config::LogLevel::Error,
+                                 "Reloading the UI surface after missing frame acknowledgements");
+            if (webview_ != nullptr) {
+                webview_->reload();
+            }
+            break;
+        }
+    }
 }
 
 void ProductHost::warm_executable_icons() {
@@ -2199,6 +2285,10 @@ void ProductHost::on_request_traffic_history() {
     }
     const auto dto = traffic_history_store_->export_dto(current_config_.ranking.excluded_programs);
     broadcast_to_all_bridges([&dto](bridge::INativeBridge& b) { b.post_traffic_history(dto); });
+}
+
+void ProductHost::on_traffic_frame_ack() {
+    page_frame_acks_.fetch_add(1U, std::memory_order_relaxed);
 }
 
 void ProductHost::on_browse_excluded_program() {

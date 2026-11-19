@@ -453,6 +453,10 @@ FrameEncodeResult EncodeCollectorStatus(const CollectorStatusMessage& message) {
     yyjson_mut_obj_add_bool(doc.get(), root, "etw_session_active", message.etw_session_active);
     yyjson_mut_obj_add_uint(doc.get(), root, "dropped_packets", message.dropped_packets);
     yyjson_mut_obj_add_uint(doc.get(), root, "active_pids", message.active_pids);
+    if (!message.reason.empty()) {
+        yyjson_mut_obj_add_strn(doc.get(), root, "reason", message.reason.data(),
+                                message.reason.size());
+    }
 
     return MakeFrameFromDoc(MessageType::CollectorStatus, doc.get());
 }
@@ -474,6 +478,7 @@ MessageDecodeResult<CollectorStatusMessage> DecodeCollectorStatus(
     auto* etw_val = yyjson_obj_get(root, "etw_session_active");
     auto* dropped_val = yyjson_obj_get(root, "dropped_packets");
     auto* pids_val = yyjson_obj_get(root, "active_pids");
+    auto* reason_val = yyjson_obj_get(root, "reason");
 
     if (!yyjson_is_uint(mono_val) || !yyjson_is_bool(etw_val) || !yyjson_is_uint(dropped_val) ||
         !yyjson_is_uint(pids_val)) {
@@ -485,8 +490,9 @@ MessageDecodeResult<CollectorStatusMessage> DecodeCollectorStatus(
         .etw_session_active = yyjson_get_bool(etw_val),
         .dropped_packets = yyjson_get_uint(dropped_val),
         .active_pids = static_cast<std::uint32_t>(yyjson_get_uint(pids_val)),
+        .reason = yyjson_is_str(reason_val) ? std::string(JsonString(reason_val)) : std::string{},
     };
-    return {.message = msg};
+    return {.message = std::move(msg)};
 }
 
 FrameEncodeResult EncodeShutdownRequest(const ShutdownRequestMessage& message) {

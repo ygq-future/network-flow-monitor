@@ -285,9 +285,10 @@ void CheckJsonMessageEncoders(TestContext& context) {
     // CollectorStatus
     const CollectorStatusMessage status{
         .monotonic_ms = 83928471U,
-        .etw_session_active = true,
+        .etw_session_active = false,
         .dropped_packets = 0U,
         .active_pids = 42U,
+        .reason = "ETW consume trace failed (code=0)",
     };
     const auto encoded_status = nfm::ipc::EncodeCollectorStatus(status);
     context.Check(encoded_status.ok(), "CollectorStatus encodes to valid JSON frame");
@@ -295,6 +296,19 @@ void CheckJsonMessageEncoders(TestContext& context) {
     context.Check(decoded_status.ok() && decoded_status.message.has_value() &&
                       *decoded_status.message == status,
                   "CollectorStatus round trips with exact fields");
+
+    const CollectorStatusMessage healthy_status{
+        .monotonic_ms = 83928472U,
+        .etw_session_active = true,
+        .dropped_packets = 7U,
+        .active_pids = 12U,
+    };
+    const auto encoded_healthy = nfm::ipc::EncodeCollectorStatus(healthy_status);
+    const auto decoded_healthy = nfm::ipc::DecodeCollectorStatus(encoded_healthy.bytes);
+    context.Check(decoded_healthy.ok() && decoded_healthy.message.has_value() &&
+                      *decoded_healthy.message == healthy_status &&
+                      decoded_healthy.message->reason.empty(),
+                  "CollectorStatus omits an empty reason and still round trips");
 
     // ShutdownRequest
     const ShutdownRequestMessage shutdown{.reason = "ui_exit"};

@@ -1,5 +1,6 @@
 #include "network_flow_monitor/collector/collector_core.h"
 #include "network_flow_monitor/collector/collector_host.h"
+#include "network_flow_monitor/collector/collector_log.h"
 #include "network_flow_monitor/collector/etw_snapshot_provider.h"
 #include "network_flow_monitor/collector/network_event_decoder.h"
 #include "network_flow_monitor/collector/windows_etw_record_decoder.h"
@@ -17,13 +18,17 @@
 #include <cstring>
 #include <cwchar>
 #include <evntrace.h>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <semaphore>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -702,7 +707,19 @@ class FakeEtwApi final : public nfm::collector::EtwApi {
             buffer_result = captured_logfile.BufferCallback(&captured_logfile);
             buffer_callback_done.release();
         }
+        // A realtime consumer only returns once the session is stopped; tests that need an
+        // unrequested exit set exit_immediately.
+        if (!exit_immediately) {
+            consumer_stop_gate.acquire();
+        }
         return process_status;
+    }
+
+    void ReleaseConsumerGate() noexcept {
+        bool expected = false;
+        if (consumer_gate_released.compare_exchange_strong(expected, true)) {
+            consumer_stop_gate.release();
+        }
     }
 
     ULONG ControlController(TRACEHANDLE handle, LPCWSTR name, PEVENT_TRACE_PROPERTIES properties,
@@ -711,6 +728,7 @@ class FakeEtwApi final : public nfm::collector::EtwApi {
         static_cast<void>(name);
         if (control_code == EVENT_TRACE_CONTROL_STOP) {
             ++stop_calls;
+            ReleaseConsumerGate();
             return stop_status;
         }
         if (control_code == EVENT_TRACE_CONTROL_FLUSH) {
@@ -749,6 +767,9 @@ class FakeEtwApi final : public nfm::collector::EtwApi {
     ULONG close_status{ERROR_SUCCESS};
     bool invoke_event_callback{};
     bool invoke_buffer_callback{};
+    bool exit_immediately{};
+    std::binary_semaphore consumer_stop_gate{0};
+    std::atomic_bool consumer_gate_released{false};
     std::atomic_uint32_t start_calls;
     std::atomic_uint32_t open_calls;
     std::atomic_uint32_t process_calls;
@@ -883,11 +904,21 @@ void CheckRuntimeFailuresAndDestructor(TestContext& context) {
 
     FakeEtwApi process_failure;
     process_failure.process_status = ERROR_INVALID_FUNCTION;
+    process_failure.exit_immediately = true;
     WindowsEtwSession process_session{process_failure};
-    context.Check(process_session.Start().ok() && process_session.Stop().ok(),
+    const bool process_started = process_session.Start().ok();
+    // The consumer thread exits immediately with an unexpected status. A requested stop is treated
+    // as intentional, so wait for the failure record before shutting the session down.
+    bool process_failure_recorded = false;
+    for (int attempt = 0; attempt < 200 && !process_failure_recorded; ++attempt) {
+        process_failure_recorded = process_session.health().unexpected_failures == 1U;
+        if (!process_failure_recorded) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+    }
+    context.Check(process_started && process_session.Stop().ok(),
                   "ProcessTrace failure session joins");
-    context.Check(process_session.health().unexpected_failures == 1U,
-                  "ProcessTrace failure retained");
+    context.Check(process_failure_recorded, "ProcessTrace failure retained");
 
     FakeEtwApi callback_failure;
     callback_failure.invoke_event_callback = true;
@@ -916,6 +947,30 @@ void CheckRuntimeFailuresAndDestructor(TestContext& context) {
                   "destructor performs cleanup");
 }
 
+void CheckDeliveryStallPredicate(TestContext& context) {
+    using nfm::collector::EtwDeliverySample;
+    using nfm::collector::IsEtwDeliveryStalled;
+
+    const EtwDeliverySample idle{.stack_activity = 1000U, .events_received = 50U};
+    context.Check(!IsEtwDeliveryStalled(idle, idle), "idle stack is never a stalled session");
+
+    const EtwDeliverySample quiet_stack{.stack_activity = 1020U, .events_received = 50U};
+    context.Check(!IsEtwDeliveryStalled(idle, quiet_stack),
+                  "stack traffic below the threshold is not a stall");
+
+    const EtwDeliverySample busy_stack{.stack_activity = 1500U, .events_received = 50U};
+    context.Check(IsEtwDeliveryStalled(idle, busy_stack),
+                  "stack activity without any trace event is a stalled session");
+
+    const EtwDeliverySample delivering{.stack_activity = 1500U, .events_received = 900U};
+    context.Check(!IsEtwDeliveryStalled(idle, delivering),
+                  "delivered events prove the session is alive");
+
+    const EtwDeliverySample reset{.stack_activity = 3U, .events_received = 1U};
+    context.Check(!IsEtwDeliveryStalled(idle, reset),
+                  "counter reset starts a new epoch instead of reporting a stall");
+}
+
 } // namespace
 
 int Run() {
@@ -923,6 +978,7 @@ int Run() {
     CheckConfigurationLifecycleAndStatistics(context);
     CheckStartFailuresAndRecovery(context);
     CheckRuntimeFailuresAndDestructor(context);
+    CheckDeliveryStallPredicate(context);
     return context.failures();
 }
 } // namespace windows_etw_session_suite
@@ -1318,6 +1374,8 @@ class FakeEtwApi final : public EtwApi {
 
     ULONG ProcessConsumer(PTRACEHANDLE /*handles*/) noexcept override {
         ++process_calls;
+        // Model a realtime consumer that returns only when the session is stopped.
+        consumer_stop_gate.acquire();
         return process_status;
     }
 
@@ -1326,6 +1384,10 @@ class FakeEtwApi final : public EtwApi {
                             ULONG control_code) noexcept override {
         if (control_code == EVENT_TRACE_CONTROL_STOP) {
             ++stop_calls;
+            bool expected = false;
+            if (consumer_gate_released.compare_exchange_strong(expected, true)) {
+                consumer_stop_gate.release();
+            }
             return stop_status;
         }
         if (control_code == EVENT_TRACE_CONTROL_FLUSH) {
@@ -1355,6 +1417,8 @@ class FakeEtwApi final : public EtwApi {
     std::atomic_uint32_t start_calls;
     std::atomic_uint32_t open_calls;
     std::atomic_uint32_t process_calls;
+    std::binary_semaphore consumer_stop_gate{0};
+    std::atomic_bool consumer_gate_released{false};
     std::atomic_uint32_t flush_calls;
     std::atomic_uint32_t query_calls;
     std::atomic_uint32_t stop_calls;
@@ -1515,6 +1579,95 @@ int Run() {
 }
 } // namespace collector_host_suite
 
+// === collector_log_suite ===
+namespace collector_log_suite {
+namespace {
+
+struct LogCheck {
+    int failures{};
+
+    void Check(bool condition, std::string_view case_name) {
+        if (!condition) {
+            std::cerr << "Case failed: " << case_name << '\n';
+            ++failures;
+        }
+    }
+};
+
+[[nodiscard]] std::string ReadFile(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return {};
+    }
+    return std::string{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+int TestLogWritesAndTruncation() {
+    LogCheck check;
+    std::error_code error;
+    const auto directory = std::filesystem::temp_directory_path(error) /
+                           ("nfm-collector-log-" + std::to_string(::GetCurrentProcessId()));
+    std::filesystem::remove_all(directory, error);
+    std::filesystem::create_directories(directory, error);
+    const auto path = directory / L"nfm-collector.log";
+
+    nfm::collector::OpenCollectorLog(path);
+    check.Check(nfm::collector::CollectorLogIsOpen(), "collector log opens");
+    nfm::collector::WriteCollectorLog(nfm::collector::CollectorLogSeverity::Info, "first entry");
+    nfm::collector::WriteCollectorLog(nfm::collector::CollectorLogSeverity::Error, "second entry");
+    nfm::collector::CloseCollectorLog();
+    check.Check(!nfm::collector::CollectorLogIsOpen(), "collector log closes");
+
+    auto content = ReadFile(path);
+    check.Check(content.starts_with("[20"), "log lines carry a timestamp");
+    check.Check(content.find("[INFO] first entry") != std::string::npos, "info entry is written");
+    check.Check(content.find("[ERROR] second entry") != std::string::npos,
+                "error entry is written");
+
+    // Reopening truncates, and oversized messages are bounded so one line cannot flood the file.
+    nfm::collector::OpenCollectorLog(path);
+    nfm::collector::WriteCollectorLog(nfm::collector::CollectorLogSeverity::Info,
+                                      std::string(4096U, 'x'));
+    nfm::collector::CloseCollectorLog();
+    content = ReadFile(path);
+    check.Check(content.find("first entry") == std::string::npos, "reopening truncates the log");
+    check.Check(content.size() < 1024U, "oversized messages are bounded to one short line");
+
+    std::filesystem::remove_all(directory, error);
+    return check.failures;
+}
+
+int TestRotation() {
+    LogCheck check;
+    std::error_code error;
+    const auto directory = std::filesystem::temp_directory_path(error) /
+                           ("nfm-collector-log-rotate-" + std::to_string(::GetCurrentProcessId()));
+    std::filesystem::remove_all(directory, error);
+    std::filesystem::create_directories(directory, error);
+    const auto path = directory / L"nfm-collector.log";
+    {
+        std::ofstream file(path, std::ios::binary);
+        file << std::string((1024U * 1024U) + 1U, 'y');
+    }
+
+    nfm::collector::OpenCollectorLog(path);
+    nfm::collector::WriteCollectorLog(nfm::collector::CollectorLogSeverity::Info, "after rotate");
+    nfm::collector::CloseCollectorLog();
+
+    auto archived = path;
+    archived += L".1";
+    check.Check(std::filesystem::exists(archived), "oversized log is archived before reopening");
+    const auto content = ReadFile(path);
+    check.Check(content.find("after rotate") != std::string::npos,
+                "fresh log is written after rotation");
+
+    std::filesystem::remove_all(directory, error);
+    return check.failures;
+}
+
+} // namespace
+} // namespace collector_log_suite
+
 int main() {
     int failures = 0;
     failures += (network_event_decoder_suite::Run() != 0 ? 1 : 0);
@@ -1522,5 +1675,7 @@ int main() {
     failures += (windows_etw_session_suite::Run() != 0 ? 1 : 0);
     failures += (collector_core_suite::Run() != 0 ? 1 : 0);
     failures += (collector_host_suite::Run() != 0 ? 1 : 0);
+    failures += (collector_log_suite::TestLogWritesAndTruncation() != 0 ? 1 : 0);
+    failures += (collector_log_suite::TestRotation() != 0 ? 1 : 0);
     return failures;
 }

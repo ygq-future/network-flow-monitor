@@ -399,6 +399,9 @@ bool BridgeDispatcher::dispatch_web_message(std::string_view raw_json, BridgeErr
     case WebCommandType::RequestTrafficHistory:
         handler_->on_request_traffic_history();
         break;
+    case WebCommandType::TrafficFrameAck:
+        handler_->on_traffic_frame_ack();
+        break;
     default:
         if (error_out != nullptr) {
             error_out->code = to_error_code_string(BridgeErrorCode::UnknownCommand);

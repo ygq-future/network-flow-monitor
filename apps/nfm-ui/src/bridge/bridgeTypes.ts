@@ -25,6 +25,7 @@ export type WebCommandType =
   | 'requestConnectedApplications'
   | 'browseExcludedProgram'
   | 'requestTrafficHistory'
+  | 'trafficFrameAck'
 
 export type NativeEventType =
   | 'trafficTick'

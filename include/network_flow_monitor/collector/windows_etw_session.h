@@ -101,6 +101,19 @@ struct WindowsEtwSchemaObservations {
     EtwSchemaObservation process;
 };
 
+// Window of comparison for the delivery cross-check. A realtime session can stop delivering while
+// ProcessTrace is still blocked, so the OS stack counters are compared against the events the
+// session actually received; network idleness always moves neither counter.
+struct EtwDeliverySample {
+    std::uint64_t stack_activity{};
+    std::uint64_t events_received{};
+
+    bool operator==(const EtwDeliverySample&) const = default;
+};
+
+[[nodiscard]] bool IsEtwDeliveryStalled(const EtwDeliverySample& previous,
+                                        const EtwDeliverySample& current) noexcept;
+
 class WindowsEtwSession {
   public:
     explicit WindowsEtwSession(EtwApi& api, WindowsEtwSessionOptions options = {});
@@ -119,6 +132,9 @@ class WindowsEtwSession {
     [[nodiscard]] WindowsEtwSchemaObservations observed_schemas() const noexcept;
     [[nodiscard]] ranking::CounterSnapshot MakeSnapshot(
         std::chrono::steady_clock::time_point captured_at) const;
+    // Marks the realtime pipeline failed after IsEtwDeliveryStalled() saw stack traffic without any
+    // trace event; the published status then reports an inactive session with a reason.
+    void MarkDeliveryStalled(std::uint64_t stack_activity_delta) noexcept;
 
   private:
     static void WINAPI EventRecordCallback(PEVENT_RECORD record) noexcept;

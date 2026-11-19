@@ -1,11 +1,13 @@
 #include "network_flow_monitor/ipc/snapshot_publisher.h"
 
+#include "network_flow_monitor/collector/collector_health.h"
 #include "network_flow_monitor/config/app_config.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <string>
 #include <utility>
 
 namespace nfm::ipc {
@@ -16,6 +18,82 @@ constexpr auto kRankingSnapshotInterval = std::chrono::milliseconds{1000};
 
 PublisherResult PublisherFailure(PublisherError error) noexcept {
     return {.error = error};
+}
+
+[[nodiscard]] std::string_view ErrorDomainName(collector::CollectorErrorDomain domain) noexcept {
+    switch (domain) {
+    case collector::CollectorErrorDomain::None:
+        return "none";
+    case collector::CollectorErrorDomain::Etw:
+        return "ETW";
+    case collector::CollectorErrorDomain::Win32:
+        return "Win32";
+    case collector::CollectorErrorDomain::Tdh:
+        return "Tdh";
+    case collector::CollectorErrorDomain::ProcessProbe:
+        return "process probe";
+    case collector::CollectorErrorDomain::ProcessTracker:
+        return "process tracker";
+    case collector::CollectorErrorDomain::Accumulator:
+        return "accumulator";
+    case collector::CollectorErrorDomain::Callback:
+        return "ETW callback";
+    case collector::CollectorErrorDomain::Internal:
+        return "internal";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view ErrorStageName(collector::CollectorErrorStage stage) noexcept {
+    switch (stage) {
+    case collector::CollectorErrorStage::None:
+        return "none";
+    case collector::CollectorErrorStage::StartSession:
+        return "start session";
+    case collector::CollectorErrorStage::QuerySession:
+        return "query session";
+    case collector::CollectorErrorStage::FlushSession:
+        return "flush session";
+    case collector::CollectorErrorStage::StopSession:
+        return "stop session";
+    case collector::CollectorErrorStage::OpenConsumer:
+        return "open consumer";
+    case collector::CollectorErrorStage::DecodeTimestamp:
+        return "decode timestamp";
+    case collector::CollectorErrorStage::DecodeNetworkEvent:
+        return "decode network event";
+    case collector::CollectorErrorStage::DecodeProcessEvent:
+        return "decode process event";
+    case collector::CollectorErrorStage::ProbeProcess:
+        return "probe process";
+    case collector::CollectorErrorStage::ApplyProcessLifecycle:
+        return "apply process lifecycle";
+    case collector::CollectorErrorStage::AccumulateTraffic:
+        return "accumulate traffic";
+    case collector::CollectorErrorStage::ProcessTrace:
+        return "consume trace";
+    case collector::CollectorErrorStage::EventCallback:
+        return "event callback";
+    case collector::CollectorErrorStage::BufferCallback:
+        return "buffer callback";
+    }
+    return "unknown";
+}
+
+// Projection of the collector health into the status frame. The host treats a non-empty reason as
+// "the traffic pipeline is not trustworthy" and records it verbatim, so it must name the failing
+// component rather than a generic failure. Only a fatal state qualifies: Degraded still delivers
+// traffic and carries no reliable cause.
+[[nodiscard]] std::string DescribeHealthFailure(const collector::CollectorHealth& health) {
+    if (health.state != collector::CollectorState::Failed) {
+        return {};
+    }
+    if (!health.last_error.present()) {
+        return "Collector core failed";
+    }
+    return std::string{ErrorDomainName(health.last_error.domain)} + " " +
+           std::string{ErrorStageName(health.last_error.stage)} +
+           " failed (code=" + std::to_string(health.last_error.code) + ")";
 }
 
 } // namespace
@@ -127,12 +205,18 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                     .total_rate = {.download_bytes_per_sec = 0U, .upload_bytes_per_sec = 0U},
                 };
                 static_cast<void>(server_->PublishRankingSnapshot(empty_snapshot));
+                auto failure_reason = DescribeHealthFailure(capture_result.capture.health);
+                if (failure_reason.empty()) {
+                    failure_reason = "Collector capture failed (source_error=" +
+                                     std::to_string(capture_result.source_error) + ")";
+                }
                 const CollectorStatusMessage inactive_status{
                     .monotonic_ms = monotonic_ms,
                     .etw_session_active = false,
                     .dropped_packets = capture_result.capture.health.events_lost +
                                        capture_result.capture.health.realtime_buffers_lost,
                     .active_pids = 0U,
+                    .reason = failure_reason,
                 };
                 static_cast<void>(server_->PublishCollectorStatus(inactive_status));
                 last_snapshot_run_ = now;
@@ -291,6 +375,7 @@ PublisherResult SnapshotPublisher::RunDue(std::chrono::steady_clock::time_point 
                                    ? capture_result.capture.active_pids
                                    : static_cast<std::uint32_t>(
                                          capture_result.capture.counters.applications.size()),
+                .reason = DescribeHealthFailure(capture_result.capture.health),
             };
             const auto status_pub_result = server_->PublishCollectorStatus(status_msg);
             if (!status_pub_result.ok()) {

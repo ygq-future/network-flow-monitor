@@ -8,6 +8,7 @@
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/history/traffic_history_store.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
+#include "network_flow_monitor/host/lifecycle/data_liveness_monitor.h"
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
@@ -109,6 +110,7 @@ class ProductHost : public platform::IWindowEventListener,
     void on_request_connected_applications() override;
     void on_browse_excluded_program() override;
     void on_request_traffic_history() override;
+    void on_traffic_frame_ack() override;
     [[nodiscard]] std::shared_ptr<bridge::INativeBridge> bridge() const noexcept {
         return native_bridge_;
     }
@@ -131,6 +133,7 @@ class ProductHost : public platform::IWindowEventListener,
     void publish_surface_state();
     void push_traffic_history_to_settings(bool force);
     void warm_executable_icons();
+    void evaluate_data_liveness();
     void ensure_settings_window();
     void create_settings_webview();
     void close_settings_window();
@@ -183,6 +186,12 @@ class ProductHost : public platform::IWindowEventListener,
     mutable platform::RotatingFileLogger logger_;
     std::string last_logged_collector_error_;
     std::uint64_t last_logged_dropped_packets_{0};
+    // Traffic-pipeline liveness: frames accepted from the collector, acknowledgements consumed by
+    // the page, and whether frames were forwarded to the page since the last evaluation.
+    std::atomic<std::uint64_t> frames_received_{0};
+    std::atomic<std::uint64_t> page_frame_acks_{0};
+    lifecycle::DataLivenessMonitor liveness_monitor_;
+    bool frames_delivered_since_poll_{false};
 };
 
 } // namespace nfm::host::app

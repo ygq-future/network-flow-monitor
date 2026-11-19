@@ -27,6 +27,9 @@ const defaultTick: TrafficTickDto = {
   uploadBytesPerSec: 0,
 }
 
+// Ticks arrive at 4 Hz; acknowledging every fourth keeps the heartbeat at 1 Hz.
+const kTrafficAckInterval = 4
+
 const defaultRanking: RankingSnapshotDto = {
   seq: 0,
   monotonicMs: 0,
@@ -64,6 +67,7 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
   const [surface, setSurface] = useState<SurfaceChangedDto>(defaultSurface)
   const [config, setConfig] = useState<AppConfigDto>(defaultMockConfigChanged.config)
   useEffect(() => {
+    let lastAckedSeq = -1
     const unsubTick = bridge.on<TrafficTickDto>('trafficTick', data => {
       setTrafficTick(prev =>
         prev.seq === data.seq &&
@@ -72,6 +76,11 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children, bridge
           ? prev
           : data,
       )
+      // Liveness heartbeat: without it the host cannot tell a frozen surface from a frozen source.
+      if (data.seq !== lastAckedSeq && (lastAckedSeq < 0 || data.seq % kTrafficAckInterval === 0)) {
+        lastAckedSeq = data.seq
+        bridge.sendCommand('trafficFrameAck')
+      }
     })
 
     const unsubRanking = bridge.on<RankingSnapshotDto>('rankingSnapshot', data => {

@@ -5,6 +5,7 @@
 #include "network_flow_monitor/host/coordinator/dock_capsule_coordinator.h"
 #include "network_flow_monitor/host/history/traffic_history_store.h"
 #include "network_flow_monitor/host/lifecycle/collector_companion.h"
+#include "network_flow_monitor/host/lifecycle/data_liveness_monitor.h"
 #include "network_flow_monitor/host/platform/app_updater.h"
 #include "network_flow_monitor/host/platform/rotating_file_logger.h"
 #include "network_flow_monitor/host/platform/startup_registration.h"
@@ -15,6 +16,7 @@
 #include "test_headless_runtime.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -2885,6 +2887,242 @@ int Run() {
 }
 } // namespace taskbar_speed_window_suite
 
+// === host_liveness_suite ===
+namespace host_liveness_suite {
+namespace {
+
+using namespace nfm::host::lifecycle;
+using Clock = std::chrono::steady_clock;
+using std::chrono::milliseconds;
+using std::chrono::seconds;
+
+class TestContext {
+  public:
+    void Check(bool condition, std::string_view name) {
+        if (!condition) {
+            std::cerr << "Case failed: " << name << '\n';
+            ++failures_;
+        }
+    }
+
+    [[nodiscard]] int failures() const noexcept {
+        return failures_;
+    }
+
+  private:
+    int failures_{};
+};
+
+const Clock::time_point kOrigin = Clock::time_point{} + seconds{60};
+
+[[nodiscard]] bool Has(const std::vector<DataLivenessAction>& actions,
+                       DataLivenessAction expected) {
+    return std::ranges::find(actions, expected) != actions.end();
+}
+
+[[nodiscard]] DataLivenessObservation StreamingFrame(Clock::time_point now, std::uint64_t frames) {
+    return DataLivenessObservation{.now = now,
+                                   .collector_streaming = true,
+                                   .frames_received = frames,
+                                   .etw_active = true,
+                                   .webview_ready = true,
+                                   .page_acks = 0,
+                                   .frames_delivered = false};
+}
+
+void TestCollectorStallEscalation(TestContext& context) {
+    DataLivenessMonitor monitor;
+    context.Check(monitor.Observe(StreamingFrame(kOrigin, 0)).empty(),
+                  "no action when the stream starts");
+    context.Check(monitor.Observe(StreamingFrame(kOrigin + seconds{2}, 0)).empty(),
+                  "no action below the stall log threshold");
+
+    const auto logged = monitor.Observe(StreamingFrame(kOrigin + seconds{3}, 0));
+    context.Check(Has(logged, DataLivenessAction::CollectorStallDetected),
+                  "stall is logged once three seconds pass without a frame");
+    context.Check(!Has(monitor.Observe(StreamingFrame(kOrigin + seconds{4}, 0)),
+                       DataLivenessAction::CollectorStallDetected),
+                  "stall is not logged again while the episode continues");
+    context.Check(!Has(monitor.Observe(StreamingFrame(kOrigin + seconds{9}, 0)),
+                       DataLivenessAction::CollectorRestartRequested),
+                  "no restart before the restart threshold");
+
+    const auto restarted = monitor.Observe(StreamingFrame(kOrigin + seconds{10}, 0));
+    context.Check(Has(restarted, DataLivenessAction::CollectorRestartRequested),
+                  "restart is requested after ten seconds without a frame");
+    context.Check(!Has(monitor.Observe(StreamingFrame(kOrigin + seconds{11}, 0)),
+                       DataLivenessAction::CollectorRestartRequested),
+                  "restart is requested once per stall episode");
+
+    const auto recovered = monitor.Observe(StreamingFrame(kOrigin + seconds{12}, 1));
+    context.Check(Has(recovered, DataLivenessAction::CollectorStallCleared),
+                  "stall clears as soon as a frame arrives");
+    context.Check(monitor.last_stall_duration() >= seconds{3},
+                  "measured stall duration is reported for diagnostics");
+}
+
+void TestRestartCooldown(TestContext& context) {
+    DataLivenessMonitor monitor;
+    static_cast<void>(monitor.Observe(StreamingFrame(kOrigin, 0)));
+    context.Check(Has(monitor.Observe(StreamingFrame(kOrigin + seconds{10}, 0)),
+                      DataLivenessAction::CollectorRestartRequested),
+                  "first stall requests a restart");
+    context.Check(Has(monitor.Observe(StreamingFrame(kOrigin + seconds{11}, 1)),
+                      DataLivenessAction::CollectorStallCleared),
+                  "recovered stream clears the stall");
+
+    const auto inside_cooldown = monitor.Observe(StreamingFrame(kOrigin + seconds{22}, 1));
+    context.Check(Has(inside_cooldown, DataLivenessAction::CollectorStallDetected),
+                  "second stall is still logged inside the cooldown");
+    context.Check(!Has(inside_cooldown, DataLivenessAction::CollectorRestartRequested),
+                  "second restart is suppressed inside the recovery cooldown");
+    context.Check(Has(monitor.Observe(StreamingFrame(kOrigin + seconds{71}, 1)),
+                      DataLivenessAction::CollectorRestartRequested),
+                  "restart is allowed once the cooldown elapses");
+}
+
+void TestEtwInactiveRestart(TestContext& context) {
+    DataLivenessMonitor monitor;
+    auto inactive_frame = [](Clock::time_point now, std::uint64_t frames) {
+        auto observation = StreamingFrame(now, frames);
+        observation.etw_active = false;
+        return observation;
+    };
+    context.Check(monitor.Observe(StreamingFrame(kOrigin, 1)).empty(), "healthy frame is quiet");
+    context.Check(monitor.Observe(inactive_frame(kOrigin + seconds{1}, 2)).empty(),
+                  "single inactive report is tolerated");
+    context.Check(!Has(monitor.Observe(inactive_frame(kOrigin + seconds{3}, 3)),
+                       DataLivenessAction::CollectorRestartRequested),
+                  "inactive report below the threshold does not restart");
+    context.Check(Has(monitor.Observe(inactive_frame(kOrigin + seconds{4}, 4)),
+                      DataLivenessAction::CollectorRestartRequested),
+                  "sustained inactive ETW report restarts the collector");
+}
+
+void TestPageAckStall(TestContext& context) {
+    DataLivenessMonitor monitor;
+    struct PageCounts {
+        std::uint64_t frames{0};
+        std::uint64_t acks{0};
+    };
+    auto delivered = [](Clock::time_point now, PageCounts counts) {
+        auto observation = StreamingFrame(now, counts.frames);
+        observation.page_acks = counts.acks;
+        observation.frames_delivered = true;
+        return observation;
+    };
+    context.Check(monitor.Observe(delivered(kOrigin, {.frames = 1})).empty(),
+                  "first delivered frame starts page tracking");
+    context.Check(monitor.Observe(delivered(kOrigin + seconds{2}, {.frames = 3})).empty(),
+                  "page stall below the log threshold is quiet");
+    context.Check(Has(monitor.Observe(delivered(kOrigin + seconds{5}, {.frames = 6})),
+                      DataLivenessAction::PageStallDetected),
+                  "missing acknowledgements are reported after five seconds");
+    context.Check(!Has(monitor.Observe(delivered(kOrigin + seconds{9}, {.frames = 10})),
+                       DataLivenessAction::WebViewReloadRequested),
+                  "no reload before the reload threshold");
+    context.Check(Has(monitor.Observe(delivered(kOrigin + seconds{10}, {.frames = 11})),
+                      DataLivenessAction::WebViewReloadRequested),
+                  "missing acknowledgements reload the surface after ten seconds");
+    context.Check(!Has(monitor.Observe(delivered(kOrigin + seconds{11}, {.frames = 12})),
+                       DataLivenessAction::WebViewReloadRequested),
+                  "reload is requested once per episode");
+    context.Check(Has(monitor.Observe(delivered(kOrigin + seconds{12}, {.frames = 13, .acks = 1})),
+                      DataLivenessAction::PageStallCleared),
+                  "acknowledgement clears the page stall");
+}
+
+void TestNoFalsePositivesWithoutStream(TestContext& context) {
+    DataLivenessMonitor monitor;
+    bool quiet = true;
+    for (int step = 0; step < 60; ++step) {
+        const auto observation = DataLivenessObservation{
+            .now = kOrigin + seconds{step},
+            .collector_streaming = false,
+            .frames_received = 0,
+            .etw_active = false,
+            .webview_ready = true,
+            .page_acks = 0,
+            .frames_delivered = false,
+        };
+        if (!monitor.Observe(observation).empty()) {
+            quiet = false;
+        }
+    }
+    context.Check(quiet, "a stopped collector never reports a traffic stall");
+}
+
+void TestPageStallSuppressedWhileCollectorStalled(TestContext& context) {
+    DataLivenessMonitor monitor;
+    auto delivered = [](Clock::time_point now, std::uint64_t frames) {
+        auto observation = StreamingFrame(now, frames);
+        observation.frames_delivered = true;
+        return observation;
+    };
+    static_cast<void>(monitor.Observe(delivered(kOrigin, 1)));
+    const auto stalled = monitor.Observe(delivered(kOrigin + seconds{3}, 1));
+    context.Check(Has(stalled, DataLivenessAction::CollectorStallDetected),
+                  "collector stall is reported first");
+    const auto later = monitor.Observe(delivered(kOrigin + seconds{8}, 1));
+    context.Check(!Has(later, DataLivenessAction::PageStallDetected),
+                  "a stalled collector does not reveal itself as a page stall");
+}
+
+void TestCollectorDownRestart(TestContext& context) {
+    DataLivenessMonitor monitor;
+    auto expected_but_down = [](Clock::time_point now) {
+        auto observation = StreamingFrame(now, 0);
+        observation.collector_streaming = false;
+        observation.collector_expected = true;
+        return observation;
+    };
+    context.Check(monitor.Observe(expected_but_down(kOrigin)).empty(),
+                  "a collector that just went away is given time to reconnect");
+    context.Check(Has(monitor.Observe(expected_but_down(kOrigin + seconds{4})),
+                      DataLivenessAction::CollectorUnavailable),
+                  "a missing collector is reported once the stream stays empty");
+    context.Check(!Has(monitor.Observe(expected_but_down(kOrigin + seconds{9})),
+                       DataLivenessAction::CollectorRestartRequested),
+                  "no restart before the down threshold");
+    context.Check(Has(monitor.Observe(expected_but_down(kOrigin + seconds{10})),
+                      DataLivenessAction::CollectorRestartRequested),
+                  "a missing collector is restarted after ten seconds");
+    context.Check(!Has(monitor.Observe(expected_but_down(kOrigin + seconds{11})),
+                       DataLivenessAction::CollectorRestartRequested),
+                  "restart is requested once per episode");
+
+    auto recovered = StreamingFrame(kOrigin + seconds{12}, 1);
+    context.Check(!Has(monitor.Observe(recovered), DataLivenessAction::CollectorUnavailable),
+                  "a reconnected collector clears the unavailable state");
+
+    // Without an expectation (intentional shutdown) a silent collector is not a fault.
+    DataLivenessMonitor idle_monitor;
+    bool quiet = true;
+    for (int step = 0; step < 30; ++step) {
+        auto observation = StreamingFrame(kOrigin + seconds{step}, 0);
+        observation.collector_streaming = false;
+        if (!idle_monitor.Observe(observation).empty()) {
+            quiet = false;
+        }
+    }
+    context.Check(quiet, "a stopped collector is not reported while none is expected");
+}
+
+int Run() {
+    TestContext context;
+    TestCollectorStallEscalation(context);
+    TestRestartCooldown(context);
+    TestEtwInactiveRestart(context);
+    TestPageAckStall(context);
+    TestNoFalsePositivesWithoutStream(context);
+    TestPageStallSuppressedWhileCollectorStalled(context);
+    TestCollectorDownRestart(context);
+    return context.failures();
+}
+
+} // namespace
+} // namespace host_liveness_suite
+
 int main() {
     int failures = 0;
     failures += (host_bridge_suite::Run() != 0 ? 1 : 0);
@@ -2894,5 +3132,6 @@ int main() {
     failures += (app_updater_suite::Run() != 0 ? 1 : 0);
     failures += (traffic_history_suite::Run() != 0 ? 1 : 0);
     failures += (taskbar_speed_window_suite::Run() != 0 ? 1 : 0);
+    failures += (host_liveness_suite::Run() != 0 ? 1 : 0);
     return failures;
 }

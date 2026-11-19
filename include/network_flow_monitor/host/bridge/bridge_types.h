@@ -57,6 +57,7 @@ enum class WebCommandType : std::uint8_t {
     RequestConnectedApplications,
     BrowseExcludedProgram,
     RequestTrafficHistory,
+    TrafficFrameAck,
     Unknown,
 };
 

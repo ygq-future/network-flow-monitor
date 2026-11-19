@@ -399,6 +399,21 @@ std::string StripExeExtension(std::string_view filename) {
     return std::string{filename};
 }
 } // namespace
+
+std::string_view to_string(CollectorState state) noexcept {
+    switch (state) {
+    case CollectorState::Stopped:
+        return "Stopped";
+    case CollectorState::Starting:
+        return "Starting";
+    case CollectorState::Running:
+        return "Running";
+    case CollectorState::Failed:
+        return "Failed";
+    }
+    return "Stopped";
+}
+
 std::string extract_executable_filename(std::string_view path_or_name) {
     if (path_or_name.starts_with("executable:")) {
         path_or_name.remove_prefix(11U);
@@ -776,7 +791,7 @@ bool CollectorCompanion::start() {
             .etw_session_active = false,
             .dropped_packets = 0,
             .active_pids = 0,
-            .state = "Failed",
+            .state = std::string{to_string(status_snapshot.state)},
             .process_id = status_snapshot.process_id,
             .instance_id = status_snapshot.instance_id,
             .is_elevated = false,
@@ -974,18 +989,12 @@ void CollectorCompanion::StateChanged(ipc::IpcClientState state) noexcept {
                 });
             }
             if (status_cb) {
-                std::string state_str = "Failed";
-                if (status_snapshot.state == CollectorState::Starting) {
-                    state_str = "Starting";
-                } else if (status_snapshot.state == CollectorState::Stopped) {
-                    state_str = "Stopped";
-                }
                 status_cb(bridge::CollectorStatusDto{
                     .monotonic_ms = now_ms,
                     .etw_session_active = false,
                     .dropped_packets = 0U,
                     .active_pids = 0U,
-                    .state = std::move(state_str),
+                    .state = std::string{to_string(status_snapshot.state)},
                     .process_id = status_snapshot.process_id,
                     .instance_id = status_snapshot.instance_id,
                     .is_elevated = false,
@@ -1181,7 +1190,25 @@ void CollectorCompanion::inject_collector_status(const ipc::CollectorStatusMessa
     bool diag_error = false;
     {
         const std::scoped_lock lock(mutex_);
-        if (!status.etw_session_active && info_.state == CollectorState::Running) {
+        if (!status.reason.empty()) {
+            // The collector names its own pipeline failures; surface every distinct reason once.
+            if (last_reported_reason_ != status.reason) {
+                last_reported_reason_ = status.reason;
+                info_.error_message = status.reason;
+                diag_error = true;
+                diag_msg = "Collector reported: " + status.reason +
+                           " (pid=" + std::to_string(info_.process_id) +
+                           ", instance=" + info_.instance_id + ")";
+            }
+        } else if (!last_reported_reason_.empty()) {
+            if (info_.error_message == last_reported_reason_) {
+                info_.error_message.clear();
+            }
+            last_reported_reason_.clear();
+            diag_msg =
+                "Collector pipeline reported healthy (pid=" + std::to_string(info_.process_id) +
+                ", instance=" + info_.instance_id + ")";
+        } else if (!status.etw_session_active && info_.state == CollectorState::Running) {
             info_.error_message = "ETW session NetworkFlowMonitor.SystemTrace is inactive";
             diag_error = true;
             diag_msg =
@@ -1202,20 +1229,12 @@ void CollectorCompanion::inject_collector_status(const ipc::CollectorStatusMessa
         emit_diagnostic(diag_error, diag_msg);
     }
     if (cb) {
-        std::string state_str = "Running";
-        if (current_info.state == CollectorState::Starting) {
-            state_str = "Starting";
-        } else if (current_info.state == CollectorState::Stopped) {
-            state_str = "Stopped";
-        } else if (current_info.state == CollectorState::Failed) {
-            state_str = "Failed";
-        }
         bridge::CollectorStatusDto dto{
             .monotonic_ms = status.monotonic_ms,
             .etw_session_active = status.etw_session_active,
             .dropped_packets = status.dropped_packets,
             .active_pids = status.active_pids,
-            .state = std::move(state_str),
+            .state = std::string{to_string(current_info.state)},
             .process_id = current_info.process_id,
             .instance_id = current_info.instance_id,
             .is_elevated = status.etw_session_active,

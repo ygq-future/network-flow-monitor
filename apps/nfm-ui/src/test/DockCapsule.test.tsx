@@ -135,4 +135,25 @@ describe('DockCapsule', () => {
     expect(secondDecayHeight).toBeGreaterThan(0)
     expect(secondDecayHeight).toBeLessThan(firstDecayHeight)
   })
+
+  it('acknowledges consumed traffic frames so the host can detect a frozen surface', () => {
+    const bridge = new MockBridge(false)
+    const send = vi.spyOn(bridge, 'sendCommand')
+    renderCapsule(bridge)
+
+    act(() => {
+      for (let seq = 1; seq <= 4; seq += 1) {
+        bridge.emit('trafficTick', {
+          seq,
+          monotonicMs: seq * 250,
+          downloadBytesPerSec: 4096,
+          uploadBytesPerSec: 1024,
+        })
+      }
+    })
+
+    const acknowledgements = send.mock.calls.filter(([type]) => type === 'trafficFrameAck')
+    // The first frame acknowledges immediately, then every fourth frame keeps a 1 Hz heartbeat.
+    expect(acknowledgements).toHaveLength(2)
+  })
 })

@@ -46,6 +46,7 @@ add_library(
     STATIC
         collector/collector_core.cpp
         collector/collector_host.cpp
+        collector/collector_log.cpp
         collector/etw_authorization.cpp
         collector/etw_snapshot_provider.cpp
         collector/network_event_decoder.cpp
@@ -54,7 +55,7 @@ add_library(
         collector/windows_process_probe_adapter.cpp
 )
 target_include_directories(nfm_collector PUBLIC "${PROJECT_SOURCE_DIR}/include")
-target_link_libraries(nfm_collector PUBLIC nfm_process nfm_ranking PRIVATE Advapi32 Tdh Netapi32)
+target_link_libraries(nfm_collector PUBLIC nfm_process nfm_ranking PRIVATE Advapi32 Tdh Netapi32 Iphlpapi)
 nfm_configure_target(nfm_collector)
 nfm_enable_shared_pch(nfm_collector)
 nfm_enable_static_analysis(nfm_collector)
@@ -79,7 +80,7 @@ nfm_enable_static_analysis(nfm_ipc)
 
 add_library(nfm_runtime STATIC app/runtime_mode.cpp app/collector_runtime.cpp)
 target_include_directories(nfm_runtime PUBLIC "${PROJECT_SOURCE_DIR}/include")
-target_link_libraries(nfm_runtime PUBLIC nfm_collector nfm_ipc)
+target_link_libraries(nfm_runtime PUBLIC nfm_collector nfm_ipc PRIVATE nfm_config)
 nfm_configure_target(nfm_runtime)
 nfm_enable_shared_pch(nfm_runtime)
 nfm_enable_static_analysis(nfm_runtime)
@@ -104,6 +105,7 @@ add_library(
         host/coordinator/dock_capsule_coordinator.cpp
         host/history/traffic_history_store.cpp
         host/lifecycle/collector_companion.cpp
+        host/lifecycle/data_liveness_monitor.cpp
         host/platform/app_updater.cpp
         host/platform/atomic_file.cpp
         host/platform/rotating_file_logger.cpp

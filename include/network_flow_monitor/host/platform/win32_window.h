@@ -50,7 +50,6 @@ struct ContextMenuOptions {
     bool is_pinned{false};
     bool is_panel_visible{false};
     bool is_taskbar_monitor_visible{true};
-    std::wstring collector_status{L"Running"};
     bool can_retry_collector{false};
     bool is_chinese{false};
 };

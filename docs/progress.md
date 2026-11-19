@@ -735,3 +735,11 @@ Product Host and frontend implementation remain Ticket 01 work.
   - `ProductHost::on_set_locale` 同步更新 `current_config_.appearance.language`、持久化配置并刷新任务栏监控配置。
 - **测试 (`tests/host_tests.cpp`)**：
   - 新增 `CheckContextMenuLocalizationFollowsSetting`，覆盖 `resolve_chinese_locale` 在 `System` / `English` / `SimplifiedChinese` 与 `zh-CN` / `zh-TW` / `en-US` `LANGID` 下的组合语义，以及 `on_update_setting("appearance.language", ...)` / `on_set_locale(...)` 驱动 `CaptureContextMenu` 输出对应中英文菜单项。
+
+## 第五十四轮 右键菜单「采集器运行中」改为可点击「重启采集器」 — complete
+
+- **变更 (`win32_window.h`, `win32_window.cpp`, `product_host.cpp`)**：
+  - 当采集器正在运行时（`can_retry_collector == false`），右键菜单由灰显禁用项 `采集器: 运行中` / `Collector: Running` 改为可点击操作项 `重启采集器` / `Restart Collector`（`MF_STRING`），点击直接触发 `on_context_menu_retry_collector() -> CollectorCompanion::restart()`；采集器未运行时保持 `重试采集器` / `Retry Collector`；
+  - 移除 `ContextMenuOptions::collector_status` 冗余字段及 `ProductHost::build_context_menu_options` 中的状态字符串拼装。
+- **测试 (`tests/host_tests.cpp`)**：
+  - 扩展 `ContextMenuSnapshot` 采集各菜单项 `GetMenuState`，校验运行中与未运行状态下中英文标签及非灰显可点击状态。

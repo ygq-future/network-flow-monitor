@@ -1196,6 +1196,7 @@ void CheckTickElapsedConversion(TestContext& context) {
 
 struct ContextMenuSnapshot {
     std::vector<std::wstring> labels;
+    std::vector<UINT> states;
     bool captured{false};
 };
 
@@ -1217,6 +1218,8 @@ VOID CALLBACK ContextMenuProbeTimer(HWND owner, UINT, UINT_PTR timer_id, DWORD) 
                     wchar_t label[128]{};
                     GetMenuStringW(menu, static_cast<UINT>(index), label, 128, MF_BYPOSITION);
                     probe->labels.emplace_back(label);
+                    probe->states.push_back(
+                        GetMenuState(menu, static_cast<UINT>(index), MF_BYPOSITION));
                 }
                 probe->captured = true;
             }
@@ -1261,6 +1264,17 @@ ContextMenuSnapshot CaptureContextMenu(nfm::host::platform::Win32Window& window,
                                [label](const std::wstring& item) { return item == label; });
 }
 
+[[nodiscard]] bool IsMenuLabelEnabled(const ContextMenuSnapshot& snapshot,
+                                      std::wstring_view label) {
+    for (std::size_t index = 0; index < snapshot.labels.size() && index < snapshot.states.size();
+         ++index) {
+        if (snapshot.labels[index] == label) {
+            return (snapshot.states[index] & (MF_GRAYED | MF_DISABLED)) == 0U;
+        }
+    }
+    return false;
+}
+
 void CheckContextMenuExposesTaskbarMonitorSwitch(TestContext& context) {
     using namespace nfm::host::platform;
 
@@ -1291,15 +1305,20 @@ void CheckContextMenuExposesTaskbarMonitorSwitch(TestContext& context) {
     context.Check(visible_menu.captured, "context menu captured while the overlay is shown");
     context.Check(HasMenuLabel(visible_menu, L"隐藏任务栏监控"),
                   "menu offers hiding the taskbar monitor while it is shown");
+    context.Check(IsMenuLabelEnabled(visible_menu, L"重启采集器"),
+                  "running collector menu item shows enabled Restart Collector in Chinese");
 
     const auto hidden_menu =
         CaptureContextMenu(window, ContextMenuOptions{.screen_x = 120,
                                                       .screen_y = 120,
                                                       .is_taskbar_monitor_visible = false,
+                                                      .can_retry_collector = false,
                                                       .is_chinese = false});
     context.Check(hidden_menu.captured, "context menu captured while the overlay is hidden");
     context.Check(HasMenuLabel(hidden_menu, L"Show Taskbar Monitor"),
                   "menu offers showing the taskbar monitor while it is hidden");
+    context.Check(IsMenuLabelEnabled(hidden_menu, L"Restart Collector"),
+                  "running collector menu item shows enabled Restart Collector in English");
     context.Check(listener.opened(), "context menu open notification reaches the listener");
 }
 
@@ -1353,32 +1372,33 @@ void CheckContextMenuLocalizationFollowsSetting(TestContext& context) {
 
         host.on_update_setting("appearance.language", R"("system")");
         const auto sys_zh_opts = host.build_context_menu_options(pt, zh_cn);
-        context.Check(sys_zh_opts.is_chinese && sys_zh_opts.collector_status == L"已停止",
+        context.Check(sys_zh_opts.is_chinese && sys_zh_opts.can_retry_collector,
                       "System language yields Chinese context menu options on zh-CN OS");
         const auto sys_zh_menu = CaptureContextMenu(window, sys_zh_opts);
         context.Check(sys_zh_menu.captured && HasMenuLabel(sys_zh_menu, L"设置") &&
                           HasMenuLabel(sys_zh_menu, L"流量统计") &&
+                          IsMenuLabelEnabled(sys_zh_menu, L"重试采集器") &&
                           HasMenuLabel(sys_zh_menu, L"退出"),
                       "System language renders Chinese menu items on zh-CN OS");
 
         const auto sys_en_opts = host.build_context_menu_options(pt, en_us);
-        context.Check(!sys_en_opts.is_chinese && sys_en_opts.collector_status == L"Stopped",
+        context.Check(!sys_en_opts.is_chinese && sys_en_opts.can_retry_collector,
                       "System language yields English context menu options on en-US OS");
         const auto sys_en_menu = CaptureContextMenu(window, sys_en_opts);
         context.Check(sys_en_menu.captured && HasMenuLabel(sys_en_menu, L"Settings") &&
                           HasMenuLabel(sys_en_menu, L"Traffic History") &&
+                          IsMenuLabelEnabled(sys_en_menu, L"Retry Collector") &&
                           HasMenuLabel(sys_en_menu, L"Exit"),
                       "System language renders English menu items on en-US OS");
 
         host.on_update_setting("appearance.language", R"("simplified_chinese")");
         const auto explicit_zh_opts = host.build_context_menu_options(pt, en_us);
-        context.Check(explicit_zh_opts.is_chinese && explicit_zh_opts.collector_status == L"已停止",
+        context.Check(explicit_zh_opts.is_chinese,
                       "SimplifiedChinese setting overrides en-US OS for context menu");
 
         host.on_set_locale("English");
         const auto set_locale_en_opts = host.build_context_menu_options(pt, zh_cn);
-        context.Check(!set_locale_en_opts.is_chinese &&
-                          set_locale_en_opts.collector_status == L"Stopped",
+        context.Check(!set_locale_en_opts.is_chinese,
                       "setLocale English updates host context menu language");
     }
     std::filesystem::remove_all(temp_dir, ec);

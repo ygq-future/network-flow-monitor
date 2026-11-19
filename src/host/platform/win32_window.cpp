@@ -457,8 +457,7 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
     if (options.can_retry_collector) {
         collector_label = options.is_chinese ? L"重试采集器" : L"Retry Collector";
     } else {
-        collector_label =
-            (options.is_chinese ? L"采集器: " : L"Collector: ") + options.collector_status;
+        collector_label = options.is_chinese ? L"重启采集器" : L"Restart Collector";
     }
     const std::wstring exit_label = options.is_chinese ? L"退出" : L"Exit";
 
@@ -470,8 +469,8 @@ void Win32Window::show_context_menu(const ContextMenuOptions& options) {
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTraySettings), settings_label.c_str());
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayTrafficHistory),
                 history_label.c_str());
-    AppendMenuW(menu, options.can_retry_collector ? MF_STRING : MF_STRING | MF_GRAYED,
-                static_cast<UINT_PTR>(kCmdTrayRetryCollector), collector_label.c_str());
+    AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayRetryCollector),
+                collector_label.c_str());
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(kCmdTrayExit), exit_label.c_str());
 

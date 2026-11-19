@@ -1531,12 +1531,6 @@ platform::ContextMenuOptions ProductHost::build_context_menu_options(
     const bool is_chinese =
         platform::resolve_chinese_locale(current_config_.appearance.language, system_ui_language);
     const bool is_running = collector_companion_ && collector_companion_->is_running();
-    std::wstring status;
-    if (is_running) {
-        status = is_chinese ? L"运行中" : L"Running";
-    } else {
-        status = is_chinese ? L"已停止" : L"Stopped";
-    }
     const bool is_pinned = coordinator_ ? coordinator_->state().is_pinned : false;
     const bool is_panel_visible = coordinator_ && coordinator_->state().presentation_state ==
                                                       coordinator::PresentationState::PanelVisible;
@@ -1546,7 +1540,6 @@ platform::ContextMenuOptions ProductHost::build_context_menu_options(
         .is_pinned = is_pinned,
         .is_panel_visible = is_panel_visible,
         .is_taskbar_monitor_visible = current_config_.display.show_taskbar_monitor,
-        .collector_status = std::move(status),
         .can_retry_collector = !is_running,
         .is_chinese = is_chinese,
     };

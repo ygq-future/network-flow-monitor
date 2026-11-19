@@ -84,7 +84,7 @@ describe('DockCapsule', () => {
     expect(uploadFill.style.height).toBe('0%')
   })
 
-  it('dampens a single-tick burst spike and decays gradually across subsequent zero ticks', () => {
+  it('tracks a burst promptly and settles to zero without multi-second linger', () => {
     const bridge = new MockBridge(false)
     renderCapsule(bridge)
 
@@ -106,7 +106,7 @@ describe('DockCapsule', () => {
 
     const downloadFill = screen.getByTestId('download-fill')
     const spikeHeight = parseFloat(downloadFill.style.height)
-    expect(spikeHeight).toBeGreaterThan(0)
+    expect(spikeHeight).toBeGreaterThan(15)
     expect(spikeHeight).toBeLessThan(25)
 
     act(() => {
@@ -120,20 +120,20 @@ describe('DockCapsule', () => {
 
     const firstDecayHeight = parseFloat(downloadFill.style.height)
     expect(firstDecayHeight).toBeGreaterThan(0)
-    expect(firstDecayHeight).toBeLessThan(spikeHeight)
+    expect(firstDecayHeight).toBeLessThan(spikeHeight * 0.7)
 
-    act(() => {
-      bridge.emit('trafficTick', {
-        seq: 3,
-        monotonicMs: 1500,
-        downloadBytesPerSec: 0,
-        uploadBytesPerSec: 0,
+    for (let seq = 3; seq <= 7; seq += 1) {
+      act(() => {
+        bridge.emit('trafficTick', {
+          seq,
+          monotonicMs: 1000 + seq * 250,
+          downloadBytesPerSec: 0,
+          uploadBytesPerSec: 0,
+        })
       })
-    })
+    }
 
-    const secondDecayHeight = parseFloat(downloadFill.style.height)
-    expect(secondDecayHeight).toBeGreaterThan(0)
-    expect(secondDecayHeight).toBeLessThan(firstDecayHeight)
+    expect(downloadFill.style.height).toBe('0%')
   })
 
   it('acknowledges consumed traffic frames so the host can detect a frozen surface', () => {

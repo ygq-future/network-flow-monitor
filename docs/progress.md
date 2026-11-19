@@ -713,3 +713,14 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 原先采集器**进程退出后不会自动重启**（只在 IPC 层重连），画面会一直冻结到手动重启；`DataLivenessMonitor` 新增 `collector_expected` 观测与 `CollectorUnavailable` 动作，10 s 未恢复即重启采集器（60 s 冷却，失败按冷却重试）；
   - `nfm-collector.log` 以独占方式打开，运行中无法读取；改为 `_wfsopen(..., _SH_DENYNO)`，实测运行中可直接读取 `ETW realtime session started`。
 - **测试**：`host_liveness_suite` 新增 `TestCollectorDownRestart`（缺失采集器的记录/重启阈值、每轮只重启一次、重连后清除、无期望时不误报）。
+
+## 第五十二轮 贴边胶囊网速响应与回落阻尼校准 — complete
+
+- **现象与根因 (`rateMapping.ts`, `DockCapsule.tsx`, `snapshot_publisher.cpp`)**：
+  - 第 36 轮已将 `SnapshotPublisher` 的 4 Hz `TrafficTick` 改为 1 秒滚动窗口均值并把胶囊曲线调整为三次方对数映射（`RATE_CURVE_EXPONENT = 3`），从源头消除了早期 250 ms 单帧脉冲 $\times 4$ 抽搐；
+  - 但前端仍在 1 秒滚动窗口之上叠加第 33 轮引入的重度对称 EMA（`CAPSULE_ATTACK_ALPHA = 0.28`、`CAPSULE_RELEASE_ALPHA = 0.28`、`CAPSULE_IDLE_SNAP_BYTES_PER_SEC = 512`）与跨多帧的 CSS 过渡（上升 `300 ms`、回落 `650 ms`），导致胶囊相对使用 2 秒窗口/1 Hz 刷新的任务栏与监控面板总是慢半拍，且流量归零后仍持续拖尾数秒。
+- **修复 (`rateMapping.ts`)**：
+  - 将 `CAPSULE_ATTACK_ALPHA` 调整为 `0.8`、`CAPSULE_RELEASE_ALPHA` 调整为 `0.65`、`CAPSULE_IDLE_SNAP_BYTES_PER_SEC` 调整为 `4096`（低于半像素阈值时在空闲衰减路径干净归零，持续低速流量仍正常显示）；
+  - 将 `getRateTransition` 上升/回落 CSS 过渡分别收紧至 `200 ms` 与 `250 ms`，使单帧插值在 250 ms `TrafficTick` 节拍内完成，兼顾平滑过渡与即时跟随任务栏/监控面板的变化与回落。
+- **测试与质量门禁 (`rateMapping.test.ts`, `DockCapsule.test.tsx`)**：
+  - 更新过渡时间窗口与上升/回落响应契约测试，并校验多 Tick 归零不再长时间拖尾。

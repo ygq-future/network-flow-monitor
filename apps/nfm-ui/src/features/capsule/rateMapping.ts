@@ -7,14 +7,14 @@ export const MAX_REFERENCE_RATE_BYTES_PER_SEC = 100 * 1024 * 1024 // 100 MB/s
 export const MIN_VISIBLE_FILL_PERCENT = 3
 export const BASE_SENSITIVITY_FLOOR_BYTES_PER_SEC = 10 * 1024 // 10 KB/s
 const RATE_CURVE_EXPONENT = 3
-export const CAPSULE_ATTACK_ALPHA = 0.28
-export const CAPSULE_RELEASE_ALPHA = 0.28
-export const CAPSULE_IDLE_SNAP_BYTES_PER_SEC = 512
+export const CAPSULE_ATTACK_ALPHA = 0.8
+export const CAPSULE_RELEASE_ALPHA = 0.65
+export const CAPSULE_IDLE_SNAP_BYTES_PER_SEC = 4096
 
 /**
- * Asymmetric exponential moving average (EMA) filter for 250 ms capsule ticks.
- * Dampens single-tick kernel/ETW burst spikes on attack while releasing gently
- * like a VU meter when traffic subsides.
+ * Lightweight asymmetric EMA filter for 250 ms capsule ticks (which already
+ * carry a 1 s sliding-window rate from the collector). Rounds abrupt step
+ * edges without introducing multi-second lag behind the taskbar or panel.
  */
 export function smoothCapsuleRate(previousSmoothedRate: number, rawSampleRate: number): number {
   const prev = Number.isFinite(previousSmoothedRate) && previousSmoothedRate > 0 ? previousSmoothedRate : 0
@@ -76,16 +76,16 @@ export function getRateTransition(
   }
 
   if (targetValue >= currentVisualValue) {
-    // Rate increasing: 300 ms cubic ease-out
+    // Rate increasing: 200 ms cubic ease-out, completing within the 250 ms tick cadence
     return {
-      durationMs: 300,
+      durationMs: 200,
       easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
     }
   }
 
-  // Rate decreasing: 650 ms gentle release ease-out
+  // Rate decreasing: 250 ms ease-out aligned with the 250 ms tick interval
   return {
-    durationMs: 650,
+    durationMs: 250,
     easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
   }
 }

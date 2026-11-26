@@ -750,3 +750,16 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 全仓版本号升级至 `0.3.7`（`FILEVERSION`/`PRODUCTVERSION` 为 `0,3,7,0` / `"0.3.7"`），撰写中英双语发布说明，汇总流量数据链路自愈与采集器本地日志、启动期未处理异常捕获与单实例诊断、贴边胶囊速率响应与回落阻尼校准、原生右键菜单与文件对话框「跟随系统」中文解析以及右键菜单「重启采集器」直达操作；
   - `tools/quality.ps1 -Mode Full` 20/20 通过（clang-format 115 文件、ESLint 0 warnings、`tsc --noEmit` 0 errors、Vitest 10 passed、Debug/Release 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、CPack 打包）；
   - `tools/package.ps1 -Configuration Release` 与 CPack 生成 `build/dist/NetworkFlowMonitor-0.3.7-win-x64.zip`（948450 字节），归档内 `NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.7.0`。
+
+## 第五十六轮 Explorer 重启后任务栏监控消失自愈修复 — complete
+
+- **现场取证与根因 (`taskbar_speed_window.cpp`, `win32_window.cpp`)**：
+  - 排查系统日志确认当日 Windows 外壳程序（`explorer.exe`）于 `11:05:54` 与 `11:11:26` 两次意外停止并重启（`Microsoft-Windows-Winlogon` Event ID `1002`）；
+  - `TaskbarSpeedWindow` 通过 `SetParent(hwnd_, Shell_TrayWnd)` 挂载为 `Shell_TrayWnd` 子窗口，当 `explorer.exe` 崩溃或重建任务栏时，Windows 随父窗口销毁其全部子窗口（投递 `WM_NCDESTROY` 使 `hwnd_` 失效）；
+  - 原实现仅在 `TaskbarSpeedWindow` 自身窗口过程监听 `TaskbarCreated`（已挂载子窗口收不到顶层广播且窗口本身已被销毁），未处理 `WM_NCDESTROY` 也未校验 `IsWindow(hwnd_)` 并重建句柄；`refresh_if_needed`、`sync_with_taskbar` 与显示/隐藏切换全部作用在悬空失效句柄上，唯有重启宿主进程才能恢复，而顶层 `Win32Window` 通过 `TaskbarCreated` 正常重建了托盘图标与浮窗链路。
+- **修复 (`taskbar_speed_window.h`, `taskbar_speed_window.cpp`, `win32_window.h`, `win32_window.cpp`, `product_host.h`, `product_host.cpp`)**：
+  - `TaskbarSpeedWindow` 处理 `WM_NCDESTROY` 清空悬空句柄、父窗口缓存、几何与交互状态（同时处理 `tooltip_hwnd_` 的 `WM_NCDESTROY`）；拆分 `ensure_window_classes_registered()`、`create_overlay_window()` 与 `create_tooltip_window()`；
+  - `sync_with_taskbar()` 与 `refresh_if_needed()` 在 `created_` 生命周期内校验 `IsWindow(hwnd_)`，当新 `Shell_TrayWnd` 就绪且句柄缺失时自动重建浮层与悬浮提示窗，重新 `SetParent`（校验实际父窗口并配置 `LWA_COLORKEY`）与定位展示；
+  - 顶层 `Win32Window` 在收到 `TaskbarCreated` 重建托盘图标后通过 `IWindowEventListener::on_taskbar_created()` 通知 `ProductHost`，由宿主记录诊断日志并立即触发 `TaskbarSpeedWindow::on_taskbar_created()` 同步（1 秒看门狗亦提供兜底自愈）。
+- **测试 (`tests/host_tests.cpp`)**：
+  - 新增 `TestRecoversAfterTaskbarWindowDestroyed`，覆盖启/停状态下父任务栏窗口销毁触发 `WM_NCDESTROY` 清空句柄、重建新任务栏后自动重建浮层并恢复 `WS_EX_LAYERED | LWA_COLORKEY` 与可见性，以及 `Win32Window` 对 `TaskbarCreated` 的监听转发。

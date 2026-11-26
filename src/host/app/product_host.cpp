@@ -558,6 +558,14 @@ void ProductHost::on_display_change() {
     }
 }
 
+void ProductHost::on_taskbar_created() {
+    write_diagnostic_log(config::LogLevel::Info,
+                         "Taskbar recreated; resynchronizing taskbar monitor");
+    if (taskbar_speed_window_) {
+        taskbar_speed_window_->on_taskbar_created();
+    }
+}
+
 void ProductHost::on_window_close_requested() {
     shutdown();
 }

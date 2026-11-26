@@ -887,6 +887,9 @@ LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
             self->tray_icon_active_ = false;
             static_cast<void>(self->create_tray_icon());
         }
+        if (self->listener_ != nullptr) {
+            self->listener_->on_taskbar_created();
+        }
         return 0;
     }
     switch (msg) {

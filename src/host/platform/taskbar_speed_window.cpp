@@ -574,33 +574,63 @@ bool TaskbarSpeedWindow::resolve_chinese_locale() const noexcept {
     return platform::resolve_chinese_locale(language_mode_);
 }
 
-bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback on_right_click) {
-    if (hwnd_ != nullptr) {
-        return true;
+bool TaskbarSpeedWindow::ensure_window_classes_registered() noexcept {
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    WNDCLASSEXW existing{};
+    existing.cbSize = sizeof(WNDCLASSEXW);
+    if (GetClassInfoExW(hinst, kTaskbarOverlayClassName, &existing) == FALSE) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+        wc.lpfnWndProc = &TaskbarSpeedWindow::window_proc;
+        wc.hInstance = hinst;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = kTaskbarOverlayClassName;
+        if (RegisterClassExW(&wc) == 0U && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
     }
-    on_left_click_ = std::move(on_left_click);
-    on_right_click_ = std::move(on_right_click);
-    taskbar_created_msg_ = RegisterWindowMessageW(L"TaskbarCreated");
+
+    existing = WNDCLASSEXW{};
+    existing.cbSize = sizeof(WNDCLASSEXW);
+    if (GetClassInfoExW(hinst, kTaskbarTooltipClassName, &existing) == FALSE) {
+        WNDCLASSEXW tip_wc{};
+        tip_wc.cbSize = sizeof(WNDCLASSEXW);
+        tip_wc.style = CS_HREDRAW | CS_VREDRAW;
+        tip_wc.lpfnWndProc = &TaskbarSpeedWindow::tooltip_window_proc;
+        tip_wc.hInstance = hinst;
+        tip_wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        tip_wc.lpszClassName = kTaskbarTooltipClassName;
+        if (RegisterClassExW(&tip_wc) == 0U && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void TaskbarSpeedWindow::reset_overlay_state() noexcept {
+    hwnd_ = nullptr;
+    attached_parent_hwnd_ = nullptr;
+    visible_ = false;
+    mouse_tracking_ = false;
+    tooltip_hover_timer_active_ = false;
+    left_button_down_ = false;
+    right_button_down_ = false;
+    current_relative_bounds_ = RECT{};
+    last_rendered_columns_.clear();
+}
+
+HWND TaskbarSpeedWindow::create_overlay_window() noexcept {
+    if (hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+        return hwnd_;
+    }
+    reset_overlay_state();
+
+    if (!ensure_window_classes_registered()) {
+        return nullptr;
+    }
 
     HINSTANCE hinst = GetModuleHandleW(nullptr);
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-    wc.lpfnWndProc = &TaskbarSpeedWindow::window_proc;
-    wc.hInstance = hinst;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName = kTaskbarOverlayClassName;
-    RegisterClassExW(&wc);
-
-    WNDCLASSEXW tip_wc{};
-    tip_wc.cbSize = sizeof(WNDCLASSEXW);
-    tip_wc.style = CS_HREDRAW | CS_VREDRAW;
-    tip_wc.lpfnWndProc = &TaskbarSpeedWindow::tooltip_window_proc;
-    tip_wc.hInstance = hinst;
-    tip_wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    tip_wc.lpszClassName = kTaskbarTooltipClassName;
-    RegisterClassExW(&tip_wc);
-
     // Create hidden at 1x1 as WS_POPUP with WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
     // (and no independent WS_EX_TOPMOST) so that once parented to Shell_TrayWnd, the window
     // inherits the taskbar's exact Z-order and fullscreen/auto-hide behavior. Starting at 1x1 (and
@@ -611,9 +641,25 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
     hwnd_ = CreateWindowExW(kExStyle, kTaskbarOverlayClassName, L"NFM Taskbar Speed", WS_POPUP, 0,
                             0, 1, 1, nullptr, nullptr, hinst, this);
     if (hwnd_ == nullptr) {
-        return false;
+        return nullptr;
+    }
+    taskbar_back_color_ =
+        sanitize_transparent_color(resolve_dark_text_mode() ? RGB(210, 210, 211) : RGB(32, 33, 33));
+    SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
+    return hwnd_;
+}
+
+void TaskbarSpeedWindow::create_tooltip_window() noexcept {
+    if (tooltip_hwnd_ != nullptr && IsWindow(tooltip_hwnd_) != FALSE) {
+        return;
+    }
+    tooltip_hwnd_ = nullptr;
+    tooltip_visible_ = false;
+    if (!ensure_window_classes_registered()) {
+        return;
     }
 
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
     constexpr DWORD kTipExStyle =
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
     tooltip_hwnd_ = CreateWindowExW(kTipExStyle, kTaskbarTooltipClassName, L"", WS_POPUP, 0, 0, 1,
@@ -626,9 +672,21 @@ bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback
         static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaSystemBackdropType,
                                                 &backdrop_type, sizeof(backdrop_type)));
     }
-    taskbar_back_color_ =
-        sanitize_transparent_color(resolve_dark_text_mode() ? RGB(210, 210, 211) : RGB(32, 33, 33));
-    SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
+}
+
+bool TaskbarSpeedWindow::create(ClickCallback on_left_click, ContextMenuCallback on_right_click) {
+    if (created_ && hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+        return true;
+    }
+    on_left_click_ = std::move(on_left_click);
+    on_right_click_ = std::move(on_right_click);
+    taskbar_created_msg_ = RegisterWindowMessageW(L"TaskbarCreated");
+
+    if (create_overlay_window() == nullptr) {
+        return false;
+    }
+    create_tooltip_window();
+    created_ = true;
 
     sync_with_taskbar();
     return true;
@@ -640,19 +698,29 @@ void TaskbarSpeedWindow::set_target_taskbar_for_testing(HWND taskbar_hwnd) noexc
     current_relative_bounds_ = RECT{};
 }
 
+void TaskbarSpeedWindow::on_taskbar_created() {
+    attached_parent_hwnd_ = nullptr;
+    current_relative_bounds_ = RECT{};
+    last_rendered_columns_.clear();
+    sync_with_taskbar();
+}
+
 void TaskbarSpeedWindow::close() noexcept {
+    created_ = false;
     hide_tooltip();
     if (tooltip_hwnd_ != nullptr) {
-        DestroyWindow(tooltip_hwnd_);
+        if (IsWindow(tooltip_hwnd_) != FALSE) {
+            DestroyWindow(tooltip_hwnd_);
+        }
         tooltip_hwnd_ = nullptr;
     }
     if (hwnd_ != nullptr) {
-        DestroyWindow(hwnd_);
+        if (IsWindow(hwnd_) != FALSE) {
+            DestroyWindow(hwnd_);
+        }
         hwnd_ = nullptr;
     }
-    attached_parent_hwnd_ = nullptr;
-    visible_ = false;
-    mouse_tracking_ = false;
+    reset_overlay_state();
 }
 
 void TaskbarSpeedWindow::set_context_menu_open(bool open) noexcept {
@@ -707,12 +775,12 @@ void TaskbarSpeedWindow::update_config(const config::DisplayConfig& display_conf
         sync_with_taskbar();
         return;
     }
-    if (changed && enabled_ && hwnd_ != nullptr) {
+    if (changed && enabled_ && created_) {
         sync_with_taskbar();
-        if (visible_) {
+        if (visible_ && hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
             InvalidateRect(hwnd_, nullptr, FALSE);
         }
-        if (tooltip_visible_) {
+        if (tooltip_visible_ && tooltip_hwnd_ != nullptr && IsWindow(tooltip_hwnd_) != FALSE) {
             const bool light_mode = resolve_tooltip_light_mode();
             const BOOL use_dark = light_mode ? FALSE : TRUE;
             static_cast<void>(DwmSetWindowAttribute(tooltip_hwnd_, kDwmwaUseImmersiveDarkMode,
@@ -728,11 +796,11 @@ void TaskbarSpeedWindow::update_config(const config::DisplayConfig& display_conf
 }
 
 void TaskbarSpeedWindow::refresh_if_needed() {
-    if (!enabled_ || hwnd_ == nullptr) {
+    if (!enabled_ || !created_) {
         return;
     }
     sync_with_taskbar();
-    if (!visible_) {
+    if (!visible_ || hwnd_ == nullptr || IsWindow(hwnd_) == FALSE) {
         return;
     }
     try {
@@ -1050,15 +1118,18 @@ void TaskbarSpeedWindow::sample_and_apply_taskbar_background_color(HWND taskbar_
 }
 
 void TaskbarSpeedWindow::sync_with_taskbar() {
-    if (hwnd_ == nullptr) {
+    if (!created_) {
         return;
+    }
+    if (hwnd_ != nullptr && IsWindow(hwnd_) == FALSE) {
+        reset_overlay_state();
     }
     if (!enabled_) {
         hide_tooltip();
-        if (visible_ || IsWindowVisible(hwnd_) != FALSE) {
+        if (hwnd_ != nullptr && (visible_ || IsWindowVisible(hwnd_) != FALSE)) {
             ShowWindow(hwnd_, SW_HIDE);
-            visible_ = false;
         }
+        visible_ = false;
         return;
     }
 
@@ -1067,13 +1138,20 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
                             : FindWindowW(L"Shell_TrayWnd", nullptr);
     if (taskbar_hwnd == nullptr || IsWindow(taskbar_hwnd) == FALSE) {
         hide_tooltip();
-        if (visible_) {
+        if (hwnd_ != nullptr && (visible_ || IsWindowVisible(hwnd_) != FALSE)) {
             ShowWindow(hwnd_, SW_HIDE);
-            visible_ = false;
         }
+        visible_ = false;
         attached_parent_hwnd_ = nullptr;
+        current_relative_bounds_ = RECT{};
         return;
     }
+
+    HWND overlay_hwnd = (hwnd_ != nullptr) ? hwnd_ : create_overlay_window();
+    if (overlay_hwnd == nullptr) {
+        return;
+    }
+    create_tooltip_window();
 
     RECT taskbar_rect{};
     if (GetWindowRect(taskbar_hwnd, &taskbar_rect) == FALSE) {
@@ -1085,14 +1163,22 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
 
     // Attach directly to Shell_TrayWnd and position relative to native taskbar components
     // (TrayNotifyWnd, Start, Widgets) while preserving sibling taskbar container geometry.
-    if (attached_parent_hwnd_ != taskbar_hwnd || GetAncestor(hwnd_, GA_PARENT) != taskbar_hwnd) {
-        MoveWindow(hwnd_, 0, 0, 1, 1, FALSE);
-        SetLayeredWindowAttributes(hwnd_, taskbar_back_color_, 0, LWA_COLORKEY);
-        static_cast<void>(SetParent(hwnd_, taskbar_hwnd));
+    if (attached_parent_hwnd_ != taskbar_hwnd ||
+        GetAncestor(overlay_hwnd, GA_PARENT) != taskbar_hwnd) {
+        MoveWindow(overlay_hwnd, 0, 0, 1, 1, FALSE);
+        SetLastError(0);
+        HWND prev_parent = SetParent(overlay_hwnd, taskbar_hwnd);
+        if ((prev_parent == nullptr && GetLastError() != 0) ||
+            GetAncestor(overlay_hwnd, GA_PARENT) != taskbar_hwnd) {
+            attached_parent_hwnd_ = nullptr;
+            current_relative_bounds_ = RECT{};
+            return;
+        }
+        SetLayeredWindowAttributes(overlay_hwnd, taskbar_back_color_, 0, LWA_COLORKEY);
         attached_parent_hwnd_ = taskbar_hwnd;
         current_relative_bounds_ = RECT{};
+        last_rendered_columns_.clear();
     }
-
     int required_width_dip = kDefaultOverlayWidthDip;
     try {
         const auto cols =
@@ -1145,21 +1231,21 @@ void TaskbarSpeedWindow::sync_with_taskbar() {
         current_relative_bounds_.right != target_rel.right ||
         current_relative_bounds_.bottom != target_rel.bottom) {
         current_relative_bounds_ = target_rel;
-        MoveWindow(hwnd_, placement.x_px, rel_y, placement.width_px, placement.height_px, TRUE);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        MoveWindow(overlay_hwnd, placement.x_px, rel_y, placement.width_px, placement.height_px,
+                   TRUE);
+        InvalidateRect(overlay_hwnd, nullptr, FALSE);
     }
 
-    if (!visible_ || IsWindowVisible(hwnd_) == FALSE) {
+    if (!visible_ || IsWindowVisible(overlay_hwnd) == FALSE) {
         visible_ = true;
-        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        ShowWindow(overlay_hwnd, SW_SHOWNOACTIVATE);
+        InvalidateRect(overlay_hwnd, nullptr, FALSE);
     }
 
-    if (GetWindow(hwnd_, GW_HWNDPREV) != nullptr) {
-        SetWindowPos(hwnd_, HWND_TOP, 0, 0, 0, 0,
+    if (GetWindow(overlay_hwnd, GW_HWNDPREV) != nullptr) {
+        SetWindowPos(overlay_hwnd, HWND_TOP, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
-
     sample_and_apply_taskbar_background_color(taskbar_hwnd, taskbar_rect, placement.placed_on_left);
 }
 
@@ -1418,6 +1504,14 @@ LRESULT CALLBACK TaskbarSpeedWindow::tooltip_window_proc(HWND hwnd, UINT msg, WP
     if (self == nullptr) {
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+    if (msg == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (self->tooltip_hwnd_ == hwnd) {
+            self->tooltip_hwnd_ = nullptr;
+            self->tooltip_visible_ = false;
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
     switch (msg) {
     case WM_PAINT: {
         PAINTSTRUCT ps{};
@@ -1452,10 +1546,17 @@ LRESULT CALLBACK TaskbarSpeedWindow::window_proc(HWND hwnd, UINT msg, WPARAM wpa
     if (self == nullptr) {
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
+    if (msg == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (self->hwnd_ == hwnd) {
+            self->reset_overlay_state();
+            self->hide_tooltip();
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
 
     if (self->taskbar_created_msg_ != 0U && msg == self->taskbar_created_msg_) {
-        self->attached_parent_hwnd_ = nullptr;
-        self->sync_with_taskbar();
+        self->on_taskbar_created();
         return 0;
     }
 

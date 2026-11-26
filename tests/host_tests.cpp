@@ -2973,6 +2973,143 @@ void TestOverlayPressDismissesOpenMenu(TestContext& ctx) {
     CloseHandle(probe.done);
 }
 
+void TestRecoversAfterTaskbarWindowDestroyed(TestContext& ctx) {
+    using nfm::host::platform::TaskbarSpeedWindow;
+
+    HINSTANCE hinst = GetModuleHandleW(nullptr);
+    EnsureTaskbarTestClassesRegistered(hinst);
+
+    HWND fake_taskbar_1 =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40,
+                        nullptr, nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar_1 != nullptr, "first synthetic taskbar created");
+    if (fake_taskbar_1 == nullptr) {
+        return;
+    }
+    HWND notify_1 = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700, 0, 220,
+                                    40, fake_taskbar_1, nullptr, hinst, nullptr);
+
+    TaskbarSpeedWindow speed_wnd;
+    ctx.Check(speed_wnd.create(nullptr, nullptr), "TaskbarSpeedWindow creates for recovery test");
+    speed_wnd.set_target_taskbar_for_testing(fake_taskbar_1);
+    speed_wnd.set_enabled(true);
+    HWND initial_hwnd = speed_wnd.hwnd();
+    ctx.Check(initial_hwnd != nullptr && IsWindow(initial_hwnd) != FALSE &&
+                  GetAncestor(initial_hwnd, GA_PARENT) == fake_taskbar_1,
+              "overlay attaches to initial taskbar window");
+
+    // Simulate Explorer crashing / destroying Shell_TrayWnd, which destroys attached child HWNDs.
+    if (notify_1 != nullptr) {
+        DestroyWindow(notify_1);
+    }
+    DestroyWindow(fake_taskbar_1);
+    ctx.Check(IsWindow(initial_hwnd) == FALSE,
+              "destroying parent taskbar destroys attached overlay HWND");
+    ctx.Check(speed_wnd.hwnd() == nullptr,
+              "WM_NCDESTROY clears stale overlay HWND reference immediately");
+
+    // Toggling hide/show while the taskbar is absent must remain safe.
+    speed_wnd.set_enabled(false);
+    speed_wnd.set_enabled(true);
+
+    HWND fake_taskbar_2 =
+        CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                        WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920, 40,
+                        nullptr, nullptr, hinst, nullptr);
+    ctx.Check(fake_taskbar_2 != nullptr, "recreated synthetic taskbar created");
+    if (fake_taskbar_2 != nullptr) {
+        HWND notify_2 = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1680, 0,
+                                        240, 40, fake_taskbar_2, nullptr, hinst, nullptr);
+        speed_wnd.set_target_taskbar_for_testing(fake_taskbar_2);
+        speed_wnd.sync_with_taskbar();
+
+        HWND recovered_hwnd = speed_wnd.hwnd();
+        COLORREF color_key = 0;
+        DWORD layered_flags = 0;
+        ctx.Check(recovered_hwnd != nullptr && IsWindow(recovered_hwnd) != FALSE &&
+                      GetAncestor(recovered_hwnd, GA_PARENT) == fake_taskbar_2 &&
+                      IsWindowVisible(recovered_hwnd) != FALSE,
+                  "overlay recreates HWND, reattaches to new taskbar, and becomes visible");
+        ctx.Check(recovered_hwnd != nullptr &&
+                      (GetWindowLongPtrW(recovered_hwnd, GWL_EXSTYLE) &
+                       static_cast<LONG_PTR>(WS_EX_LAYERED)) != 0 &&
+                      GetLayeredWindowAttributes(recovered_hwnd, &color_key, nullptr,
+                                                 &layered_flags) != FALSE &&
+                      (layered_flags & LWA_COLORKEY) != 0U,
+                  "recreated overlay retains WS_EX_LAYERED and LWA_COLORKEY attributes");
+
+        // Verify recovery also works if the taskbar dies while the overlay is hidden.
+        speed_wnd.set_enabled(false);
+        if (notify_2 != nullptr) {
+            DestroyWindow(notify_2);
+        }
+        DestroyWindow(fake_taskbar_2);
+
+        HWND fake_taskbar_3 =
+            CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"NFM_TestShellTrayWnd", L"",
+                            WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 400, 1920,
+                            40, nullptr, nullptr, hinst, nullptr);
+        if (fake_taskbar_3 != nullptr) {
+            HWND notify_3 = CreateWindowExW(0, L"TrayNotifyWnd", L"", WS_CHILD | WS_VISIBLE, 1700,
+                                            0, 220, 40, fake_taskbar_3, nullptr, hinst, nullptr);
+            speed_wnd.set_target_taskbar_for_testing(fake_taskbar_3);
+            speed_wnd.set_enabled(true);
+            HWND third_hwnd = speed_wnd.hwnd();
+            ctx.Check(third_hwnd != nullptr && IsWindow(third_hwnd) != FALSE &&
+                          GetAncestor(third_hwnd, GA_PARENT) == fake_taskbar_3 &&
+                          IsWindowVisible(third_hwnd) != FALSE,
+                      "toggling enabled back on after taskbar replacement recreates overlay");
+            speed_wnd.close();
+            if (notify_3 != nullptr) {
+                DestroyWindow(notify_3);
+            }
+            DestroyWindow(fake_taskbar_3);
+        } else {
+            speed_wnd.close();
+        }
+    } else {
+        speed_wnd.close();
+    }
+
+    class TaskbarCreatedListener : public nfm::host::platform::IWindowEventListener {
+      public:
+        void on_window_created(HWND /*hwnd*/) override {}
+        void on_window_size_changed(int /*width_px*/, int /*height_px*/) override {}
+        void on_window_dpi_changed(std::uint32_t /*new_dpi*/,
+                                   const RECT* /*suggested_rect*/) override {}
+        void on_window_close_requested() override {}
+        void on_window_destroyed() override {}
+        void on_taskbar_created() override {
+            ++taskbar_created_count;
+        }
+        int taskbar_created_count{0};
+    };
+
+    TaskbarCreatedListener listener;
+    nfm::host::platform::Win32Window host_window(nfm::host::platform::WindowConfig{
+        .title = L"NFM TaskbarCreated Probe",
+        .class_name = L"NFM_TaskbarCreatedProbeWindow",
+        .initial_x = 100,
+        .initial_y = 100,
+        .initial_width = 64,
+        .initial_height = 64,
+        .frameless = true,
+        .topmost = false,
+        .tool_window = true,
+        .transparent_backdrop = false,
+    });
+    if (host_window.create(&listener)) {
+        const UINT taskbar_created_msg = RegisterWindowMessageW(L"TaskbarCreated");
+        SendMessageW(host_window.hwnd(), taskbar_created_msg, 0, 0);
+        ctx.Check(listener.taskbar_created_count == 1,
+                  "Win32Window forwards TaskbarCreated broadcast to listener");
+        host_window.close();
+    } else {
+        ctx.Check(false, "Win32Window creates for TaskbarCreated forwarding test");
+    }
+}
+
 } // namespace
 
 int Run() {
@@ -2985,6 +3122,7 @@ int Run() {
     TestMasterSwitchGatesOverlay(ctx);
     TestContextMenuClickPairing(ctx);
     TestOverlayPressDismissesOpenMenu(ctx);
+    TestRecoversAfterTaskbarWindowDestroyed(ctx);
     return ctx.failures();
 }
 } // namespace taskbar_speed_window_suite

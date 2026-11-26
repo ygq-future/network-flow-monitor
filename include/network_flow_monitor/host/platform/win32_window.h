@@ -83,6 +83,7 @@ class IWindowEventListener {
     virtual void on_window_close_requested() = 0;
     virtual void on_window_destroyed() = 0;
     virtual void on_display_change() {}
+    virtual void on_taskbar_created() {}
 
     // Context / Tray Menu events
     virtual void on_tray_show_monitor() {}

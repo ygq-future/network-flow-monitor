@@ -62,6 +62,7 @@ class ProductHost : public platform::IWindowEventListener,
     void on_window_close_requested() override;
     void on_window_destroyed() override;
     void on_display_change() override;
+    void on_taskbar_created() override;
     void on_tray_show_monitor() override;
     void on_tray_settings() override;
     void on_tray_retry_collector() override;

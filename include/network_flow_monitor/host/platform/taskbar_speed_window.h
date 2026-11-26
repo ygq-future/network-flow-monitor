@@ -109,6 +109,7 @@ class TaskbarSpeedWindow {
     void update_rates(TaskbarRatePair rates);
     void update_telemetry(const SystemTelemetrySnapshot& telemetry);
     void sync_with_taskbar();
+    void on_taskbar_created();
     void set_target_taskbar_for_testing(HWND taskbar_hwnd) noexcept;
     // While a native popup menu is open, clicks on the overlay only dismiss that menu; they must
     // not toggle the monitor panel or open a second menu.
@@ -145,10 +146,14 @@ class TaskbarSpeedWindow {
   private:
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
     static LRESULT CALLBACK tooltip_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+    static bool ensure_window_classes_registered() noexcept;
 
     [[nodiscard]] bool resolve_dark_text_mode() const noexcept;
     [[nodiscard]] bool resolve_tooltip_light_mode() const noexcept;
     [[nodiscard]] bool resolve_chinese_locale() const noexcept;
+    void reset_overlay_state() noexcept;
+    [[nodiscard]] HWND create_overlay_window() noexcept;
+    void create_tooltip_window() noexcept;
     void refresh_if_needed();
     void start_tooltip_hover_timer();
     void cancel_tooltip_hover_timer() noexcept;
@@ -170,6 +175,7 @@ class TaskbarSpeedWindow {
     ContextMenuCallback on_right_click_;
 
     bool enabled_{false};
+    bool created_{false};
     bool visible_{false};
     bool mouse_tracking_{false};
     bool tooltip_visible_{false};

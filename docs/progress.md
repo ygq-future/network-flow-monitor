@@ -763,3 +763,10 @@ Product Host and frontend implementation remain Ticket 01 work.
   - 顶层 `Win32Window` 在收到 `TaskbarCreated` 重建托盘图标后通过 `IWindowEventListener::on_taskbar_created()` 通知 `ProductHost`，由宿主记录诊断日志并立即触发 `TaskbarSpeedWindow::on_taskbar_created()` 同步（1 秒看门狗亦提供兜底自愈）。
 - **测试 (`tests/host_tests.cpp`)**：
   - 新增 `TestRecoversAfterTaskbarWindowDestroyed`，覆盖启/停状态下父任务栏窗口销毁触发 `WM_NCDESTROY` 清空句柄、重建新任务栏后自动重建浮层并恢复 `WS_EX_LAYERED | LWA_COLORKEY` 与可见性，以及 `Win32Window` 对 `TaskbarCreated` 的监听转发。
+
+## 第五十七轮 v0.3.8 修复版本发布准备与质量门禁验收 — complete
+
+- **v0.3.8 版本同步 (`CMakeLists.txt`, `apps/nfm-ui/package.json`, `resources/network_flow_monitor.rc`, `apps/nfm-ui/src/bridge/nativeBridge.ts`, `apps/nfm-ui/src/features/settings/SettingsCenter.tsx`, `docs/development.md`, `.github/release-note/v0.3.8.md`)**：
+  - 全仓版本号升级至 `0.3.8`（`FILEVERSION`/`PRODUCTVERSION` 为 `0,3,8,0` / `"0.3.8"`），撰写中英双语发布说明，汇总 Explorer 重启后任务栏监控消失自愈修复（句柄生命周期治理、浮层与提示窗重建重挂、`TaskbarCreated` 顶层广播转发与 1 秒看门狗兜底、回归测试）；
+  - `tools/quality.ps1 -Mode Full` 20/20 通过（clang-format 115 文件、ESLint 0 warnings、`tsc --noEmit` 0 errors、Vitest 10 passed、Debug/Release 构建与 8 组 C++ 测试、clang-tidy 0 diagnostics、MSVC `/analyze` 0 warnings、CPack 打包）；
+  - `tools/package.ps1 -Configuration Release` 生成 `build/dist/NetworkFlowMonitor-0.3.8-win-x64.zip`（SHA256 `605A98754056F076057A6AEA91FBD861D2D0C18CD05FF12535545BBF92A85EC6`），归档含 13 条目，`NetworkFlowMonitor.exe` 与 `nfm-collector.exe` 文件版本均为 `0.3.8.0`。
